@@ -1,0 +1,13 @@
+<div class="card__title">Live log</div>
+{% if job.logs %}
+  <ul class="log-list">
+  {% for entry in job.logs|reverse %}
+    <li class="log-item log-item--{{ entry.level }}">
+      <small>{{ entry.timestamp|datetimeformat('%H:%M:%S') }}</small>
+      <div>{{ entry.message }}</div>
+    </li>
+  {% endfor %}
+  </ul>
+{% else %}
+  <p>No log entries yet. Check back soon!</p>
+{% endif %}

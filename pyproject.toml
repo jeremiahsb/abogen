@@ -13,7 +13,6 @@ license = "MIT"
 requires-python = ">=3.10, <3.13"
 keywords = ["audiobook", "epub", "pdf", "text-to-speech", "subtitle", "tts", "kokoro", "accessibility", "book-converter", "voice-synthesis", "multilingual", "chapter-management", "subtitles", "content-creation", "media-generation"]
 dependencies = [
-    "PyQt5>=5.15.11",
     "kokoro>=0.9.4",
     "misaki[zh]>=0.9.4",
     "ebooklib>=0.19",
@@ -25,7 +24,10 @@ dependencies = [
     "charset_normalizer>=3.4.1",
     "chardet>=5.2.0",
     "static_ffmpeg>=2.13",
-    "Markdown>=3.9"
+    "Markdown>=3.9",
+    "Flask>=3.0.3",
+    "numpy>=1.24.0",
+    "gpustat>=1.1.1"
 ]
 
 classifiers = [
@@ -48,11 +50,13 @@ Documentation = "https://github.com/denizsafak/abogen"
 Repository = "https://github.com/denizsafak/abogen"
 Issues = "https://github.com/denizsafak/abogen/issues"
 
+
 [project.gui-scripts]
-abogen = "abogen.main:main"
+abogen = "abogen.web.app:main"
 
 [project.scripts]
-abogen-cli = "abogen.main:main"
+abogen-cli = "abogen.web.app:main"
+abogen-web = "abogen.web.app:main"
 
 [tool.hatch.build.targets.sdist]
 exclude = [
@@ -65,6 +69,12 @@ exclude = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["abogen"]
+
+[tool.hatch.build]
+include = [
+    "abogen/web/templates/**",
+    "abogen/web/static/**",
+]
 
 [tool.hatch.version]
 path = "abogen/VERSION"

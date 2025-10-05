@@ -1,0 +1,77 @@
+from __future__ import annotations
+
+import atexit
+import os
+from pathlib import Path
+from typing import Any, Optional
+
+from flask import Flask
+
+from abogen.utils import get_user_cache_path
+
+from .conversion_runner import run_conversion_job
+from .service import build_service
+
+
+def _default_dirs() -> tuple[Path, Path]:
+    uploads_override = os.environ.get("ABOGEN_UPLOAD_ROOT")
+    outputs_override = os.environ.get("ABOGEN_OUTPUT_ROOT")
+
+    if uploads_override and outputs_override:
+        uploads = Path(uploads_override)
+        outputs = Path(outputs_override)
+    else:
+        base = Path(get_user_cache_path("web"))
+        uploads = base / "uploads"
+        outputs = base / "outputs"
+
+    uploads.mkdir(parents=True, exist_ok=True)
+    outputs.mkdir(parents=True, exist_ok=True)
+    return uploads, outputs
+
+
+def create_app(config: Optional[dict[str, Any]] = None) -> Flask:
+    uploads_dir, outputs_dir = _default_dirs()
+
+    app = Flask(
+        __name__,
+        static_folder="static",
+        template_folder="templates",
+    )
+    base_config = {
+        "SECRET_KEY": os.environ.get("ABOGEN_SECRET_KEY", os.urandom(16)),
+        "UPLOAD_FOLDER": str(uploads_dir),
+        "OUTPUT_FOLDER": str(outputs_dir),
+        "MAX_CONTENT_LENGTH": 1024 * 1024 * 400,  # 400 MB uploads
+    }
+    if config:
+        base_config.update(config)
+    app.config.update(base_config)
+
+    service = build_service(
+        runner=run_conversion_job,
+        output_root=Path(app.config["OUTPUT_FOLDER"]),
+        uploads_root=Path(app.config["UPLOAD_FOLDER"]),
+    )
+    app.extensions["conversion_service"] = service
+
+    from .routes import web_bp, api_bp
+
+    app.register_blueprint(web_bp)
+    app.register_blueprint(api_bp, url_prefix="/api")
+
+    atexit.register(service.shutdown)
+
+    return app
+
+
+def main() -> None:
+    app = create_app()
+    host = os.environ.get("ABOGEN_HOST", "0.0.0.0")
+    port = int(os.environ.get("ABOGEN_PORT", "8000"))
+    debug = os.environ.get("ABOGEN_DEBUG", "false").lower() == "true"
+    app.run(host=host, port=port, debug=debug)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()

@@ -1,0 +1,37 @@
+<div class="card__title">Queue</div>
+{% if jobs %}
+  <table class="jobs-table">
+    <thead>
+      <tr>
+        <th>Job</th>
+        <th>Status</th>
+        <th>Progress</th>
+        <th>Created</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for job in jobs %}
+      <tr>
+        <td>
+          <strong>{{ job.original_filename }}</strong>
+          <div class="tag">
+            {% if job.voice_profile %}Profile: {{ job.voice_profile }}{% else %}Voice: {{ job.voice }}{% endif %} · {{ job.language }}
+          </div>
+        </td>
+        <td>
+          <span class="badge badge--{{ job.status.value }}">{{ job.status.value|title }}</span>
+        </td>
+        <td>
+          <progress value="{{ job.processed_characters or 0 }}" max="{{ job.total_characters or 1 }}" class="progress"></progress>
+          <small>{{ job.processed_characters }} / {{ job.total_characters or '—' }}</small>
+        </td>
+        <td><small>{{ job.created_at|datetimeformat }}</small></td>
+        <td><a class="btn" href="{{ url_for('web.job_detail', job_id=job.id) }}">Inspect</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p>No jobs yet. Drop a file or paste text to get started.</p>
+{% endif %}

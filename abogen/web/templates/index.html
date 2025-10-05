@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block title %}abogen · Dashboard{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h1 class="card__title">Create a new audiobook</h1>
+  <form action="{{ url_for('web.enqueue_job') }}" method="post" enctype="multipart/form-data" class="grid grid--two">
+    <div class="grid">
+      <div class="field">
+        <label for="source_file">Source file</label>
+        <input type="file" id="source_file" name="source_file" accept=".txt,.pdf,.epub,.md,.markdown">
+        <p class="tag">You can also paste text below.</p>
+      </div>
+      <div class="field">
+        <label for="language">Language</label>
+        <select id="language" name="language">
+          {% for key, label in options.languages.items() %}
+          <option value="{{ key }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="voice">Voice</label>
+        <select id="voice" name="voice">
+          {% for voice in options.voices %}
+          <option value="{{ voice }}">{{ voice }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="voice_profile">Voice profile</label>
+        <select id="voice_profile" name="voice_profile">
+          <option value="">Use selected voice</option>
+          {% for name, data in options.voice_profiles %}
+          <option value="{{ name }}">{{ name }} ({{ data.language|upper }})</option>
+          {% endfor %}
+        </select>
+        <p class="tag">Manage mixes in the <a href="{{ url_for('web.voice_profiles') }}">voice mixer</a>.</p>
+      </div>
+      <div class="field">
+        <label for="voice_formula">Custom voice formula</label>
+        <input type="text" id="voice_formula" name="voice_formula" placeholder="af_nova*0.4+am_liam*0.6">
+        <p class="tag">Overrides the dropdown/profile when provided.</p>
+      </div>
+      <div class="field">
+        <label for="speed">Speed <span class="tag" id="speed_value">1.00×</span></label>
+        <input type="range" id="speed" name="speed" min="0.6" max="1.4" step="0.05" value="1.0" oninput="document.getElementById('speed_value').textContent = Number.parseFloat(this.value).toFixed(2) + '×';">
+      </div>
+      <div class="field">
+        <label for="subtitle_mode">Subtitle mode</label>
+        <select id="subtitle_mode" name="subtitle_mode">
+          <option value="Disabled">Disabled</option>
+          <option value="Sentence">Sentence</option>
+          <option value="Sentence + Comma">Sentence + Comma</option>
+          <option value="Sentence + Highlighting">Sentence + Highlighting</option>
+          {% for i in range(1, 11) %}
+            <option value="{{ i }} {% if i == 1 %}word{% else %}words{% endif %}">{{ i }} {% if i == 1 %}word{% else %}words{% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="output_format">Audio format</label>
+        <select id="output_format" name="output_format">
+          {% for fmt in options.output_formats %}
+          <option value="{{ fmt }}">{{ fmt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="subtitle_format">Subtitle file format</label>
+        <select id="subtitle_format" name="subtitle_format">
+          {% for value, text in options.subtitle_formats %}
+          <option value="{{ value }}">{{ text }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="save_mode">Save location</label>
+        <select id="save_mode" name="save_mode">
+          <option>Save next to input file</option>
+          <option>Save to Desktop</option>
+          <option>Choose output folder</option>
+        </select>
+      </div>
+      <div class="split">
+        <label class="tag"><input type="checkbox" name="replace_single_newlines" value="true"> Replace single newlines</label>
+        <label class="tag"><input type="checkbox" name="use_gpu" value="true" checked> Use GPU (when available)</label>
+      </div>
+      <details class="field">
+        <summary>Advanced chapter &amp; project options</summary>
+        <div class="field inline">
+          <label class="tag"><input type="checkbox" name="save_chapters_separately" value="true"> Save each chapter separately</label>
+          <label class="tag"><input type="checkbox" name="merge_chapters_at_end" value="true" checked> Also create merged audiobook</label>
+          <label class="tag"><input type="checkbox" name="save_as_project" value="true"> Save in project folder with metadata</label>
+        </div>
+        <div class="field">
+          <label for="separate_chapters_format">Separate chapter format</label>
+          <select id="separate_chapters_format" name="separate_chapters_format">
+            {% for fmt in options.separate_formats %}
+            <option value="{{ fmt }}">{{ fmt|upper }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="silence_between_chapters">Silence between chapters (seconds)</label>
+          <input type="number" step="0.5" min="0" value="2.0" id="silence_between_chapters" name="silence_between_chapters">
+        </div>
+        <div class="field">
+          <label for="max_subtitle_words">Max words per subtitle entry</label>
+          <input type="number" min="1" max="100" value="50" id="max_subtitle_words" name="max_subtitle_words">
+        </div>
+      </details>
+    </div>
+    <div class="grid">
+      <div class="field">
+        <label for="source_text">Or paste text directly</label>
+        <textarea id="source_text" name="source_text" rows="12" placeholder="Drop some text here if you don't have a file handy..."></textarea>
+      </div>
+      <div class="field" style="justify-content: flex-end;">
+        <button type="submit" class="button">Queue conversion</button>
+      </div>
+    </div>
+  </form>
+</section>
+
+<section class="card" id="jobs-panel" hx-get="{{ url_for('web.jobs_partial') }}" hx-trigger="load, every 3s" hx-target="#jobs-panel" hx-swap="innerHTML">
+  {% include "partials/jobs.html" %}
+</section>
+{% endblock %}

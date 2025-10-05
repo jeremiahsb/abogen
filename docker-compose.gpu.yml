@@ -1,0 +1,30 @@
+services:
+  abogen:
+    build:
+      context: .
+      dockerfile: abogen/Dockerfile
+      args:
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu124}
+        TORCH_VERSION: ${TORCH_VERSION:-}
+    image: abogen-gpu:latest
+    ports:
+      - "${ABOGEN_PORT:-8000}:8000"
+    volumes:
+      - ${ABOGEN_DATA:-./data}:/data
+    environment:
+      ABOGEN_HOST: 0.0.0.0
+      ABOGEN_PORT: 8000
+      ABOGEN_UPLOAD_ROOT: /data/uploads
+      ABOGEN_OUTPUT_ROOT: /data/outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    device_requests:
+      - driver: nvidia
+        count: -1
+        capabilities: [gpu]
+    restart: unless-stopped

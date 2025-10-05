@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Job · {{ job.original_filename }}{% endblock %}
+
+{% block content %}
+<section class="card">
+  <div class="card__title">{{ job.original_filename }}</div>
+  <div class="grid grid--two">
+    <article>
+      <h2>Settings</h2>
+      <ul>
+        <li><strong>Voice:</strong> {{ job.voice }}</li>
+        <li><strong>Language:</strong> {{ options.languages.get(job.language, job.language) }}</li>
+        {% if job.voice_profile %}
+        <li><strong>Voice profile:</strong> {{ job.voice_profile }}</li>
+        {% endif %}
+        <li><strong>Speed:</strong> {{ '%.2f' | format(job.speed) }}×</li>
+        <li><strong>Subtitle mode:</strong> {{ job.subtitle_mode }}</li>
+        <li><strong>Audio format:</strong> {{ job.output_format }}</li>
+        <li><strong>Subtitle format:</strong> {{ job.subtitle_format }}</li>
+        <li><strong>GPU:</strong> {{ 'Yes' if job.use_gpu else 'No' }}</li>
+        <li><strong>Save chapters separately:</strong> {{ 'Yes' if job.save_chapters_separately else 'No' }}</li>
+        <li><strong>Merge at end:</strong> {{ 'Yes' if job.merge_chapters_at_end else 'No' }}</li>
+        <li><strong>Separate chapter format:</strong> {{ job.separate_chapters_format|upper }}</li>
+        <li><strong>Silence between chapters:</strong> {{ '%.1f'|format(job.silence_between_chapters) }}s</li>
+        <li><strong>Max words per subtitle:</strong> {{ job.max_subtitle_words }}</li>
+        <li><strong>Project folder:</strong> {{ 'Yes' if job.save_as_project else 'No' }}</li>
+      </ul>
+    </article>
+    <article>
+      <h2>Status</h2>
+      <p><span class="badge badge--{{ job.status.value }}">{{ job.status.value|title }}</span></p>
+      <p>Created: {{ job.created_at|datetimeformat }}</p>
+      <p>Started: {{ job.started_at|datetimeformat }}</p>
+      <p>Finished: {{ job.finished_at|datetimeformat }}</p>
+      <p>Characters: {{ job.processed_characters }} / {{ job.total_characters or '—' }}</p>
+      {% if job.result.audio_path %}
+      <p><a class="button" href="{{ url_for('web.download_job', job_id=job.id) }}">Download audio</a></p>
+      {% endif %}
+      <form action="{{ url_for('web.cancel_job', job_id=job.id) }}" method="post">
+        <button type="submit" class="button button--ghost">Cancel job</button>
+      </form>
+    </article>
+  </div>
+</section>
+
+<section class="card" id="logs" hx-get="{{ url_for('web.job_logs_partial', job_id=job.id) }}" hx-trigger="load, every 2s" hx-target="#logs" hx-swap="innerHTML">
+  {% include "partials/logs.html" %}
+</section>
+{% endblock %}

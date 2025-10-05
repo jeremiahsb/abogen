@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}abogen{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('web.static', filename='styles.css') }}">
+  <script src="https://unpkg.com/htmx.org@2.0.3"></script>
+  <script src="https://unpkg.com/hyperscript.org@0.9.12"></script>
+</head>
+<body>
+  <header class="top-bar">
+    <div class="brand">
+      <span class="brand__mark">🔊</span>
+      <span class="brand__name">abogen</span>
+      <span class="brand__tagline">Audiobooks for humans, not desktops</span>
+    </div>
+    <nav class="top-actions">
+      <a href="{{ url_for('web.index') }}" class="btn">Dashboard</a>
+      <a href="{{ url_for('web.voice_profiles_page') }}" class="btn">Voice mixer</a>
+    </nav>
+  </header>
+  <main class="main">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="footer">
+    <span>Need help?</span>
+    <a href="https://github.com/denizsafak/abogen" target="_blank" rel="noopener">Read the docs</a>
+  </footer>
+</body>
+</html>

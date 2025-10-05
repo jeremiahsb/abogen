@@ -1,42 +1,51 @@
-# Special thanks to @geo38 from Reddit, who provided this Dockerfile:
-# https://www.reddit.com/r/selfhosted/comments/1k8x1yo/comment/mpe0bz8/
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
-# Use a docker base image that runs a window manager that can be viewed
-# outside the image with a web browser or VNC client.
-# https://github.com/jlesage/docker-baseimage-gui
-FROM jlesage/baseimage-gui:debian-12-v4
+ENV PYTHONDONTWRITEBYTECODE=1 \
+  PYTHONUNBUFFERED=1 \
+  PIP_NO_CACHE_DIR=1 \
+  VIRTUAL_ENV=/opt/venv \
+  PATH=/opt/venv/bin:$PATH
 
-# Load stuff needed by abogen
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu124
+ARG TORCH_VERSION=
+
 RUN apt-get update \
- && apt-get install -y \
-        python3 \
-        python3-venv \
-        python3-pip \
-        python3-pyqt5 \
-        espeak-ng \
- && apt-get clean \
- && rm -rf /var/lib/apt/lists/*
+  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    python3 \
+    python3-venv \
+    python3-pip \
+    ffmpeg \
+    libsndfile1 \
+    libgl1 \
+    libglib2.0-0 \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
 
-# The base image will run /startapp.sh on launch.
-#
-# The base image runs that script as user 'app' uid=1000. That user
-# does not exist in the base image but is created at run time.
-#
-# We need to install abogen in python venv (requirement of newer python3).
-#
-# The python venv has to be writable by the 'app' user as abogen dynamically
-# installs python packages, so create the venv as that user
-#
-# We intend to share the /shared directory with the host using a bind volume
-# in order to access any source files and the created files.
+RUN python3 -m venv "$VIRTUAL_ENV"
 
-RUN echo '#!/bin/bash\nsource /app/venv/bin/activate\nexec abogen' > /startapp.sh \
-  && chmod 555 /startapp.sh \
-  && mkdir /app /shared \
-  && chown 1000:1000 /app /shared \
-  && chmod 755 /app /shared
-USER 1000:1000
-RUN python3 -m venv /app/venv
-RUN /bin/bash -c "source /app/venv/bin/activate && pip install abogen"
-# Change back to user ROOT as the startup scripts inside base image needs it
-USER root
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+COPY abogen ./abogen
+
+RUN pip install --upgrade pip \
+  && if [ -n "$TORCH_VERSION" ]; then \
+       pip install torch=="$TORCH_VERSION" torchvision=="$TORCH_VERSION" torchaudio=="$TORCH_VERSION" --index-url "$TORCH_INDEX_URL"; \
+     else \
+       pip install torch torchvision torchaudio --index-url "$TORCH_INDEX_URL"; \
+     fi \
+  && pip install --no-cache-dir .
+
+ENV ABOGEN_HOST=0.0.0.0 \
+  ABOGEN_PORT=8000
+
+EXPOSE 8000
+
+VOLUME ["/data"]
+
+ENV ABOGEN_UPLOAD_ROOT=/data/uploads \
+  ABOGEN_OUTPUT_ROOT=/data/outputs
+
+RUN mkdir -p /data/uploads /data/outputs
+
+CMD ["abogen"]

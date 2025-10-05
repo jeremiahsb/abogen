@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}abogen · Voice mixer{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h1 class="card__title">Voice mixer</h1>
+  <p class="tag">Blend multiple voices, store them as reusable profiles, and reuse them in the dashboard form.</p>
+  <div class="grid grid--two">
+    <div class="grid">
+      <h2>Saved profiles</h2>
+      {% if profiles %}
+      <ul class="list">
+        {% for profile in profiles %}
+        <li class="list__item">
+          <div>
+            <strong>{{ profile.name }}</strong>
+            <p class="tag">Language: {{ languages.get(profile.language, profile.language|upper) }}</p>
+            <p class="tag">Formula: {{ profile.formula }}</p>
+          </div>
+          <form method="post" action="{{ url_for('web.delete_voice_profile_route', name=profile.name) }}">
+            <button type="submit" class="button button--danger">Delete</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p>No saved profiles yet. Use the form to create one.</p>
+      {% endif %}
+    </div>
+    <div class="grid">
+      <h2>Create or update</h2>
+      <form method="post" action="{{ url_for('web.save_voice_profile_route') }}" class="grid">
+        <div class="field">
+          <label for="name">Profile name</label>
+          <input type="text" id="name" name="name" required placeholder="Narrator Mix">
+        </div>
+        <div class="field">
+          <label for="language">Language</label>
+          <select id="language" name="language">
+            {% for key, label in languages.items() %}
+            <option value="{{ key }}">{{ label }} ({{ key|upper }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="formula">Voice formula</label>
+          <input type="text" id="formula" name="formula" required placeholder="af_nova*0.4+am_liam*0.6">
+          <p class="tag">Use <code>voice_name*weight</code> segments joined with <code>+</code>. Weights will be normalised automatically.</p>
+        </div>
+        <div class="field">
+          <label for="voices">Available voices</label>
+          <div class="pill-grid">
+            {% for voice in voices %}
+            <span class="pill">{{ voice }}</span>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="field">
+          <button type="submit" class="button">Save profile</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>
+{% endblock %}
