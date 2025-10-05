@@ -23,7 +23,7 @@ pip install abogen
 abogen
 ```
 
-Then open http://localhost:8000 and drag in your documents. Jobs run in the background worker and the browser updates automatically.
+Then open http://localhost:8808 and drag in your documents. Jobs run in the background worker and the browser updates automatically.
 
 > **Tip:** Keep the terminal open while the server is running. Use `Ctrl+C` to stop it.
 
@@ -34,19 +34,19 @@ A lightweight Dockerfile lives in `abogen/Dockerfile`.
 docker build -t abogen .
 mkdir -p ~/abogen-data/uploads ~/abogen-data/outputs
 docker run --rm \
-  -p 8000:8000 \
+  -p 8808:8808 \
   -v ~/abogen-data:/data \
   --name abogen \
   abogen
 ```
 
-Browse to http://localhost:8000. Uploaded source files are stored in `/data/uploads` and rendered audio/subtitles appear in `/data/outputs`.
+Browse to http://localhost:8808. Uploaded source files are stored in `/data/uploads` and rendered audio/subtitles appear in `/data/outputs`.
 
 ### Container environment variables
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ABOGEN_HOST` | `0.0.0.0` | Bind address for the Flask server |
-| `ABOGEN_PORT` | `8000` | HTTP port |
+| `ABOGEN_PORT` | `8808` | HTTP port |
 | `ABOGEN_DEBUG` | `false` | Enable Flask debug mode |
 | `ABOGEN_UPLOAD_ROOT` | `/data/uploads` | Directory where uploaded files are stored |
 | `ABOGEN_OUTPUT_ROOT` | `/data/outputs` | Directory for generated audio and subtitles |
@@ -72,7 +72,7 @@ CPU-only deployment: comment out the `deploy.resources.reservations.devices` blo
 docker build -f abogen/Dockerfile -t abogen-gpu .
 docker run --rm \
   --gpus all \
-  -p 8000:8000 \
+  -p 8808:8808 \
   -v ~/abogen-data:/data \
   abogen-gpu
 ```

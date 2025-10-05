@@ -37,9 +37,9 @@ RUN pip install --upgrade pip \
   && pip install --no-cache-dir .
 
 ENV ABOGEN_HOST=0.0.0.0 \
-  ABOGEN_PORT=8000
+  ABOGEN_PORT=8808
 
-EXPOSE 8000
+EXPOSE 8808
 
 VOLUME ["/data"]
 

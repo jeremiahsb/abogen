@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   abogen:
     build:
@@ -10,12 +8,12 @@ services:
         TORCH_VERSION: ${TORCH_VERSION:-}
     image: abogen:latest
     ports:
-      - "${ABOGEN_PORT:-8000}:8000"
+      - "${ABOGEN_PORT:-8808}:8808"
     volumes:
       - ${ABOGEN_DATA:-./data}:/data
     environment:
       ABOGEN_HOST: 0.0.0.0
-      ABOGEN_PORT: 8000
+      ABOGEN_PORT: 8808
       ABOGEN_UPLOAD_ROOT: /data/uploads
       ABOGEN_OUTPUT_ROOT: /data/outputs
     # --- GPU support -----------------------------------------------------

@@ -68,7 +68,7 @@ def create_app(config: Optional[dict[str, Any]] = None) -> Flask:
 def main() -> None:
     app = create_app()
     host = os.environ.get("ABOGEN_HOST", "0.0.0.0")
-    port = int(os.environ.get("ABOGEN_PORT", "8000"))
+    port = int(os.environ.get("ABOGEN_PORT", "8808"))
     debug = os.environ.get("ABOGEN_DEBUG", "false").lower() == "true"
     app.run(host=host, port=port, debug=debug)
 
