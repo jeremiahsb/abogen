@@ -53,24 +53,20 @@ Browse to http://localhost:8000. Uploaded source files are stored in `/data/uplo
 
 Set any of these with `-e VAR=value` when starting the container.
 
-### GPU-enabled build
-If you want CUDA acceleration inside the container, a GPU-aware Docker runtime (for example the NVIDIA Container Toolkit) is required. The repository ships an updated `abogen/Dockerfile` based on the CUDA runtime plus a helper Compose file.
+### Docker Compose (GPU by default)
+The repo includes `docker-compose.yaml`, which targets GPU hosts out of the box. Install the NVIDIA Container Toolkit and run:
 
 ```bash
-# Build the GPU image (installs the matching CUDA PyTorch wheel)
-docker compose -f docker-compose.gpu.yml build
-
-# Start the service with GPU access (--profile gpu in Compose v2 is optional)
-docker compose -f docker-compose.gpu.yml up -d
+docker compose up -d --build
 ```
 
-Useful overrides:
+Key build/runtime knobs:
 
-- `TORCH_VERSION` – pin a specific PyTorch release that matches your host driver (leave empty for latest).
-- `TORCH_INDEX_URL` – change the download index if you need a different CUDA build.
+- `TORCH_VERSION` – pin a specific PyTorch release that matches your driver (leave blank for the latest on the configured index).
+- `TORCH_INDEX_URL` – swap out the PyTorch download index when targeting a different CUDA build.
 - `ABOGEN_DATA` – host path that stores uploads/outputs (defaults to `./data`).
 
-The Compose file reserves a GPU via `device_requests`. Standard `docker run` works as well:
+CPU-only deployment: comment out the `deploy.resources.reservations.devices` block (and the optional `runtime: nvidia` line) inside the compose file. Compose will then run without requesting a GPU. If you prefer the classic CLI:
 
 ```bash
 docker build -f abogen/Dockerfile -t abogen-gpu .
