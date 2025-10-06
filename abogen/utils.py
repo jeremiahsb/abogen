@@ -1,12 +1,18 @@
-import os
-import sys
 import json
-import warnings
+import os
 import platform
+import re
 import shutil
 import subprocess
-import re
+import sys
+import warnings
 from threading import Thread
+
+from functools import lru_cache
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 warnings.filterwarnings("ignore")
 
@@ -82,40 +88,69 @@ def get_version():
 
 
 # Define config path
-def get_user_config_path():
+def ensure_directory(path):
+    resolved = os.path.abspath(os.path.expanduser(str(path)))
+    os.makedirs(resolved, exist_ok=True)
+    return resolved
+
+
+@lru_cache(maxsize=1)
+def get_user_settings_dir():
+    override = os.environ.get("ABOGEN_SETTINGS_DIR")
+    if override:
+        return ensure_directory(override)
+
     from platformdirs import user_config_dir
 
-    # TODO Config directory is changed for Linux and MacOS. But if old config exists, it will be used.
-    # On non‑Windows, prefer ~/.config/abogen if it already exists
     if platform.system() != "Windows":
-        custom_dir = os.path.join(os.path.expanduser("~"), ".config", "abogen")
-        if os.path.exists(custom_dir):
-            config_dir = custom_dir
-        else:
-            config_dir = user_config_dir(
-                "abogen", appauthor=False, roaming=True, ensure_exists=True
-            )
-    else:
-        # Windows and fallback case
-        config_dir = user_config_dir(
-            "abogen", appauthor=False, roaming=True, ensure_exists=True
-        )
+        legacy_dir = os.path.join(os.path.expanduser("~"), ".config", "abogen")
+        if os.path.exists(legacy_dir):
+            return ensure_directory(legacy_dir)
 
-    return os.path.join(config_dir, "config.json")
+    config_dir = user_config_dir("abogen", appauthor=False, roaming=True, ensure_exists=True)
+    return ensure_directory(config_dir)
+
+
+def get_user_config_path():
+    return os.path.join(get_user_settings_dir(), "config.json")
 
 
 # Define cache path
-def get_user_cache_path(folder=None):
+@lru_cache(maxsize=1)
+def get_user_cache_root():
+    override = os.environ.get("ABOGEN_TEMP_DIR")
+    if override:
+        return ensure_directory(override)
+
     from platformdirs import user_cache_dir
 
-    cache_dir = user_cache_dir(
-        "abogen", appauthor=False, opinion=True, ensure_exists=True
-    )
+    cache_dir = user_cache_dir("abogen", appauthor=False, opinion=True, ensure_exists=True)
+    return ensure_directory(cache_dir)
+
+
+def get_user_cache_path(folder=None):
+    base = get_user_cache_root()
     if folder:
-        cache_dir = os.path.join(cache_dir, folder)
-        # Ensure the directory exists
-        os.makedirs(cache_dir, exist_ok=True)
-    return cache_dir
+        return ensure_directory(os.path.join(base, folder))
+    return base
+
+
+@lru_cache(maxsize=1)
+def get_user_output_root():
+    override = (
+        os.environ.get("ABOGEN_OUTPUT_DIR")
+        or os.environ.get("ABOGEN_OUTPUT_ROOT")
+    )
+    if override:
+        return ensure_directory(override)
+    return ensure_directory(os.path.join(get_user_cache_root(), "outputs"))
+
+
+def get_user_output_path(folder=None):
+    base = get_user_output_root()
+    if folder:
+        return ensure_directory(os.path.join(base, folder))
+    return base
 
 
 _sleep_procs = {"Darwin": None, "Linux": None}  # Store sleep prevention processes

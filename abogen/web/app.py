@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 from flask import Flask
 
-from abogen.utils import get_user_cache_path
+from abogen.utils import get_user_cache_path, get_user_output_path
 
 from .conversion_runner import run_conversion_job
 from .service import build_service
@@ -17,13 +17,15 @@ def _default_dirs() -> tuple[Path, Path]:
     uploads_override = os.environ.get("ABOGEN_UPLOAD_ROOT")
     outputs_override = os.environ.get("ABOGEN_OUTPUT_ROOT")
 
-    if uploads_override and outputs_override:
-        uploads = Path(uploads_override)
-        outputs = Path(outputs_override)
+    if uploads_override:
+        uploads = Path(os.path.expanduser(uploads_override)).resolve()
     else:
-        base = Path(get_user_cache_path("web"))
-        uploads = base / "uploads"
-        outputs = base / "outputs"
+        uploads = Path(get_user_cache_path("web/uploads"))
+
+    if outputs_override:
+        outputs = Path(os.path.expanduser(outputs_override)).resolve()
+    else:
+        outputs = Path(get_user_output_path("web"))
 
     uploads.mkdir(parents=True, exist_ok=True)
     outputs.mkdir(parents=True, exist_ok=True)

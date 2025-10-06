@@ -50,6 +50,9 @@ Browse to http://localhost:8808. Uploaded source files are stored in `/data/uplo
 | `ABOGEN_DEBUG` | `false` | Enable Flask debug mode |
 | `ABOGEN_UPLOAD_ROOT` | `/data/uploads` | Directory where uploaded files are stored |
 | `ABOGEN_OUTPUT_ROOT` | `/data/outputs` | Directory for generated audio and subtitles |
+| `ABOGEN_TEMP_DIR` | Platform cache dir (e.g. `~/.cache/abogen`) | Override the cache/temp directory |
+| `ABOGEN_OUTPUT_DIR` | Same as `ABOGEN_OUTPUT_ROOT` | Override the rendered output directory |
+| `ABOGEN_SETTINGS_DIR` | Platform config dir (e.g. `~/.config/abogen`) | Override where JSON settings (profiles, config) are stored |
 
 Set any of these with `-e VAR=value` when starting the container.
 
@@ -111,8 +114,13 @@ More automation hooks are planned; contributions are very welcome if you need ad
 Most behaviour is controlled through the UI, but a few environment variables are helpful for automation:
 - `ABOGEN_SECRET_KEY` – provide your own random secret when deploying across multiple replicas.
 - `ABOGEN_DEBUG` – set to `true` for verbose Flask error output.
+- `ABOGEN_SETTINGS_DIR` – change where Abogen stores its JSON settings/configuration files.
+- `ABOGEN_TEMP_DIR` – change where temporary uploads and cache files are stored.
+- `ABOGEN_OUTPUT_DIR` – change where rendered audio/subtitles are written.
 
 If unset, Abogen picks sensible defaults suitable for local usage.
+
+You can also create a `.env` file in the project root (see `.env.example`) to configure these paths when running locally. The application loads `.env` automatically on startup.
 
 ## Development workflow
 ```bash

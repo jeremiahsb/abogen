@@ -30,6 +30,7 @@ const setupVoiceMixer = () => {
   const selectedListEl = app.querySelector('[data-role="selected-voices"]');
   const dropzoneEl = app.querySelector('[data-role="dropzone"]');
   const emptyStateEl = app.querySelector('[data-role="mix-empty"]');
+  const voiceFilterSelect = app.querySelector('[data-role="voice-filter"]');
 
   if (!profileListEl || !availableListEl || !selectedListEl) {
     return;
@@ -55,6 +56,7 @@ const setupVoiceMixer = () => {
       language: "a",
       voices: new Map(),
     },
+    languageFilter: voiceFilterSelect ? voiceFilterSelect.value : "",
   };
 
   let statusTimeout = null;
@@ -211,14 +213,16 @@ const setupVoiceMixer = () => {
 
       const slider = document.createElement("input");
       slider.type = "range";
-      slider.min = "0";
+      slider.min = "5";
       slider.max = "100";
       slider.step = "1";
       slider.className = "mix-slider";
-      slider.value = String(Math.round(clamp(weight, 0, 1) * 100));
-      setSliderFill(slider, weight);
+      const normalizedWeight = clamp(weight, 0.05, 1);
+      slider.value = String(Math.round(normalizedWeight * 100));
+      setSliderFill(slider, normalizedWeight);
       slider.addEventListener("input", () => {
-        const value = clamp(Number(slider.value) / 100, 0, 1);
+        const value = clamp(Number(slider.value) / 100, 0.05, 1);
+        slider.value = String(Math.round(value * 100));
         state.draft.voices.set(voiceId, value);
         weightLabel.textContent = formatWeight(value);
         setSliderFill(slider, value);
@@ -244,7 +248,24 @@ const setupVoiceMixer = () => {
       .slice()
       .sort((a, b) => (a.display_name || a.id).localeCompare(b.display_name || b.id));
 
-    sortedVoices.forEach((voice) => {
+    const filteredVoices = sortedVoices.filter((voice) => {
+      const languageCode = voice.language || voice.id?.charAt(0) || "a";
+      return !state.languageFilter || state.languageFilter === languageCode;
+    });
+
+    if (!filteredVoices.length) {
+      const empty = document.createElement("p");
+      empty.className = "voice-available__empty";
+      const label = state.languageFilter
+        ? voiceLanguageLabel(state.languageFilter) || state.languageFilter.toUpperCase()
+        : "All voices";
+      empty.innerHTML = `No voices for <strong>${label}</strong> yet.`;
+      availableListEl.appendChild(empty);
+      updateAvailableState();
+      return;
+    }
+
+    filteredVoices.forEach((voice) => {
       if (!voice?.id) {
         return;
       }
@@ -309,6 +330,7 @@ const setupVoiceMixer = () => {
     });
 
     updateAvailableState();
+    availableListEl.scrollTop = 0;
   };
 
   const addVoiceToDraft = (voiceId, weight = 0.6) => {
@@ -445,7 +467,8 @@ const setupVoiceMixer = () => {
           const [voiceId, weight] = entry;
           const value = clamp(parseFloat(weight), 0, 1);
           if (!Number.isNaN(value) && value > 0) {
-            state.draft.voices.set(String(voiceId), value);
+            const normalized = clamp(value, 0.05, 1);
+            state.draft.voices.set(String(voiceId), normalized);
           }
         }
       });
@@ -694,6 +717,13 @@ const setupVoiceMixer = () => {
       state.draft.language = languageSelect.value;
       markDirty();
       loadSampleText();
+    });
+  }
+
+  if (voiceFilterSelect) {
+    voiceFilterSelect.addEventListener("change", () => {
+      state.languageFilter = voiceFilterSelect.value;
+      renderAvailableVoices();
     });
   }
 

@@ -50,8 +50,19 @@
         <div class="voice-editor__canvas">
           <section class="voice-available">
             <header class="voice-available__header">
-              <h2>Available voices</h2>
-              <p class="tag">Drag into the mixer or click Add.</p>
+              <div class="voice-available__title">
+                <h2>Available voices</h2>
+                <p class="tag">Drag into the mixer or click Add.</p>
+              </div>
+              <div class="voice-filter">
+                <label for="voice-language-filter">Language</label>
+                <select id="voice-language-filter" data-role="voice-filter">
+                  <option value="">All languages</option>
+                  {% for key, label in options.languages.items() %}
+                  <option value="{{ key }}">{{ label }} ({{ key|upper }})</option>
+                  {% endfor %}
+                </select>
+              </div>
             </header>
             <div class="voice-available__list" data-role="available-voices"></div>
           </section>
@@ -92,8 +103,9 @@
 {% endblock %}
 
 {% block scripts %}
+  <script id="voice-mixer-options" type="application/json">{{ options | tojson | safe }}</script>
   <script>
-    window.ABOGEN_VOICE_MIXER_DATA = {{ options | tojson | safe }};
+    window.ABOGEN_VOICE_MIXER_DATA = JSON.parse(document.getElementById('voice-mixer-options').textContent);
   </script>
   <script type="module" src="{{ url_for('static', filename='voices.js') }}"></script>
 {% endblock %}
