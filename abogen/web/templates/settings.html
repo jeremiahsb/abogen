@@ -31,6 +31,15 @@
         </select>
       </div>
       <div class="field">
+        <label for="default_voice">Default voice</label>
+        <select id="default_voice" name="default_voice">
+          {% for voice in options.voices %}
+          <option value="{{ voice }}" {% if settings.default_voice == voice %}selected{% endif %}>{{ voice }}</option>
+          {% endfor %}
+        </select>
+        <p class="hint">Used when “Standard voice” is selected on the dashboard.</p>
+      </div>
+      <div class="field">
         <label for="save_mode">Save location</label>
         <select id="save_mode" name="save_mode">
           {% for location in save_locations %}
@@ -43,14 +52,27 @@
 
     <fieldset class="settings__section">
       <legend>Processing</legend>
-      <div class="field field--inline">
-        <label class="tag"><input type="checkbox" name="replace_single_newlines" value="true" {% if settings.replace_single_newlines %}checked{% endif %}> Replace single newlines</label>
-        <label class="tag"><input type="checkbox" name="use_gpu" value="true" {% if settings.use_gpu %}checked{% endif %}> Use GPU (when available)</label>
-      </div>
-      <div class="field field--inline">
-        <label class="tag"><input type="checkbox" name="save_chapters_separately" value="true" {% if settings.save_chapters_separately %}checked{% endif %}> Save each chapter separately</label>
-        <label class="tag"><input type="checkbox" name="merge_chapters_at_end" value="true" {% if settings.merge_chapters_at_end %}checked{% endif %}> Also create merged audiobook</label>
-        <label class="tag"><input type="checkbox" name="save_as_project" value="true" {% if settings.save_as_project %}checked{% endif %}> Save as project with metadata</label>
+      <div class="field field--choices">
+        <label class="toggle-pill">
+          <input type="checkbox" name="replace_single_newlines" value="true" {% if settings.replace_single_newlines %}checked{% endif %}>
+          <span>Replace single newlines</span>
+        </label>
+        <label class="toggle-pill">
+          <input type="checkbox" name="use_gpu" value="true" {% if settings.use_gpu %}checked{% endif %}>
+          <span>Use GPU (when available)</span>
+        </label>
+        <label class="toggle-pill">
+          <input type="checkbox" name="save_chapters_separately" value="true" {% if settings.save_chapters_separately %}checked{% endif %}>
+          <span>Save each chapter separately</span>
+        </label>
+        <label class="toggle-pill">
+          <input type="checkbox" name="merge_chapters_at_end" value="true" {% if settings.merge_chapters_at_end %}checked{% endif %}>
+          <span>Also create merged audiobook</span>
+        </label>
+        <label class="toggle-pill">
+          <input type="checkbox" name="save_as_project" value="true" {% if settings.save_as_project %}checked{% endif %}>
+          <span>Save as project with metadata</span>
+        </label>
       </div>
       <div class="field">
         <label for="separate_chapters_format">Separate chapter format</label>

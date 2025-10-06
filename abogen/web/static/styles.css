@@ -138,6 +138,14 @@ body {
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
 
+.form-grid {
+  align-items: start;
+}
+
+.form-grid > .grid {
+  align-items: start;
+}
+
 .button {
   appearance: none;
   border: none;
@@ -175,6 +183,20 @@ body {
   gap: 0.4rem;
 }
 
+.field--full {
+  max-width: none;
+}
+
+.field--full textarea {
+  min-height: 260px;
+}
+
+.field--actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
 .field label {
   font-weight: 500;
   color: var(--muted);
@@ -192,6 +214,18 @@ body {
   color: var(--text);
   font-size: 1rem;
   transition: border 0.2s ease, box-shadow 0.2s ease;
+}
+
+.field input[type="text"],
+.field input[type="file"],
+.field input[type="number"],
+.field select {
+  max-width: 420px;
+  width: min(100%, 420px);
+}
+
+.field input[type="number"] {
+  max-width: 200px;
 }
 
 .field input:focus,
@@ -376,19 +410,70 @@ body {
   border-radius: 18px;
   padding: 1.25rem 1.4rem;
   display: grid;
-  gap: 1rem;
+  gap: 1.1rem 1.4rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .settings__section legend {
   font-weight: 600;
   padding: 0 0.5rem;
   color: var(--muted);
+  grid-column: 1 / -1;
 }
 
-.field--inline {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+.field--choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem;
+}
+
+.toggle-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  cursor: pointer;
+}
+
+.toggle-pill input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  cursor: pointer;
+}
+
+.toggle-pill span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  padding: 0.65rem 0.95rem;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.45);
+  color: var(--muted);
+  transition: border 0.2s ease, background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.toggle-pill:hover span {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.toggle-pill input:focus-visible + span {
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.18);
+}
+
+.toggle-pill input:checked + span {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: var(--accent);
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
 }
 
 .settings__actions {
@@ -600,23 +685,21 @@ progress.progress::-moz-progress-bar {
 }
 
 .voice-editor__identity {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.75rem 1rem;
-  align-items: flex-start;
+  align-items: end;
 }
 
 .voice-editor__name-field {
-  flex: 1 1 220px;
   min-width: 200px;
 }
 
 .voice-editor__toolbar {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  flex: 0 0 auto;
-  margin-left: auto;
+  justify-content: flex-end;
+  gap: 0.65rem;
   min-height: 2.6rem;
 }
 
@@ -1033,6 +1116,17 @@ progress.progress::-moz-progress-bar {
   pointer-events: none;
 }
 
+[data-state="locked"] {
+  cursor: not-allowed;
+}
+
+select[data-state="locked"],
+input[data-state="locked"] {
+  background: rgba(15, 23, 42, 0.35);
+  color: rgba(148, 163, 184, 0.8);
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
 .icon-button {
   appearance: none;
   border-radius: 16px;
@@ -1047,9 +1141,8 @@ progress.progress::-moz-progress-bar {
   transition: color 0.2s ease, border 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
 }
 
-.voice-editor__identity > .icon-button,
 .voice-editor__identity > .voice-editor__toolbar {
-  align-self: flex-end;
+  align-self: end;
 }
 
 .icon-button svg {
@@ -1175,6 +1268,24 @@ progress.progress::-moz-progress-bar {
   .field--slider label {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .voice-editor__identity {
+    grid-template-columns: 1fr;
+  }
+
+  .voice-editor__toolbar {
+    justify-content: flex-start;
+  }
+
+  .settings__section {
+    grid-template-columns: 1fr;
+  }
+
+  .field--choices {
+    grid-template-columns: 1fr;
   }
 }
 

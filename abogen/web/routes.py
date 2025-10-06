@@ -92,6 +92,15 @@ def _build_voice_catalog() -> List[Dict[str, str]]:
 def _template_options() -> Dict[str, Any]:
     profiles = serialize_profiles()
     ordered_profiles = sorted(profiles.items())
+    profile_options = []
+    for name, entry in ordered_profiles:
+        profile_options.append(
+            {
+                "name": name,
+                "language": (entry or {}).get("language", ""),
+                "formula": _formula_from_profile(entry or {}) or "",
+            }
+        )
     return {
         "languages": LANGUAGE_DESCRIPTIONS,
         "voices": VOICES_INTERNAL,
@@ -99,6 +108,7 @@ def _template_options() -> Dict[str, Any]:
         "supported_langs_for_subs": SUPPORTED_LANGUAGES_FOR_SUBTITLE_GENERATION,
         "output_formats": SUPPORTED_SOUND_FORMATS,
         "voice_profiles": ordered_profiles,
+        "voice_profile_options": profile_options,
         "separate_formats": ["wav", "flac", "mp3", "opus"],
         "voice_catalog": _build_voice_catalog(),
         "sample_voice_texts": SAMPLE_VOICE_TEXTS,
@@ -136,6 +146,7 @@ def _settings_defaults() -> Dict[str, Any]:
         "output_format": "wav",
         "subtitle_format": "srt",
         "save_mode": "default_output" if _has_output_override() else "save_next_to_input",
+        "default_voice": VOICES_INTERNAL[0] if VOICES_INTERNAL else "",
         "replace_single_newlines": False,
         "use_gpu": True,
         "save_chapters_separately": False,
@@ -200,6 +211,10 @@ def _normalize_setting_value(key: str, value: Any, defaults: Dict[str, Any]) -> 
             normalized = value.lower()
             if normalized in {"wav", "flac", "mp3", "opus"}:
                 return normalized
+        return defaults[key]
+    if key == "default_voice":
+        if isinstance(value, str) and value in VOICES_INTERNAL:
+            return value
         return defaults[key]
     return value if value is not None else defaults.get(key)
 
@@ -339,7 +354,11 @@ def datetimeformat(value: float, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
 
 @web_bp.get("/")
 def index() -> str:
-    return render_template("index.html", options=_template_options())
+    return render_template(
+        "index.html",
+        options=_template_options(),
+        settings=_load_settings(),
+    )
 
 
 @web_bp.get("/queue")
@@ -366,6 +385,9 @@ def settings_page() -> Response | str:
         )
         updated["save_mode"] = _normalize_setting_value(
             "save_mode", form.get("save_mode"), defaults
+        )
+        updated["default_voice"] = _normalize_setting_value(
+            "default_voice", form.get("default_voice"), defaults
         )
         for key in sorted(BOOLEAN_SETTINGS):
             updated[key] = _coerce_bool(form.get(key), False)

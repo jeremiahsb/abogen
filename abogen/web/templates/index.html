@@ -5,7 +5,7 @@
 {% block content %}
 <section class="card">
   <h1 class="card__title">Create a new audiobook</h1>
-  <form action="{{ url_for('web.enqueue_job') }}" method="post" enctype="multipart/form-data" class="grid grid--two">
+  <form action="{{ url_for('web.enqueue_job') }}" method="post" enctype="multipart/form-data" class="grid grid--two form-grid">
     <div class="grid">
       <div class="field">
         <label for="source_file">Source file</label>
@@ -21,9 +21,9 @@
       </div>
       <div class="field" data-conditional="standard" data-role="voice-field">
         <label for="voice">Voice</label>
-        <select id="voice" name="voice" data-role="voice-select">
+        <select id="voice" name="voice" data-role="voice-select" data-default="{{ settings.default_voice }}">
           {% for voice in options.voices %}
-          <option value="{{ voice }}">{{ voice }}</option>
+          <option value="{{ voice }}" {% if settings.default_voice == voice %}selected{% endif %}>{{ voice }}</option>
           {% endfor %}
         </select>
       </div>
@@ -32,10 +32,10 @@
         <select id="voice_profile" name="voice_profile" data-role="voice-profile">
           <option value="__standard" selected>Standard voice</option>
           <option value="__formula">Formula</option>
-          {% if options.voice_profiles %}
+          {% if options.voice_profile_options %}
           <optgroup label="Saved mixes">
-            {% for name, data in options.voice_profiles %}
-            <option value="{{ name }}">{{ name }} ({{ data.language|upper }})</option>
+            {% for profile in options.voice_profile_options %}
+            <option value="{{ profile.name }}" data-language="{{ profile.language }}" data-formula="{{ profile.formula|e }}">{{ profile.name }} {% if profile.language %}({{ profile.language|upper }}){% endif %}</option>
             {% endfor %}
           </optgroup>
           {% endif %}
@@ -64,7 +64,7 @@
       </div>
     </div>
     <div class="grid">
-      <div class="field">
+      <div class="field field--full">
         <label for="source_text">Or paste text directly</label>
         <textarea id="source_text" name="source_text" rows="12" placeholder="Drop some text here if you don't have a file handy..." data-role="source-text"></textarea>
       </div>
@@ -79,7 +79,7 @@
         </div>
         <pre class="text-preview__body" data-role="preview-body">Paste text to see a live preview and character count.</pre>
       </div>
-      <div class="field" style="justify-content: flex-end;">
+      <div class="field field--actions">
         <button type="submit" class="button">Queue conversion</button>
       </div>
     </div>

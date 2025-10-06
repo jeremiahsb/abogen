@@ -4,6 +4,7 @@ const initDashboard = () => {
   const voiceSelect = document.querySelector('[data-role="voice-select"]');
   const formulaField = document.querySelector('[data-role="formula-field"]');
   const formulaInput = document.querySelector('[data-role="voice-formula"]');
+  const languageSelect = document.getElementById("language");
 
   const sourceText = document.querySelector('[data-role="source-text"]');
   const previewEl = document.querySelector('[data-role="text-preview"]');
@@ -11,20 +12,45 @@ const initDashboard = () => {
   const charCountEl = document.querySelector('[data-role="char-count"]');
   const wordCountEl = document.querySelector('[data-role="word-count"]');
 
+  const hydrateDefaultVoice = () => {
+    if (!voiceSelect) return;
+    const defaultVoice = voiceSelect.dataset.default;
+    if (!defaultVoice) return;
+    const option = voiceSelect.querySelector(`option[value="${defaultVoice}"]`);
+    if (option) {
+      voiceSelect.value = defaultVoice;
+    }
+  };
+
   const updateVoiceControls = () => {
     if (!profileSelect) {
       return;
     }
     const value = profileSelect.value;
-    const showVoice = !value || value === "__standard";
-    const showFormula = value === "__formula";
+    const isStandard = !value || value === "__standard";
+    const isFormula = value === "__formula";
+    const isSavedProfile = Boolean(value && !isStandard && !isFormula);
 
     if (voiceField) {
-      voiceField.hidden = !showVoice;
-      voiceField.setAttribute("aria-hidden", showVoice ? "false" : "true");
+      voiceField.hidden = false;
+      voiceField.setAttribute("aria-hidden", "false");
     }
     if (voiceSelect) {
-      voiceSelect.disabled = !showVoice;
+      voiceSelect.disabled = !isStandard;
+      voiceSelect.dataset.state = isStandard ? "editable" : "locked";
+    }
+
+    let showFormula = isFormula || isSavedProfile;
+    let presetFormula = "";
+    if (isSavedProfile) {
+      const option = profileSelect.selectedOptions[0];
+      if (option) {
+        presetFormula = option.dataset.formula || "";
+        const profileLang = option.dataset.language || "";
+        if (profileLang && languageSelect) {
+          languageSelect.value = profileLang;
+        }
+      }
     }
 
     if (formulaField) {
@@ -33,9 +59,15 @@ const initDashboard = () => {
     }
     if (formulaInput) {
       formulaInput.disabled = !showFormula;
-      if (!showFormula) {
+      if (showFormula) {
+        if (presetFormula) {
+          formulaInput.value = presetFormula;
+        }
+      } else {
         formulaInput.value = formulaInput.value.trim();
       }
+      formulaInput.dataset.state = isSavedProfile ? "locked" : "editable";
+      formulaInput.readOnly = isSavedProfile;
     }
   };
 
@@ -73,6 +105,8 @@ const initDashboard = () => {
     profileSelect.addEventListener("change", updateVoiceControls);
     updateVoiceControls();
   }
+
+  hydrateDefaultVoice();
 
   if (sourceText) {
     sourceText.addEventListener("input", updatePreview);
