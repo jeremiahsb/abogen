@@ -110,6 +110,20 @@ def get_user_settings_dir():
     if override:
         return ensure_directory(override)
 
+    data_root = os.environ.get("ABOGEN_DATA") or os.environ.get("ABOGEN_DATA_DIR")
+    if data_root:
+        try:
+            return ensure_directory(os.path.join(data_root, "settings"))
+        except OSError:
+            pass
+
+    data_mount = "/data"
+    if os.path.isdir(data_mount):
+        try:
+            return ensure_directory(os.path.join(data_mount, "settings"))
+        except OSError:
+            pass
+
     from platformdirs import user_config_dir
 
     if platform.system() != "Windows":

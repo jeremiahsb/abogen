@@ -19,6 +19,7 @@ const setupVoiceMixer = () => {
   const loadSampleBtn = app.querySelector('[data-role="load-sample"]');
   const previewTextEl = app.querySelector('[data-role="preview-text"]');
   const previewAudio = app.querySelector('[data-role="preview-audio"]');
+  const previewSpeedLabel = app.querySelector('[data-role="preview-speed-display"]');
   const profileSummaryEl = app.querySelector('[data-role="profile-summary"]');
   const mixTotalEl = app.querySelector('[data-role="mix-total"]');
   const nameInput = document.getElementById("profile-name");
@@ -32,6 +33,10 @@ const setupVoiceMixer = () => {
   const emptyStateEl = app.querySelector('[data-role="mix-empty"]');
   const voiceFilterSelect = app.querySelector('[data-role="voice-filter"]');
   const genderFilterEl = app.querySelector('[data-role="gender-filter"]');
+
+  if (previewBtn && !previewBtn.dataset.label) {
+    previewBtn.dataset.label = previewBtn.textContent.trim();
+  }
 
   if (!profileListEl || !availableListEl || !selectedListEl) {
     return;
@@ -68,6 +73,15 @@ const setupVoiceMixer = () => {
 
   const setSliderFill = (slider, weight) => {
     const percent = Math.round(clamp(weight, 0, 1) * 100);
+    slider.style.background = `linear-gradient(90deg, var(--accent) 0%, var(--accent) ${percent}%, rgba(148, 163, 184, 0.25) ${percent}%, rgba(148, 163, 184, 0.25) 100%)`;
+  };
+
+  const setRangeFill = (slider) => {
+    if (!slider) return;
+    const min = parseFloat(slider.min || "0");
+    const max = parseFloat(slider.max || "1");
+    const value = parseFloat(slider.value || String(min));
+    const percent = max === min ? 0 : Math.round(((value - min) / (max - min)) * 100);
     slider.style.background = `linear-gradient(90deg, var(--accent) 0%, var(--accent) ${percent}%, rgba(148, 163, 184, 0.25) ${percent}%, rgba(148, 163, 184, 0.25) 100%)`;
   };
 
@@ -683,6 +697,8 @@ const setupVoiceMixer = () => {
     }
     previewBtn.disabled = true;
     previewBtn.dataset.loading = "true";
+    previewBtn.setAttribute("aria-busy", "true");
+    previewBtn.textContent = "Previewing…";
     setStatus("Generating preview…", "info", 0);
     try {
       const response = await fetch("/api/voice-profiles/preview", {
@@ -708,6 +724,8 @@ const setupVoiceMixer = () => {
     } finally {
       previewBtn.disabled = false;
       previewBtn.dataset.loading = "false";
+      previewBtn.textContent = previewBtn.dataset.label || "Preview mix";
+      previewBtn.removeAttribute("aria-busy");
     }
   };
 
@@ -750,6 +768,18 @@ const setupVoiceMixer = () => {
       state.languageFilter = voiceFilterSelect.value;
       renderAvailableVoices();
     });
+  }
+
+  if (speedInput) {
+    const updatePreviewSpeedLabel = () => {
+      const speed = parseFloat(speedInput.value || "1");
+      if (previewSpeedLabel) {
+        previewSpeedLabel.textContent = `${speed.toFixed(2)}×`;
+      }
+      setRangeFill(speedInput);
+    };
+    speedInput.addEventListener("input", updatePreviewSpeedLabel);
+    updatePreviewSpeedLabel();
   }
 
   if (genderFilterEl) {

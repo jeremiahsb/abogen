@@ -26,21 +26,36 @@
       <form id="voice-profile-form" class="voice-editor" autocomplete="off">
         <div class="voice-status" data-role="status"></div>
         <div class="voice-editor__meta">
-          <div class="field">
-            <label for="profile-name">Profile name</label>
-            <input id="profile-name" name="name" type="text" placeholder="Narrator blend" required>
+          <div class="voice-editor__identity">
+            <div class="field voice-editor__name-field">
+              <label for="profile-name">Profile name</label>
+              <input id="profile-name" name="name" type="text" placeholder="Narrator blend" required>
+            </div>
+            <div class="voice-editor__toolbar" role="group" aria-label="Profile actions">
+              <button type="submit" class="icon-button icon-button--primary" data-role="save-profile" disabled aria-label="Save profile" title="Save profile">
+                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                  <path d="M5 3h11l5 5v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm7 4a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-5 11h10v-5H7v5z" fill="currentColor" />
+                </svg>
+              </button>
+              <button type="button" class="icon-button" data-role="duplicate-profile" aria-label="Duplicate profile" title="Duplicate profile" disabled>
+                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                  <path d="M8 4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2V4zm-3 6a2 2 0 0 1 2-2h1v8a3 3 0 0 0 3 3h8v1a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z" fill="currentColor" />
+                </svg>
+              </button>
+              <button type="button" class="icon-button icon-button--danger" data-role="delete-profile" aria-label="Delete profile" title="Delete profile" disabled>
+                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                  <path d="M9 3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1h5v2H4V3h5zm1 5h2v10h-2V8zm4 0h2v10h-2V8zM6 8h2v10H6V8z" fill="currentColor" />
+                </svg>
+              </button>
+            </div>
           </div>
-          <div class="field">
+          <div class="field voice-editor__language">
             <label for="profile-language">Language</label>
             <select id="profile-language" name="language">
               {% for key, label in options.languages.items() %}
               <option value="{{ key }}">{{ label }} ({{ key|upper }})</option>
               {% endfor %}
             </select>
-          </div>
-          <div class="field">
-            <label for="preview-speed">Preview speed</label>
-            <input id="preview-speed" type="number" step="0.05" min="0.7" max="1.3" value="1.0">
           </div>
         </div>
         <div class="voice-editor__summary">
@@ -84,15 +99,14 @@
           </section>
         </div>
         <div class="voice-editor__actions">
-          <div class="button-row">
-            <button type="submit" class="button" data-role="save-profile" disabled>Save profile</button>
-            <button type="button" class="button button--ghost" data-role="duplicate-profile">Duplicate</button>
-            <button type="button" class="button button--danger" data-role="delete-profile">Delete</button>
-          </div>
           <div class="voice-preview">
             <div class="field">
               <label for="preview-text">Preview text</label>
               <textarea id="preview-text" rows="3" data-role="preview-text" placeholder="Paste a short line to audition your mix."></textarea>
+            </div>
+            <div class="field field--slider">
+              <label for="preview-speed">Preview speed <span class="tag" data-role="preview-speed-display">1.00×</span></label>
+              <input id="preview-speed" type="range" min="0.7" max="1.3" step="0.05" value="1.0" data-role="preview-speed">
             </div>
             <div class="voice-preview__controls">
               <button type="button" class="button" data-role="preview-button">Preview mix</button>
