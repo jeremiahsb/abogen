@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import subprocess
 from contextlib import ExitStack
@@ -312,6 +313,14 @@ def _open_audio_sink(
     metadata: Optional[Dict[str, str]] = None,
 ) -> AudioSink:
     ffmpeg_cache = get_internal_cache_path("ffmpeg")
+    os.makedirs(ffmpeg_cache, exist_ok=True)
+    try:
+        import static_ffmpeg.run as static_ffmpeg_run  # type: ignore
+
+        static_ffmpeg_run.LOCK_FILE = os.path.join(ffmpeg_cache, "lock.file")
+    except Exception:
+        pass
+
     static_ffmpeg.add_paths(download_dir=ffmpeg_cache)
     fmt_value = (fmt or job.output_format).lower()
 
