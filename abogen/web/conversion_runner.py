@@ -79,11 +79,15 @@ def run_conversion_job(job: Job) -> None:
             chapter_dir = audio_dir / "chapters"
             chapter_dir.mkdir(parents=True, exist_ok=True)
 
-        voice = _resolve_voice(pipeline, job)
+        voice_spec = job.voice or ""
+        cached_voice = None
+        if "*" not in voice_spec:
+            cached_voice = _resolve_voice(pipeline, voice_spec, job.use_gpu)
         processed_chars = 0
         subtitle_index = 1
         current_time = 0.0
         total_chapters = len(extraction.chapters)
+        job.add_log(f"Detected {total_chapters} chapter{'s' if total_chapters != 1 else ''}")
 
         for idx, chapter in enumerate(extraction.chapters, start=1):
             canceller()
@@ -106,18 +110,27 @@ def run_conversion_job(job: Job) -> None:
                     fmt=job.separate_chapters_format,
                 )
 
+            voice_choice = cached_voice if cached_voice is not None else _resolve_voice(
+                pipeline, voice_spec, job.use_gpu
+            )
+
+            segments_emitted = 0
+
             for segment in pipeline(
                 chapter.text,
-                voice=voice,
+                voice=voice_choice,
                 speed=job.speed,
                 split_pattern=SPLIT_PATTERN,
             ):
                 canceller()
-                graphemes = segment.graphemes.strip()
-                if not graphemes:
+                graphemes_raw = getattr(segment, "graphemes", "") or ""
+                graphemes = graphemes_raw.strip()
+
+                audio = _to_float32(getattr(segment, "audio", None))
+                if audio.size == 0:
                     continue
 
-                audio = _to_float32(segment.audio)
+                segments_emitted += 1
                 if chapter_sink:
                     chapter_sink.write(audio)
                 if audio_sink:
@@ -128,9 +141,13 @@ def run_conversion_job(job: Job) -> None:
                 job.processed_characters = processed_chars
                 if job.total_characters:
                     job.progress = min(processed_chars / job.total_characters, 0.999)
-                job.add_log(f"{processed_chars:,}/{job.total_characters or '—'}: {graphemes[:80]}")
+                else:
+                    job.progress = 0.0 if processed_chars == 0 else 0.999
 
-                if subtitle_writer and audio_sink:
+                preview_text = graphemes or (graphemes_raw[:80] if graphemes_raw else "[silence]")
+                job.add_log(f"{processed_chars:,}/{job.total_characters or '—'}: {preview_text[:80]}")
+
+                if subtitle_writer and audio_sink and graphemes:
                     subtitle_writer.write_segment(
                         index=subtitle_index,
                         text=graphemes,
@@ -144,8 +161,18 @@ def run_conversion_job(job: Job) -> None:
 
             if chapter_sink:
                 chapter_sink_stack.close()
+
+            if chapter_audio_path is not None:
                 job.result.artifacts[f"chapter_{idx:02d}"] = chapter_audio_path
                 chapter_paths.append(chapter_audio_path)
+
+            if segments_emitted == 0:
+                job.add_log(
+                    f"No audio segments were generated for chapter {idx}.",
+                    level="warning",
+                )
+            else:
+                job.add_log(f"Finished chapter {idx} with {segments_emitted} segments.")
 
             if (
                 audio_sink
@@ -340,16 +367,27 @@ def _build_ffmpeg_command(path: Path, fmt: str, metadata: Optional[Dict[str, str
     return base
 
 
-def _resolve_voice(pipeline, job: Job):
-    if "*" in job.voice:
-        return get_new_voice(pipeline, job.voice, job.use_gpu)
-    return job.voice
+def _resolve_voice(pipeline, voice_spec: str, use_gpu: bool):
+    if "*" in voice_spec:
+        return get_new_voice(pipeline, voice_spec, use_gpu)
+    return voice_spec
 
 
 def _to_float32(audio_segment) -> np.ndarray:
-    if hasattr(audio_segment, "numpy"):
-        return audio_segment.numpy().astype("float32")
-    return np.asarray(audio_segment, dtype="float32")
+    if audio_segment is None:
+        return np.zeros(0, dtype="float32")
+
+    tensor = audio_segment
+    if hasattr(tensor, "detach"):
+        tensor = tensor.detach()
+    if hasattr(tensor, "cpu"):
+        try:
+            tensor = tensor.cpu()
+        except Exception:
+            pass
+    if hasattr(tensor, "numpy"):
+        return np.asarray(tensor.numpy(), dtype="float32").reshape(-1)
+    return np.asarray(tensor, dtype="float32").reshape(-1)
 
 
 class SubtitleWriter:
