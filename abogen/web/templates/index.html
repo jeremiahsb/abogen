@@ -4,46 +4,45 @@
 
 {% block content %}
 <section class="card">
-  <h1 class="card__title">Create a new audiobook</h1>
+  <h1 class="card__title">Create a New Audiobook</h1>
   <form action="{{ url_for('web.enqueue_job') }}" method="post" enctype="multipart/form-data" class="grid grid--two form-grid">
     <div class="grid">
       <div class="field">
-        <label for="source_file">Source file</label>
+  <label for="source_file">Source File</label>
         <input type="file" id="source_file" name="source_file" accept=".txt,.pdf,.epub,.md,.markdown">
       </div>
       <div class="field">
-        <label for="language">Language</label>
+  <label for="language">Language</label>
         <select id="language" name="language">
           {% for key, label in options.languages.items() %}
           <option value="{{ key }}">{{ label }}</option>
           {% endfor %}
         </select>
       </div>
-      <div class="field" data-conditional="standard" data-role="voice-field">
-        <label for="voice">Voice</label>
+      <div class="field">
+  <label for="voice_profile">Voice Profile</label>
+  <select id="voice_profile" name="voice_profile" data-role="voice-profile">
+          <option value="__standard" {% if not options.voice_profile_options %}selected{% endif %}>Standard Voice</option>
+          <option value="__formula">Custom Voice Formula</option>
+          {% if options.voice_profile_options %}
+          <optgroup label="Saved mixes">
+            {% for profile in options.voice_profile_options %}
+            <option value="{{ profile.name }}" data-language="{{ profile.language }}" data-formula="{{ profile.formula|e }}" {% if loop.first %}selected{% endif %}>{{ profile.name }}{% if profile.language %} ({{ profile.language|upper }}){% endif %}</option>
+            {% endfor %}
+          </optgroup>
+          {% endif %}
+        </select>
+      </div>
+  <div class="field" data-role="voice-field" {% if options.voice_profile_options %}hidden aria-hidden="true"{% endif %}>
+  <label for="voice">Voice</label>
         <select id="voice" name="voice" data-role="voice-select" data-default="{{ settings.default_voice }}">
           {% for voice in options.voices %}
           <option value="{{ voice }}" {% if settings.default_voice == voice %}selected{% endif %}>{{ voice }}</option>
           {% endfor %}
         </select>
       </div>
-      <div class="field">
-        <label for="voice_profile">Voice profile</label>
-        <select id="voice_profile" name="voice_profile" data-role="voice-profile">
-          <option value="__standard" selected>Standard voice</option>
-          <option value="__formula">Formula</option>
-          {% if options.voice_profile_options %}
-          <optgroup label="Saved mixes">
-            {% for profile in options.voice_profile_options %}
-            <option value="{{ profile.name }}" data-language="{{ profile.language }}" data-formula="{{ profile.formula|e }}">{{ profile.name }} {% if profile.language %}({{ profile.language|upper }}){% endif %}</option>
-            {% endfor %}
-          </optgroup>
-          {% endif %}
-        </select>
-        <p class="tag">Manage mixes in the <a href="{{ url_for('web.voice_profiles_page') }}">voice mixer</a>.</p>
-      </div>
-      <div class="field" data-conditional="formula" data-role="formula-field" hidden>
-        <label for="voice_formula">Custom voice formula</label>
+  <div class="field" data-conditional="formula" data-role="formula-field" hidden aria-hidden="true">
+  <label for="voice_formula">Custom Voice Formula</label>
         <input type="text" id="voice_formula" name="voice_formula" placeholder="af_nova*0.4+am_liam*0.6" data-role="voice-formula">
       </div>
       <div class="field">
@@ -65,7 +64,7 @@
     </div>
     <div class="grid">
       <div class="field field--full">
-        <label for="source_text">Or paste text directly</label>
+  <label for="source_text">Or Paste Text Directly</label>
         <textarea id="source_text" name="source_text" rows="12" placeholder="Drop some text here if you don't have a file handy..." data-role="source-text"></textarea>
       </div>
       <div class="text-preview" data-role="text-preview" aria-live="polite">
@@ -80,7 +79,7 @@
         <pre class="text-preview__body" data-role="preview-body">Paste text to see a live preview and character count.</pre>
       </div>
       <div class="field field--actions">
-        <button type="submit" class="button">Queue conversion</button>
+  <button type="submit" class="button">Queue Conversion</button>
       </div>
     </div>
   </form>

@@ -22,6 +22,19 @@ const initDashboard = () => {
     }
   };
 
+  const selectFirstProfileIfAvailable = () => {
+    if (!profileSelect) return false;
+    const saved = Array.from(profileSelect.options).filter(
+      (option) => option.value && option.value !== "__standard" && option.value !== "__formula",
+    );
+    if (!saved.length) {
+      profileSelect.value = "__standard";
+      return false;
+    }
+    saved[0].selected = true;
+    return true;
+  };
+
   const updateVoiceControls = () => {
     if (!profileSelect) {
       return;
@@ -32,15 +45,18 @@ const initDashboard = () => {
     const isSavedProfile = Boolean(value && !isStandard && !isFormula);
 
     if (voiceField) {
-      voiceField.hidden = false;
-      voiceField.setAttribute("aria-hidden", "false");
+      const showVoice = isStandard;
+      voiceField.hidden = !showVoice;
+      voiceField.setAttribute("aria-hidden", showVoice ? "false" : "true");
     }
     if (voiceSelect) {
       voiceSelect.disabled = !isStandard;
       voiceSelect.dataset.state = isStandard ? "editable" : "locked";
+      if (isStandard) {
+        hydrateDefaultVoice();
+      }
     }
 
-    let showFormula = isFormula || isSavedProfile;
     let presetFormula = "";
     if (isSavedProfile) {
       const option = profileSelect.selectedOptions[0];
@@ -53,6 +69,7 @@ const initDashboard = () => {
       }
     }
 
+    const showFormula = isFormula;
     if (formulaField) {
       formulaField.hidden = !showFormula;
       formulaField.setAttribute("aria-hidden", showFormula ? "false" : "true");
@@ -60,14 +77,16 @@ const initDashboard = () => {
     if (formulaInput) {
       formulaInput.disabled = !showFormula;
       if (showFormula) {
-        if (presetFormula) {
+        if (presetFormula && !formulaInput.value) {
           formulaInput.value = presetFormula;
         }
+        formulaInput.readOnly = false;
+        formulaInput.dataset.state = "editable";
       } else {
         formulaInput.value = formulaInput.value.trim();
+        formulaInput.readOnly = true;
+        formulaInput.dataset.state = isSavedProfile ? "locked" : "editable";
       }
-      formulaInput.dataset.state = isSavedProfile ? "locked" : "editable";
-      formulaInput.readOnly = isSavedProfile;
     }
   };
 
@@ -102,11 +121,15 @@ const initDashboard = () => {
   };
 
   if (profileSelect) {
+    const hasSaved = selectFirstProfileIfAvailable();
     profileSelect.addEventListener("change", updateVoiceControls);
     updateVoiceControls();
+    if (!hasSaved) {
+      hydrateDefaultVoice();
+    }
+  } else {
+    hydrateDefaultVoice();
   }
-
-  hydrateDefaultVoice();
 
   if (sourceText) {
     sourceText.addEventListener("input", updatePreview);
