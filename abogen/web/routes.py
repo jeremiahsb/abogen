@@ -363,8 +363,7 @@ def index() -> str:
 
 @web_bp.get("/queue")
 def queue_page() -> str:
-    jobs = _service().list_jobs()
-    return render_template("queue.html", jobs=jobs)
+    return render_template("queue.html", jobs_panel=_render_jobs_panel())
 
 
 @web_bp.route("/settings", methods=["GET", "POST"])
