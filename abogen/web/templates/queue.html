@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+
+{% block title %}abogen · Queue{% endblock %}
+
+{% block content %}
+<section class="card" id="jobs-panel" hx-get="{{ url_for('web.jobs_partial') }}" hx-trigger="load, every 3s" hx-target="#jobs-panel" hx-swap="innerHTML">
+  {% include "partials/jobs.html" %}
+</section>
+{% endblock %}

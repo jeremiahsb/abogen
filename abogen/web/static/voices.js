@@ -31,6 +31,7 @@ const setupVoiceMixer = () => {
   const dropzoneEl = app.querySelector('[data-role="dropzone"]');
   const emptyStateEl = app.querySelector('[data-role="mix-empty"]');
   const voiceFilterSelect = app.querySelector('[data-role="voice-filter"]');
+  const genderFilterEl = app.querySelector('[data-role="gender-filter"]');
 
   if (!profileListEl || !availableListEl || !selectedListEl) {
     return;
@@ -57,6 +58,7 @@ const setupVoiceMixer = () => {
       voices: new Map(),
     },
     languageFilter: voiceFilterSelect ? voiceFilterSelect.value : "",
+    genderFilter: "",
   };
 
   let statusTimeout = null;
@@ -155,6 +157,16 @@ const setupVoiceMixer = () => {
     });
   };
 
+  const updateGenderFilterButtons = () => {
+    if (!genderFilterEl) return;
+    const buttons = genderFilterEl.querySelectorAll("[data-value]");
+    buttons.forEach((button) => {
+      const value = button.getAttribute("data-value") || "";
+      const pressed = value === state.genderFilter;
+      button.setAttribute("aria-pressed", pressed ? "true" : "false");
+    });
+  };
+
   const setSliderFocus = (voiceId) => {
     const control = selectedControls.get(voiceId);
     if (control?.slider) {
@@ -250,18 +262,30 @@ const setupVoiceMixer = () => {
 
     const filteredVoices = sortedVoices.filter((voice) => {
       const languageCode = voice.language || voice.id?.charAt(0) || "a";
-      return !state.languageFilter || state.languageFilter === languageCode;
+      const languageMatch = !state.languageFilter || state.languageFilter === languageCode;
+      const genderCode = (voice.gender || "").charAt(0).toLowerCase();
+      const genderMatch = !state.genderFilter || state.genderFilter === genderCode;
+      return languageMatch && genderMatch;
     });
 
     if (!filteredVoices.length) {
       const empty = document.createElement("p");
       empty.className = "voice-available__empty";
-      const label = state.languageFilter
-        ? voiceLanguageLabel(state.languageFilter) || state.languageFilter.toUpperCase()
-        : "All voices";
-      empty.innerHTML = `No voices for <strong>${label}</strong> yet.`;
+      const filters = [];
+      if (state.languageFilter) {
+        filters.push(voiceLanguageLabel(state.languageFilter) || state.languageFilter.toUpperCase());
+      }
+      if (state.genderFilter) {
+        filters.push(state.genderFilter === "f" ? "♀ Female" : "♂ Male");
+      }
+      if (filters.length) {
+        empty.innerHTML = `No voices match <strong>${filters.join(" · ")}</strong>.`;
+      } else {
+        empty.textContent = "No voices available.";
+      }
       availableListEl.appendChild(empty);
       updateAvailableState();
+      updateGenderFilterButtons();
       return;
     }
 
@@ -330,6 +354,7 @@ const setupVoiceMixer = () => {
     });
 
     updateAvailableState();
+    updateGenderFilterButtons();
     availableListEl.scrollTop = 0;
   };
 
@@ -727,6 +752,18 @@ const setupVoiceMixer = () => {
     });
   }
 
+  if (genderFilterEl) {
+    genderFilterEl.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLButtonElement)) return;
+      const value = (target.getAttribute("data-value") || "").toLowerCase();
+      if (!value) return;
+      state.genderFilter = state.genderFilter === value ? "" : value;
+      renderAvailableVoices();
+    });
+    updateGenderFilterButtons();
+  }
+
   if (nameInput) {
     nameInput.addEventListener("input", () => {
       state.draft.name = nameInput.value;
@@ -789,7 +826,16 @@ const setupVoiceMixer = () => {
       });
     });
 
-    dropzoneEl.addEventListener("click", () => {
+    dropzoneEl.addEventListener("click", (event) => {
+      if (!(event.target instanceof HTMLElement)) {
+        return;
+      }
+      if (event.target.closest(".mix-voice")) {
+        return;
+      }
+      if (event.target.closest(".mix-slider")) {
+        return;
+      }
       const firstInactive = Array.from(availableCards.entries()).find(
         ([voiceId]) => !state.draft.voices.has(voiceId),
       );

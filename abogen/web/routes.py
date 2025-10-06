@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import mimetypes
+import os
 import threading
 import uuid
 from pathlib import Path
@@ -32,7 +33,14 @@ from abogen.constants import (
     SUPPORTED_SOUND_FORMATS,
     VOICES_INTERNAL,
 )
-from abogen.utils import calculate_text_length, clean_text, load_config, load_numpy_kpipeline
+from abogen.utils import (
+    calculate_text_length,
+    clean_text,
+    get_user_output_path,
+    load_config,
+    load_numpy_kpipeline,
+    save_config,
+)
 from abogen.voice_profiles import (
     delete_profile,
     duplicate_profile,
@@ -97,6 +105,113 @@ def _template_options() -> Dict[str, Any]:
         "voice_profiles_data": profiles,
     }
 
+
+SAVE_MODE_LABELS = {
+    "save_next_to_input": "Save next to input file",
+    "save_to_desktop": "Save to Desktop",
+    "choose_output_folder": "Choose output folder",
+    "default_output": "Use default save location",
+}
+
+LEGACY_SAVE_MODE_MAP = {label: key for key, label in SAVE_MODE_LABELS.items()}
+
+BOOLEAN_SETTINGS = {
+    "replace_single_newlines",
+    "use_gpu",
+    "save_chapters_separately",
+    "merge_chapters_at_end",
+    "save_as_project",
+}
+
+FLOAT_SETTINGS = {"silence_between_chapters"}
+INT_SETTINGS = {"max_subtitle_words"}
+
+
+def _has_output_override() -> bool:
+    return bool(os.environ.get("ABOGEN_OUTPUT_DIR") or os.environ.get("ABOGEN_OUTPUT_ROOT"))
+
+
+def _settings_defaults() -> Dict[str, Any]:
+    return {
+        "output_format": "wav",
+        "subtitle_format": "srt",
+        "save_mode": "default_output" if _has_output_override() else "save_next_to_input",
+        "replace_single_newlines": False,
+        "use_gpu": True,
+        "save_chapters_separately": False,
+        "merge_chapters_at_end": True,
+        "save_as_project": False,
+        "separate_chapters_format": "wav",
+        "silence_between_chapters": 2.0,
+        "max_subtitle_words": 50,
+    }
+
+
+def _coerce_bool(value: Any, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in {"true", "1", "yes", "on"}
+    if value is None:
+        return default
+    return bool(value)
+
+
+def _coerce_float(value: Any, default: float) -> float:
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_int(value: Any, default: int, *, minimum: int = 1, maximum: int = 200) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(parsed, maximum))
+
+
+def _normalize_save_mode(value: Any, default: str) -> str:
+    if isinstance(value, str):
+        if value in SAVE_MODE_LABELS:
+            return value
+        if value in LEGACY_SAVE_MODE_MAP:
+            return LEGACY_SAVE_MODE_MAP[value]
+    return default
+
+
+def _normalize_setting_value(key: str, value: Any, defaults: Dict[str, Any]) -> Any:
+    if key in BOOLEAN_SETTINGS:
+        return _coerce_bool(value, defaults[key])
+    if key in FLOAT_SETTINGS:
+        return _coerce_float(value, defaults[key])
+    if key in INT_SETTINGS:
+        return _coerce_int(value, defaults[key])
+    if key == "save_mode":
+        return _normalize_save_mode(value, defaults[key])
+    if key == "output_format":
+        return value if value in SUPPORTED_SOUND_FORMATS else defaults[key]
+    if key == "subtitle_format":
+        valid = {item[0] for item in SUBTITLE_FORMATS}
+        return value if value in valid else defaults[key]
+    if key == "separate_chapters_format":
+        if isinstance(value, str):
+            normalized = value.lower()
+            if normalized in {"wav", "flac", "mp3", "opus"}:
+                return normalized
+        return defaults[key]
+    return value if value is not None else defaults.get(key)
+
+
+def _load_settings() -> Dict[str, Any]:
+    defaults = _settings_defaults()
+    cfg = load_config() or {}
+    settings: Dict[str, Any] = {}
+    for key, default in defaults.items():
+        raw_value = cfg.get(key, default)
+        settings[key] = _normalize_setting_value(key, raw_value, defaults)
+    return settings
 
 def _formula_from_profile(entry: Dict[str, Any]) -> Optional[str]:
     voices = entry.get("voices") or []
@@ -224,13 +339,62 @@ def datetimeformat(value: float, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
 
 @web_bp.get("/")
 def index() -> str:
-    service = _service()
-    jobs = service.list_jobs()
-    return render_template(
-        "index.html",
-        jobs=jobs,
-        options=_template_options(),
-    )
+    return render_template("index.html", options=_template_options())
+
+
+@web_bp.get("/queue")
+def queue_page() -> str:
+    jobs = _service().list_jobs()
+    return render_template("queue.html", jobs=jobs)
+
+
+@web_bp.route("/settings", methods=["GET", "POST"])
+def settings_page() -> Response | str:
+    options = _template_options()
+    current_settings = _load_settings()
+
+    if request.method == "POST":
+        form = request.form
+        defaults = _settings_defaults()
+        updated: Dict[str, Any] = {}
+
+        updated["output_format"] = _normalize_setting_value(
+            "output_format", form.get("output_format"), defaults
+        )
+        updated["subtitle_format"] = _normalize_setting_value(
+            "subtitle_format", form.get("subtitle_format"), defaults
+        )
+        updated["save_mode"] = _normalize_setting_value(
+            "save_mode", form.get("save_mode"), defaults
+        )
+        for key in sorted(BOOLEAN_SETTINGS):
+            updated[key] = _coerce_bool(form.get(key), False)
+        updated["separate_chapters_format"] = _normalize_setting_value(
+            "separate_chapters_format", form.get("separate_chapters_format"), defaults
+        )
+        updated["silence_between_chapters"] = _coerce_float(
+            form.get("silence_between_chapters"), defaults["silence_between_chapters"]
+        )
+        updated["max_subtitle_words"] = _coerce_int(
+            form.get("max_subtitle_words"), defaults["max_subtitle_words"]
+        )
+
+        cfg = load_config() or {}
+        cfg.update(updated)
+        save_config(cfg)
+        return redirect(url_for("web.settings_page", saved="1"))
+
+    save_locations = [
+        {"value": key, "label": label} for key, label in SAVE_MODE_LABELS.items()
+    ]
+    context = {
+        "options": options,
+        "settings": current_settings,
+        "save_locations": save_locations,
+        "default_output_dir": get_user_output_path(),
+        "saved": request.args.get("saved") == "1",
+    }
+    return render_template("settings.html", **context)
 
 
 @web_bp.get("/voices")
@@ -361,7 +525,11 @@ def api_preview_voice_mix() -> Response:
     language = (payload.get("language") or "a").strip() or "a"
     text = (payload.get("text") or "").strip()
     speed = float(payload.get("speed", 1.0) or 1.0)
-    max_seconds = float(payload.get("max_seconds", 12.0) or 12.0)
+    try:
+        requested_preview = float(payload.get("max_seconds", 60.0) or 60.0)
+    except (TypeError, ValueError):
+        requested_preview = 60.0
+    max_seconds = max(1.0, min(60.0, requested_preview))
     profile_name = (payload.get("profile") or payload.get("profile_name") or "").strip()
     formula = (payload.get("formula") or "").strip()
 
@@ -398,9 +566,12 @@ def api_preview_voice_mix() -> Response:
     if not text:
         text = SAMPLE_VOICE_TEXTS.get(language, SAMPLE_VOICE_TEXTS.get("a", "This is a sample of the selected voice."))
 
-    cfg = load_config()
-    use_gpu_cfg = bool(cfg.get("use_gpu", True))
-    use_gpu = use_gpu_cfg if payload.get("use_gpu") is None else bool(payload.get("use_gpu"))
+    settings = _load_settings()
+    use_gpu_default = settings.get("use_gpu", True)
+    if "use_gpu" in payload:
+        use_gpu = _coerce_bool(payload.get("use_gpu"), use_gpu_default)
+    else:
+        use_gpu = use_gpu_default
     device = "cpu"
     if use_gpu:
         try:
@@ -506,11 +677,23 @@ def enqueue_job() -> Response:
         total_chars = calculate_text_length(clean_text(text_input))
 
     profiles = load_profiles()
+    settings = _load_settings()
 
     language = request.form.get("language", "a")
     base_voice = request.form.get("voice", "af_alloy")
-    profile_name = request.form.get("voice_profile", "").strip()
-    custom_formula = request.form.get("voice_formula", "").strip()
+    profile_selection = (request.form.get("voice_profile") or "__standard").strip()
+    custom_formula_raw = request.form.get("voice_formula", "").strip()
+
+    if profile_selection in {"__standard", ""}:
+        profile_name = ""
+        custom_formula = ""
+    elif profile_selection == "__formula":
+        profile_name = ""
+        custom_formula = custom_formula_raw
+    else:
+        profile_name = profile_selection
+        custom_formula = ""
+
     voice, language, selected_profile = _resolve_voice_choice(
         language,
         base_voice,
@@ -520,27 +703,18 @@ def enqueue_job() -> Response:
     )
     speed = float(request.form.get("speed", "1.0"))
     subtitle_mode = request.form.get("subtitle_mode", "Disabled")
-    output_format = request.form.get("output_format", "wav")
-    subtitle_format = request.form.get("subtitle_format", "srt")
-    save_mode = request.form.get("save_mode", "Save next to input file")
-    replace_single_newlines = request.form.get("replace_single_newlines") in {"true", "on", "1"}
-    use_gpu = request.form.get("use_gpu") in {"true", "on", "1"}
-    save_chapters_separately = request.form.get("save_chapters_separately") in {"true", "on", "1"}
-    merge_chapters_at_end = request.form.get("merge_chapters_at_end") in {"true", "on", "1"}
-    if not save_chapters_separately:
-        merge_chapters_at_end = True
-    save_as_project = request.form.get("save_as_project") in {"true", "on", "1"}
-    separate_chapters_format = request.form.get("separate_chapters_format", "wav").lower()
-    try:
-        silence_between_chapters = float(request.form.get("silence_between_chapters", "2.0") or 0.0)
-    except ValueError:
-        silence_between_chapters = 2.0
-    silence_between_chapters = max(0.0, silence_between_chapters)
-    try:
-        max_subtitle_words = int(request.form.get("max_subtitle_words", "50") or 50)
-    except ValueError:
-        max_subtitle_words = 50
-    max_subtitle_words = max(1, min(max_subtitle_words, 200))
+    output_format = settings["output_format"]
+    subtitle_format = settings["subtitle_format"]
+    save_mode_key = settings["save_mode"]
+    save_mode = SAVE_MODE_LABELS.get(save_mode_key, SAVE_MODE_LABELS["save_next_to_input"])
+    replace_single_newlines = settings["replace_single_newlines"]
+    use_gpu = settings["use_gpu"]
+    save_chapters_separately = settings["save_chapters_separately"]
+    merge_chapters_at_end = settings["merge_chapters_at_end"] or not save_chapters_separately
+    save_as_project = settings["save_as_project"]
+    separate_chapters_format = settings["separate_chapters_format"]
+    silence_between_chapters = settings["silence_between_chapters"]
+    max_subtitle_words = settings["max_subtitle_words"]
 
     job = service.enqueue(
         original_filename=original_name,

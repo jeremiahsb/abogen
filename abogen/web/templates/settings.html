@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}abogen · Settings{% endblock %}
+
+{% block content %}
+<section class="card settings">
+  <h1 class="card__title">Application settings</h1>
+  <p class="tag">Settings apply to new jobs you queue from the dashboard.</p>
+
+  {% if saved %}
+  <div class="alert alert--success">Settings saved successfully.</div>
+  {% endif %}
+
+  <form action="{{ url_for('web.settings_page') }}" method="post" class="settings__form">
+    <fieldset class="settings__section">
+      <legend>Output defaults</legend>
+      <div class="field">
+        <label for="output_format">Audio format</label>
+        <select id="output_format" name="output_format">
+          {% for fmt in options.output_formats %}
+          <option value="{{ fmt }}" {% if settings.output_format == fmt %}selected{% endif %}>{{ fmt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="subtitle_format">Subtitle file format</label>
+        <select id="subtitle_format" name="subtitle_format">
+          {% for value, text in options.subtitle_formats %}
+          <option value="{{ value }}" {% if settings.subtitle_format == value %}selected{% endif %}>{{ text }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="save_mode">Save location</label>
+        <select id="save_mode" name="save_mode">
+          {% for location in save_locations %}
+          <option value="{{ location.value }}" {% if settings.save_mode == location.value %}selected{% endif %}>{{ location.label }}</option>
+          {% endfor %}
+        </select>
+        <p class="tag">Default output: <code>{{ default_output_dir }}</code></p>
+      </div>
+    </fieldset>
+
+    <fieldset class="settings__section">
+      <legend>Processing</legend>
+      <div class="field field--inline">
+        <label class="tag"><input type="checkbox" name="replace_single_newlines" value="true" {% if settings.replace_single_newlines %}checked{% endif %}> Replace single newlines</label>
+        <label class="tag"><input type="checkbox" name="use_gpu" value="true" {% if settings.use_gpu %}checked{% endif %}> Use GPU (when available)</label>
+      </div>
+      <div class="field field--inline">
+        <label class="tag"><input type="checkbox" name="save_chapters_separately" value="true" {% if settings.save_chapters_separately %}checked{% endif %}> Save each chapter separately</label>
+        <label class="tag"><input type="checkbox" name="merge_chapters_at_end" value="true" {% if settings.merge_chapters_at_end %}checked{% endif %}> Also create merged audiobook</label>
+        <label class="tag"><input type="checkbox" name="save_as_project" value="true" {% if settings.save_as_project %}checked{% endif %}> Save as project with metadata</label>
+      </div>
+      <div class="field">
+        <label for="separate_chapters_format">Separate chapter format</label>
+        <select id="separate_chapters_format" name="separate_chapters_format">
+          {% for fmt in options.separate_formats %}
+          <option value="{{ fmt }}" {% if settings.separate_chapters_format == fmt %}selected{% endif %}>{{ fmt|upper }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="silence_between_chapters">Silence between chapters (seconds)</label>
+        <input type="number" step="0.5" min="0" id="silence_between_chapters" name="silence_between_chapters" value="{{ settings.silence_between_chapters }}">
+      </div>
+      <div class="field">
+        <label for="max_subtitle_words">Max words per subtitle entry</label>
+        <input type="number" min="1" max="200" id="max_subtitle_words" name="max_subtitle_words" value="{{ settings.max_subtitle_words }}">
+      </div>
+    </fieldset>
+
+    <div class="settings__actions">
+      <button type="submit" class="button">Save settings</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

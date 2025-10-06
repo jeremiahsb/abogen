@@ -18,6 +18,7 @@ from abogen.utils import (
     calculate_text_length,
     create_process,
     get_user_cache_path,
+    get_user_output_path,
     load_config,
     load_numpy_kpipeline,
 )
@@ -215,6 +216,8 @@ def _prepare_output_dir(job: Job) -> Path:
         directory = job.stored_path.parent
     elif job.save_mode == "Choose output folder" and job.output_folder:
         directory = Path(job.output_folder)
+    elif job.save_mode == "Use default save location":
+        directory = Path(get_user_output_path())
     else:
         directory = default_output
     directory.mkdir(parents=True, exist_ok=True)

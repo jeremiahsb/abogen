@@ -55,13 +55,19 @@
                 <p class="tag">Drag into the mixer or click Add.</p>
               </div>
               <div class="voice-filter">
-                <label for="voice-language-filter">Language</label>
-                <select id="voice-language-filter" data-role="voice-filter">
-                  <option value="">All languages</option>
-                  {% for key, label in options.languages.items() %}
-                  <option value="{{ key }}">{{ label }} ({{ key|upper }})</option>
-                  {% endfor %}
-                </select>
+                <label class="voice-filter__label" for="voice-language-filter">Language</label>
+                <div class="voice-filter__controls">
+                  <select id="voice-language-filter" data-role="voice-filter">
+                    <option value="">All languages</option>
+                    {% for key, label in options.languages.items() %}
+                    <option value="{{ key }}">{{ label }} ({{ key|upper }})</option>
+                    {% endfor %}
+                  </select>
+                  <div class="voice-gender-filter" data-role="gender-filter" aria-label="Filter by gender">
+                    <button type="button" class="voice-gender-filter__button" data-value="f" aria-pressed="false" title="Show female voices">♀</button>
+                    <button type="button" class="voice-gender-filter__button" data-value="m" aria-pressed="false" title="Show male voices">♂</button>
+                  </div>
+                </div>
               </div>
             </header>
             <div class="voice-available__list" data-role="available-voices"></div>

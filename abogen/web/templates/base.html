@@ -16,8 +16,11 @@
       <span class="brand__tagline">Audiobooks for humans, not desktops</span>
     </div>
     <nav class="top-actions">
-      <a href="{{ url_for('web.index') }}" class="btn">Dashboard</a>
-      <a href="{{ url_for('web.voice_profiles_page') }}" class="btn">Voice mixer</a>
+      {% set endpoint = request.endpoint or '' %}
+      <a href="{{ url_for('web.index') }}" class="btn{% if endpoint == 'web.index' %} is-active{% endif %}">Dashboard</a>
+  <a href="{{ url_for('web.voice_profiles_page') }}" class="btn{% if endpoint == 'web.voice_profiles_page' %} is-active{% endif %}">Voice Mixer</a>
+      <a href="{{ url_for('web.queue_page') }}" class="btn{% if endpoint in ['web.queue_page', 'web.job_detail'] %} is-active{% endif %}">Queue</a>
+      <a href="{{ url_for('web.settings_page') }}" class="btn{% if endpoint == 'web.settings_page' %} is-active{% endif %}">Settings</a>
     </nav>
   </header>
   <main class="main">
