@@ -52,6 +52,9 @@ Documentation = "https://github.com/denizsafak/abogen"
 Repository = "https://github.com/denizsafak/abogen"
 Issues = "https://github.com/denizsafak/abogen/issues"
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 
 [project.gui-scripts]
 abogen = "abogen.web.app:main"
