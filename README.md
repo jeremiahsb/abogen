@@ -53,6 +53,10 @@ Browse to http://localhost:8808. Uploaded source files are stored in `/data/uplo
 | `ABOGEN_OUTPUT_DIR` | `/data/outputs` | Container path for rendered audio/subtitles |
 | `ABOGEN_SETTINGS_DIR` | `/config` | Container path for JSON settings/configuration |
 | `ABOGEN_TEMP_DIR` | `/data/cache` (Docker) or platform cache dir | Container path for temporary files |
+| `XDG_CACHE_HOME` | `/data/cache` | Base directory for cache data (used by many Python libraries) |
+| `HF_HOME` | `/data/cache/huggingface` | Hugging Face model cache directory |
+| `HUGGINGFACE_HUB_CACHE` | `/data/cache/huggingface` | Alias for Hugging Face hub cache |
+| `TRANSFORMERS_CACHE` | `/data/cache/huggingface` | Transformers model cache directory |
 | `ABOGEN_UID` | `1000` | UID that the container should run as (matches host user) |
 | `ABOGEN_GID` | `1000` | GID that the container should run as (matches host group) |
 
@@ -71,7 +75,10 @@ When running via Docker Compose, set `ABOGEN_SETTINGS_DIR`,
 `ABOGEN_OUTPUT_DIR`, and `ABOGEN_TEMP_DIR` in your `.env` file to the host
 directories you want mounted into the container. Compose maps them to
 `/config`, `/data/outputs`, and `/data/cache` respectively while exporting
-those in-container paths to the application. Ensure each host directory exists
+those in-container paths to the application. The cache mount is also shared
+with common environment variables (`XDG_CACHE_HOME`, `HF_HOME`,
+`HUGGINGFACE_HUB_CACHE`, `TRANSFORMERS_CACHE`) so libraries like Hugging Face
+store downloads in the same writable location. Ensure each host directory exists
 and is writable by the UID/GID you configure before starting the stack.
 
 ### Docker Compose (GPU by default)

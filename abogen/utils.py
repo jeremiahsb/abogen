@@ -158,32 +158,51 @@ def get_user_cache_root():
         if last_error is not None:
             raise last_error
 
+    def _configure_cache_env(cache_path):
+        os.environ.setdefault("XDG_CACHE_HOME", cache_path)
+
+        hf_cache = os.path.join(cache_path, "huggingface")
+        for env_var in ("HF_HOME", "HUGGINGFACE_HUB_CACHE", "TRANSFORMERS_CACHE"):
+            os.environ.setdefault(env_var, hf_cache)
+
+        # Ensure Hugging Face cache directory exists so downloads succeed.
+        ensure_directory(hf_cache)
+
+        if not os.environ.get("HOME"):
+            os.environ["HOME"] = os.path.dirname(cache_path) or "/"
+
+    cache_root = None
+
     override = os.environ.get("ABOGEN_TEMP_DIR")
     if override:
         try:
-            return ensure_directory(override)
+            cache_root = ensure_directory(override)
         except OSError as exc:
             logger.warning("ABOGEN_TEMP_DIR=%s is not writable: %s", override, exc)
 
-    from platformdirs import user_cache_dir
+    if cache_root is None:
+        from platformdirs import user_cache_dir
 
-    default_cache = user_cache_dir("abogen", appauthor=False, opinion=True)
+        default_cache = user_cache_dir("abogen", appauthor=False, opinion=True)
 
-    data_root = os.environ.get("ABOGEN_DATA") or os.environ.get("ABOGEN_DATA_DIR")
-    fallback_paths = [
-        default_cache,
-        os.path.join(data_root, "cache") if data_root else None,
-        "/data/cache",
-        "/tmp/abogen-cache",
-    ]
+        data_root = os.environ.get("ABOGEN_DATA") or os.environ.get("ABOGEN_DATA_DIR")
+        fallback_paths = [
+            default_cache,
+            os.path.join(data_root, "cache") if data_root else None,
+            "/data/cache",
+            "/tmp/abogen-cache",
+        ]
 
-    try:
-        return _try_paths(*fallback_paths)
-    except OSError:
-        # Final safety net – attempt a tmp directory unique to this process.
-        tmp_candidate = os.path.join("/tmp", f"abogen-cache-{os.getpid()}")
-        logger.warning("Falling back to temp cache directory %s", tmp_candidate)
-        return ensure_directory(tmp_candidate)
+        try:
+            cache_root = _try_paths(*fallback_paths)
+        except OSError:
+            # Final safety net – attempt a tmp directory unique to this process.
+            tmp_candidate = os.path.join("/tmp", f"abogen-cache-{os.getpid()}")
+            logger.warning("Falling back to temp cache directory %s", tmp_candidate)
+            cache_root = ensure_directory(tmp_candidate)
+
+    _configure_cache_env(cache_root)
+    return cache_root
 
 
 def get_user_cache_path(folder=None):
