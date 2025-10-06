@@ -44,8 +44,9 @@ EXPOSE 8808
 VOLUME ["/data"]
 
 ENV ABOGEN_UPLOAD_ROOT=/data/uploads \
-  ABOGEN_OUTPUT_ROOT=/data/outputs
+  ABOGEN_OUTPUT_ROOT=/data/outputs \
+  ABOGEN_TEMP_DIR=/data/cache
 
-RUN mkdir -p /data/uploads /data/outputs
+RUN mkdir -p /data/uploads /data/outputs /data/cache
 
 CMD ["abogen"]
