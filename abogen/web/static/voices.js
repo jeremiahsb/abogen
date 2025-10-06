@@ -1,13 +1,16 @@
 const setupVoiceMixer = () => {
   const data = window.ABOGEN_VOICE_MIXER_DATA || {};
   const languages = data.languages || {};
-  const voiceCatalog = data.voice_catalog || [];
+  const voiceCatalog = Array.isArray(data.voice_catalog) ? data.voice_catalog : [];
   const samples = data.sample_voice_texts || {};
   let profiles = data.voice_profiles_data || {};
 
   const app = document.getElementById("voice-mixer-app");
+  if (!app) {
+    return;
+  }
+
   const profileListEl = app.querySelector('[data-role="profile-list"]');
-  const voiceGridEl = app.querySelector('[data-role="voice-grid"]');
   const statusEl = app.querySelector('[data-role="status"]');
   const saveBtn = app.querySelector('[data-role="save-profile"]');
   const duplicateBtn = app.querySelector('[data-role="duplicate-profile"]');
@@ -22,18 +25,25 @@ const setupVoiceMixer = () => {
   const languageSelect = document.getElementById("profile-language");
   const speedInput = document.getElementById("preview-speed");
   const importInput = document.getElementById("voice-import-input");
-  const headerActions = document.querySelector('.voice-mixer__header-actions');
+  const headerActions = document.querySelector(".voice-mixer__header-actions");
+  const availableListEl = app.querySelector('[data-role="available-voices"]');
+  const selectedListEl = app.querySelector('[data-role="selected-voices"]');
+  const dropzoneEl = app.querySelector('[data-role="dropzone"]');
+  const emptyStateEl = app.querySelector('[data-role="mix-empty"]');
 
-  if (!app) {
+  if (!profileListEl || !availableListEl || !selectedListEl) {
     return;
   }
 
-  if (!voiceCatalog.length) {
-    if (profileListEl) {
-      profileListEl.innerHTML = "<p class=\"tag\">No voices available.</p>";
+  const voiceLookup = new Map();
+  voiceCatalog.forEach((voice) => {
+    if (voice && voice.id) {
+      voiceLookup.set(voice.id, voice);
     }
-    return;
-  }
+  });
+
+  const availableCards = new Map();
+  const selectedControls = new Map();
 
   const state = {
     selectedProfile: null,
@@ -47,11 +57,25 @@ const setupVoiceMixer = () => {
     },
   };
 
-  const voiceControls = new Map();
   let statusTimeout = null;
 
-  const voiceGenderIcon = (gender) => (gender === "Female" ? "♀" : gender === "Male" ? "♂" : "•");
-  const voiceLanguageLabel = (code) => languages[code] || code.toUpperCase();
+  const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+  const formatWeight = (value) => value.toFixed(2);
+
+  const setSliderFill = (slider, weight) => {
+    const percent = Math.round(clamp(weight, 0, 1) * 100);
+    slider.style.background = `linear-gradient(90deg, var(--accent) 0%, var(--accent) ${percent}%, rgba(148, 163, 184, 0.25) ${percent}%, rgba(148, 163, 184, 0.25) 100%)`;
+  };
+
+  const voiceGenderIcon = (gender) => {
+    if (!gender) return "•";
+    const initial = gender[0].toLowerCase();
+    if (initial === "f") return "♀";
+    if (initial === "m") return "♂";
+    return "•";
+  };
+
+  const voiceLanguageLabel = (code) => languages[code] || code?.toUpperCase() || "";
 
   const clearStatus = () => {
     if (statusTimeout) {
@@ -76,26 +100,12 @@ const setupVoiceMixer = () => {
     }
   };
 
-  const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
-
-  const formatWeight = (value) => value.toFixed(2);
-
   const mixTotal = () => {
     let total = 0;
     state.draft.voices.forEach((weight) => {
       total += weight;
     });
     return total;
-  };
-
-  const updateActionButtons = () => {
-    const hasSelection = Boolean(state.selectedProfile && profiles[state.selectedProfile]);
-    if (duplicateBtn) {
-      duplicateBtn.disabled = !hasSelection;
-    }
-    if (deleteBtn) {
-      deleteBtn.disabled = !hasSelection;
-    }
   };
 
   const updateMixSummary = () => {
@@ -127,6 +137,213 @@ const setupVoiceMixer = () => {
     }
   };
 
+  const ensureEmptyState = () => {
+    if (!emptyStateEl) return;
+    emptyStateEl.hidden = state.draft.voices.size > 0;
+  };
+
+  const updateAvailableState = () => {
+    availableCards.forEach(({ card, addButton }, voiceId) => {
+      const isActive = state.draft.voices.has(voiceId);
+      card.classList.toggle("is-active", isActive);
+      if (addButton) {
+        addButton.disabled = isActive;
+        addButton.textContent = isActive ? "Added" : "Add";
+      }
+    });
+  };
+
+  const setSliderFocus = (voiceId) => {
+    const control = selectedControls.get(voiceId);
+    if (control?.slider) {
+      control.slider.focus({ preventScroll: false });
+    }
+  };
+
+  const renderSelectedVoices = () => {
+    selectedControls.clear();
+    selectedListEl.innerHTML = "";
+
+    state.draft.voices.forEach((weight, voiceId) => {
+      const meta = voiceLookup.get(voiceId) || {};
+      const card = document.createElement("div");
+      card.className = "mix-voice";
+      card.dataset.voiceId = voiceId;
+
+      const header = document.createElement("div");
+      header.className = "mix-voice__header";
+
+      const titleWrap = document.createElement("div");
+      titleWrap.className = "mix-voice__info";
+
+      const title = document.createElement("div");
+      title.className = "mix-voice__title";
+      title.textContent = meta.display_name || meta.name || voiceId;
+
+      const metaLabel = document.createElement("div");
+      metaLabel.className = "mix-voice__meta";
+      const languageCode = meta.language || voiceId.charAt(0) || "a";
+      metaLabel.textContent = `${voiceLanguageLabel(languageCode)} · ${voiceGenderIcon(meta.gender)}`;
+
+      titleWrap.appendChild(title);
+      titleWrap.appendChild(metaLabel);
+
+      const weightLabel = document.createElement("span");
+      weightLabel.className = "mix-voice__weight";
+      weightLabel.textContent = formatWeight(weight);
+
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "mix-voice__remove";
+      removeBtn.setAttribute("aria-label", `Remove ${title.textContent} from mix`);
+      removeBtn.innerHTML = "&times;";
+      removeBtn.addEventListener("click", () => {
+        state.draft.voices.delete(voiceId);
+        renderSelectedVoices();
+        updateAvailableState();
+        updateMixSummary();
+        markDirty();
+      });
+
+      header.appendChild(titleWrap);
+      header.appendChild(weightLabel);
+      header.appendChild(removeBtn);
+
+      const slider = document.createElement("input");
+      slider.type = "range";
+      slider.min = "0";
+      slider.max = "100";
+      slider.step = "1";
+      slider.className = "mix-slider";
+      slider.value = String(Math.round(clamp(weight, 0, 1) * 100));
+      setSliderFill(slider, weight);
+      slider.addEventListener("input", () => {
+        const value = clamp(Number(slider.value) / 100, 0, 1);
+        state.draft.voices.set(voiceId, value);
+        weightLabel.textContent = formatWeight(value);
+        setSliderFill(slider, value);
+        updateMixSummary();
+        markDirty();
+      });
+
+      card.appendChild(header);
+      card.appendChild(slider);
+      selectedListEl.appendChild(card);
+
+      selectedControls.set(voiceId, { slider, weightLabel });
+    });
+
+    ensureEmptyState();
+  };
+
+  const renderAvailableVoices = () => {
+    availableCards.clear();
+    availableListEl.innerHTML = "";
+
+    const sortedVoices = voiceCatalog
+      .slice()
+      .sort((a, b) => (a.display_name || a.id).localeCompare(b.display_name || b.id));
+
+    sortedVoices.forEach((voice) => {
+      if (!voice?.id) {
+        return;
+      }
+      const card = document.createElement("article");
+      card.className = "voice-available__card";
+      card.draggable = true;
+      card.dataset.voiceId = voice.id;
+      card.tabIndex = 0;
+
+      card.addEventListener("dragstart", (event) => {
+        card.classList.add("is-dragging");
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = "copy";
+          event.dataTransfer.setData("text/plain", voice.id);
+        }
+      });
+
+      card.addEventListener("dragend", () => {
+        card.classList.remove("is-dragging");
+      });
+
+      card.addEventListener("dblclick", () => {
+        addVoiceToDraft(voice.id);
+      });
+
+      card.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          addVoiceToDraft(voice.id);
+        }
+      });
+
+      const info = document.createElement("div");
+      info.className = "voice-available__info";
+
+      const name = document.createElement("div");
+      name.className = "voice-available__name";
+      name.textContent = voice.display_name || voice.id;
+
+      const meta = document.createElement("div");
+      meta.className = "voice-available__meta";
+      const languageCode = voice.language || voice.id.charAt(0) || "a";
+      meta.textContent = `${voiceLanguageLabel(languageCode)} · ${voiceGenderIcon(voice.gender)}`;
+
+      info.appendChild(name);
+      info.appendChild(meta);
+
+      const addButton = document.createElement("button");
+      addButton.type = "button";
+      addButton.className = "voice-available__add";
+      addButton.textContent = "Add";
+      addButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        addVoiceToDraft(voice.id);
+      });
+
+      card.appendChild(info);
+      card.appendChild(addButton);
+      availableListEl.appendChild(card);
+
+      availableCards.set(voice.id, { card, addButton });
+    });
+
+    updateAvailableState();
+  };
+
+  const addVoiceToDraft = (voiceId, weight = 0.6) => {
+    if (!voiceLookup.has(voiceId)) {
+      return;
+    }
+    if (state.draft.voices.has(voiceId)) {
+      setSliderFocus(voiceId);
+      return;
+    }
+    state.draft.voices.set(voiceId, clamp(weight, 0.05, 1));
+    renderSelectedVoices();
+    updateAvailableState();
+    updateMixSummary();
+    markDirty();
+    setSliderFocus(voiceId);
+  };
+
+  const buildProfilePayload = () =>
+    Array.from(state.draft.voices.entries()).map(([voiceId, weight]) => ({
+      id: voiceId,
+      weight,
+      enabled: weight > 0,
+    }));
+
+  const updateActionButtons = () => {
+    const hasSelection = Boolean(state.selectedProfile && profiles[state.selectedProfile]);
+    if (duplicateBtn) {
+      duplicateBtn.disabled = !hasSelection;
+    }
+    if (deleteBtn) {
+      deleteBtn.disabled = !hasSelection;
+    }
+  };
+
   const applyDraftToControls = () => {
     if (nameInput) {
       nameInput.value = state.draft.name || "";
@@ -134,212 +351,22 @@ const setupVoiceMixer = () => {
     if (languageSelect) {
       languageSelect.value = state.draft.language || "a";
     }
-
-    voiceControls.forEach((control, voiceId) => {
-      const weight = state.draft.voices.get(voiceId) || 0;
-      const enabled = weight > 0;
-      control.checkbox.checked = enabled;
-      control.slider.disabled = !enabled;
-      control.number.disabled = !enabled;
-      control.slider.value = String(Math.round(weight * 100));
-      control.number.value = formatWeight(enabled ? weight : 0);
-      control.weightLabel.textContent = `${formatWeight(weight)}`;
-    });
-
+    renderSelectedVoices();
     updateMixSummary();
-    resetDirty();
+    updateAvailableState();
     updateActionButtons();
-  };
-
-  const setVoiceWeight = (voiceId, weight, enabled) => {
-    const normalized = enabled ? clamp(weight, 0, 1) : 0;
-    if (normalized > 0) {
-      state.draft.voices.set(voiceId, normalized);
-    } else {
-      state.draft.voices.delete(voiceId);
-    }
-    updateMixSummary();
-    markDirty();
-  };
-
-  const buildVoiceCard = (voice) => {
-    const card = document.createElement("div");
-    card.className = "voice-card";
-    card.dataset.voiceId = voice.id;
-
-    const header = document.createElement("div");
-    header.className = "voice-card__header";
-
-    const toggleLabel = document.createElement("label");
-    toggleLabel.className = "voice-card__toggle";
-
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.className = "voice-card__checkbox";
-    toggleLabel.appendChild(checkbox);
-
-    const nameSpan = document.createElement("span");
-    nameSpan.className = "voice-card__name";
-    nameSpan.textContent = voice.display_name || voice.id;
-    toggleLabel.appendChild(nameSpan);
-
-    header.appendChild(toggleLabel);
-
-    const meta = document.createElement("span");
-    meta.className = "voice-card__meta";
-    meta.textContent = `${voiceLanguageLabel(voice.language)} · ${voiceGenderIcon(voice.gender)}`;
-    header.appendChild(meta);
-
-    const weightLabel = document.createElement("span");
-    weightLabel.className = "voice-card__value";
-    weightLabel.textContent = "0.00";
-    header.appendChild(weightLabel);
-
-    const body = document.createElement("div");
-    body.className = "voice-card__body";
-
-    const slider = document.createElement("input");
-    slider.type = "range";
-    slider.min = "0";
-    slider.max = "100";
-    slider.step = "1";
-    slider.value = "0";
-    slider.disabled = true;
-    slider.className = "voice-card__slider";
-
-    const number = document.createElement("input");
-    number.type = "number";
-    number.min = "0";
-    number.max = "1";
-    number.step = "0.01";
-    number.value = "0.00";
-    number.disabled = true;
-    number.className = "voice-card__number";
-
-    body.appendChild(slider);
-    body.appendChild(number);
-
-    card.appendChild(header);
-    card.appendChild(body);
-
-    checkbox.addEventListener("change", () => {
-      const enabled = checkbox.checked;
-      slider.disabled = !enabled;
-      number.disabled = !enabled;
-      if (!enabled) {
-        slider.value = "0";
-        number.value = "0.00";
-      }
-      const weight = enabled ? parseFloat(number.value || "0") : 0;
-      weightLabel.textContent = formatWeight(enabled ? weight : 0);
-      setVoiceWeight(voice.id, weight, enabled);
-    });
-
-    slider.addEventListener("input", () => {
-      const weight = clamp(parseInt(slider.value, 10) / 100, 0, 1);
-      number.value = formatWeight(weight);
-      weightLabel.textContent = formatWeight(weight);
-      if (!checkbox.checked && weight > 0) {
-        checkbox.checked = true;
-        slider.disabled = false;
-        number.disabled = false;
-      }
-      setVoiceWeight(voice.id, weight, true);
-    });
-
-    number.addEventListener("change", () => {
-      const weight = clamp(parseFloat(number.value || "0"), 0, 1);
-      number.value = formatWeight(weight);
-      slider.value = String(Math.round(weight * 100));
-      weightLabel.textContent = formatWeight(weight);
-      if (!checkbox.checked && weight > 0) {
-        checkbox.checked = true;
-        slider.disabled = false;
-        number.disabled = false;
-      }
-      setVoiceWeight(voice.id, weight, checkbox.checked);
-    });
-
-    voiceControls.set(voice.id, { checkbox, slider, number, weightLabel });
-    return card;
-  };
-
-  const buildVoiceGrid = () => {
-    if (!voiceGridEl) return;
-    voiceGridEl.innerHTML = "";
-    voiceCatalog.forEach((voice) => {
-      voiceGridEl.appendChild(buildVoiceCard(voice));
-    });
-  };
-
-  const loadSampleText = () => {
-    if (!previewTextEl || !languageSelect) return;
-    const lang = languageSelect.value || "a";
-    previewTextEl.value = samples[lang] || samples.a || "This is a sample of the selected voice.";
-  };
-
-  const selectProfile = (name) => {
-    state.selectedProfile = name;
-    state.originalName = name;
-    const profile = profiles[name];
-    state.draft = {
-      name,
-      language: profile?.language || "a",
-      voices: new Map(),
-    };
-    if (Array.isArray(profile?.voices)) {
-      profile.voices.forEach((entry) => {
-        if (Array.isArray(entry) && entry.length >= 2) {
-          const [voiceId, weight] = entry;
-          const value = parseFloat(weight);
-          if (!Number.isNaN(value) && value > 0) {
-            state.draft.voices.set(String(voiceId), clamp(value, 0, 1));
-          }
-        }
-      });
-    }
-    applyDraftToControls();
-    renderProfileList();
-    loadSampleText();
-    setStatus(`Loaded profile “${name}”.`, "info", 2500);
-  };
-
-  const createNewProfile = () => {
-    state.selectedProfile = null;
-    state.originalName = null;
-    state.draft = {
-      name: "",
-      language: languageSelect ? languageSelect.value || "a" : "a",
-      voices: new Map(),
-    };
-    applyDraftToControls();
-    renderProfileList();
-    loadSampleText();
-  };
-
-  const buildProfilePayload = () => {
-    const payload = [];
-    voiceControls.forEach((control, voiceId) => {
-      const enabled = control.checkbox.checked;
-      const weight = enabled ? clamp(parseFloat(control.number.value || "0"), 0, 1) : 0;
-      payload.push({ id: voiceId, weight, enabled });
-    });
-    return payload;
+    resetDirty();
   };
 
   const renderProfileList = () => {
-    if (!profileListEl) return;
     profileListEl.innerHTML = "";
 
     const header = document.createElement("div");
     header.className = "voice-list__header";
-    const title = document.createElement("h2");
-    title.textContent = "Saved profiles";
-    header.appendChild(title);
+    const heading = document.createElement("h2");
+    heading.textContent = "Saved profiles";
+    header.appendChild(heading);
     profileListEl.appendChild(header);
-
-    const list = document.createElement("ul");
-    list.className = "voice-list";
 
     const names = Object.keys(profiles).sort((a, b) => a.localeCompare(b));
     if (!names.length) {
@@ -349,6 +376,9 @@ const setupVoiceMixer = () => {
       profileListEl.appendChild(empty);
       return;
     }
+
+    const list = document.createElement("ul");
+    list.className = "voice-list";
 
     names.forEach((name) => {
       const li = document.createElement("li");
@@ -400,8 +430,48 @@ const setupVoiceMixer = () => {
     profileListEl.appendChild(list);
   };
 
+  const selectProfile = (name) => {
+    state.selectedProfile = name;
+    state.originalName = name;
+    const profile = profiles[name];
+    state.draft = {
+      name,
+      language: profile?.language || "a",
+      voices: new Map(),
+    };
+    if (Array.isArray(profile?.voices)) {
+      profile.voices.forEach((entry) => {
+        if (Array.isArray(entry) && entry.length >= 2) {
+          const [voiceId, weight] = entry;
+          const value = clamp(parseFloat(weight), 0, 1);
+          if (!Number.isNaN(value) && value > 0) {
+            state.draft.voices.set(String(voiceId), value);
+          }
+        }
+      });
+    }
+    applyDraftToControls();
+    renderProfileList();
+    loadSampleText();
+    setStatus(`Loaded profile “${name}”.`, "info", 2500);
+  };
+
+  const createNewProfile = () => {
+    state.selectedProfile = null;
+    state.originalName = null;
+    state.draft = {
+      name: "",
+      language: languageSelect ? languageSelect.value || "a" : "a",
+      voices: new Map(),
+    };
+    applyDraftToControls();
+    renderProfileList();
+    loadSampleText();
+  };
+
   const refreshProfiles = (nextProfiles, selectedName = null) => {
     profiles = nextProfiles || {};
+    renderProfileList();
     if (selectedName && profiles[selectedName]) {
       selectProfile(selectedName);
     } else if (state.selectedProfile && profiles[state.selectedProfile]) {
@@ -415,6 +485,12 @@ const setupVoiceMixer = () => {
       }
     }
     updateActionButtons();
+  };
+
+  const loadSampleText = () => {
+    if (!previewTextEl || !languageSelect) return;
+    const lang = languageSelect.value || "a";
+    previewTextEl.value = samples[lang] || samples.a || "This is a sample of the selected voice.";
   };
 
   const withJson = async (response) => {
@@ -625,6 +701,7 @@ const setupVoiceMixer = () => {
     nameInput.addEventListener("input", () => {
       state.draft.name = nameInput.value;
       markDirty();
+      updateMixSummary();
     });
   }
 
@@ -654,15 +731,62 @@ const setupVoiceMixer = () => {
     });
   }
 
-  buildVoiceGrid();
+  if (dropzoneEl) {
+    const setHover = (hovered) => {
+      dropzoneEl.classList.toggle("is-hovered", hovered);
+    };
+    [dropzoneEl, selectedListEl].forEach((target) => {
+      target.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        setHover(true);
+      });
+      target.addEventListener("dragenter", (event) => {
+        event.preventDefault();
+        setHover(true);
+      });
+      target.addEventListener("dragleave", (event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          setHover(false);
+        }
+      });
+      target.addEventListener("drop", (event) => {
+        event.preventDefault();
+        const voiceId = event.dataTransfer?.getData("text/plain");
+        if (voiceId) {
+          addVoiceToDraft(voiceId);
+        }
+        setHover(false);
+      });
+    });
+
+    dropzoneEl.addEventListener("click", () => {
+      const firstInactive = Array.from(availableCards.entries()).find(
+        ([voiceId]) => !state.draft.voices.has(voiceId),
+      );
+      if (firstInactive) {
+        addVoiceToDraft(firstInactive[0]);
+      }
+    });
+  }
+
+  renderAvailableVoices();
   renderProfileList();
   createNewProfile();
+
   if (Object.keys(profiles).length) {
     const first = Object.keys(profiles).sort((a, b) => a.localeCompare(b))[0];
     selectProfile(first);
   }
+
   loadSampleText();
+  updateActionButtons();
   app.dataset.state = "ready";
+
+  window.addEventListener("beforeunload", () => {
+    if (state.previewUrl) {
+      URL.revokeObjectURL(state.previewUrl);
+    }
+  });
 };
 
 if (document.readyState === "loading") {

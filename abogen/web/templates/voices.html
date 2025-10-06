@@ -47,7 +47,25 @@
           <span data-role="profile-summary">Select or create a profile to begin.</span>
           <span class="tag" data-role="mix-total">Total weight: 0.00</span>
         </div>
-        <div class="voice-editor__grid" data-role="voice-grid"></div>
+        <div class="voice-editor__canvas">
+          <section class="voice-available">
+            <header class="voice-available__header">
+              <h2>Available voices</h2>
+              <p class="tag">Drag into the mixer or click Add.</p>
+            </header>
+            <div class="voice-available__list" data-role="available-voices"></div>
+          </section>
+          <section class="voice-mix">
+            <header class="voice-mix__header">
+              <h2>Your mix</h2>
+              <p class="tag">Drop voices below to set levels.</p>
+            </header>
+            <div class="voice-mix__dropzone" data-role="dropzone">
+              <p class="voice-mix__empty" data-role="mix-empty">Drag voices here or tap “Add”.</p>
+              <div class="voice-mix__list" data-role="selected-voices"></div>
+            </div>
+          </section>
+        </div>
         <div class="voice-editor__actions">
           <div class="button-row">
             <button type="submit" class="button" data-role="save-profile" disabled>Save profile</button>
