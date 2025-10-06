@@ -603,7 +603,7 @@ progress.progress::-moz-progress-bar {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem 1rem;
-  align-items: flex-end;
+  align-items: flex-start;
 }
 
 .voice-editor__name-field {
@@ -615,6 +615,9 @@ progress.progress::-moz-progress-bar {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
+  flex: 0 0 auto;
+  margin-left: auto;
+  min-height: 2.6rem;
 }
 
 .voice-editor__language {
@@ -1042,6 +1045,11 @@ progress.progress::-moz-progress-bar {
   color: var(--muted);
   cursor: pointer;
   transition: color 0.2s ease, border 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.voice-editor__identity > .icon-button,
+.voice-editor__identity > .voice-editor__toolbar {
+  align-self: flex-end;
 }
 
 .icon-button svg {
