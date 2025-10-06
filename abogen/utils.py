@@ -158,18 +158,30 @@ def get_user_cache_root():
         if last_error is not None:
             raise last_error
 
-    def _configure_cache_env(cache_path):
-        os.environ.setdefault("XDG_CACHE_HOME", cache_path)
+    def _configure_cache_env():
+        home_dir = os.environ.get("HOME")
+        if not home_dir:
+            home_dir = ensure_directory(os.path.join("/tmp", "abogen-home"))
+            os.environ["HOME"] = home_dir
+        else:
+            home_dir = ensure_directory(home_dir)
 
-        hf_cache = os.path.join(cache_path, "huggingface")
-        for env_var in ("HF_HOME", "HUGGINGFACE_HUB_CACHE", "TRANSFORMERS_CACHE"):
+        cache_base = os.environ.get("XDG_CACHE_HOME")
+        if cache_base:
+            cache_base = ensure_directory(cache_base)
+        else:
+            cache_base = ensure_directory(os.path.join(home_dir, ".cache"))
+            os.environ["XDG_CACHE_HOME"] = cache_base
+
+        hf_cache = os.environ.get("HF_HOME")
+        if hf_cache:
+            hf_cache = ensure_directory(hf_cache)
+        else:
+            hf_cache = ensure_directory(os.path.join(cache_base, "huggingface"))
+            os.environ["HF_HOME"] = hf_cache
+
+        for env_var in ("HUGGINGFACE_HUB_CACHE", "TRANSFORMERS_CACHE"):
             os.environ.setdefault(env_var, hf_cache)
-
-        # Ensure Hugging Face cache directory exists so downloads succeed.
-        ensure_directory(hf_cache)
-
-        if not os.environ.get("HOME"):
-            os.environ["HOME"] = os.path.dirname(cache_path) or "/"
 
     cache_root = None
 
@@ -201,7 +213,7 @@ def get_user_cache_root():
             logger.warning("Falling back to temp cache directory %s", tmp_candidate)
             cache_root = ensure_directory(tmp_candidate)
 
-    _configure_cache_env(cache_root)
+    _configure_cache_env()
     return cache_root
 
 

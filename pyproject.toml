@@ -17,6 +17,7 @@ dependencies = [
     "misaki[zh]>=0.9.4",
     "ebooklib>=0.19",
     "beautifulsoup4>=4.13.4",
+    "en-core-web-sm==3.8.0",
     "PyMuPDF>=1.25.5",
     "platformdirs>=4.3.7",
     "soundfile>=0.13.1",

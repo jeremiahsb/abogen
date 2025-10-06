@@ -23,11 +23,7 @@ services:
       ABOGEN_OUTPUT_DIR: "/data/outputs"
       ABOGEN_OUTPUT_ROOT: "/data/outputs"
       ABOGEN_TEMP_DIR: "/data/cache"
-      HOME: "/data"
-      XDG_CACHE_HOME: "/data/cache"
-      HF_HOME: "/data/cache/huggingface"
-      HUGGINGFACE_HUB_CACHE: "/data/cache/huggingface"
-      TRANSFORMERS_CACHE: "/data/cache/huggingface"
+      HOME: "/tmp/abogen-home"
     # --- GPU support -----------------------------------------------------
     # These settings assume the NVIDIA Container Toolkit is installed.
     # Leave them in place for GPU acceleration; comment out the entire block
