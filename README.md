@@ -49,12 +49,12 @@ Browse to http://localhost:8808. Uploaded source files are stored in `/data/uplo
 | `ABOGEN_PORT` | `8808` | HTTP port |
 | `ABOGEN_DEBUG` | `false` | Enable Flask debug mode |
 | `ABOGEN_UPLOAD_ROOT` | `/data/uploads` | Directory where uploaded files are stored |
-| `ABOGEN_OUTPUT_ROOT` | `/data/outputs` | Directory for generated audio and subtitles |
+| `ABOGEN_OUTPUT_ROOT` | `/data/outputs` | Directory for generated audio and subtitles (legacy alias of `ABOGEN_OUTPUT_DIR`) |
+| `ABOGEN_OUTPUT_DIR` | `/data/outputs` | Container path for rendered audio/subtitles |
+| `ABOGEN_SETTINGS_DIR` | `/config` | Container path for JSON settings/configuration |
+| `ABOGEN_TEMP_DIR` | `/data/cache` (Docker) or platform cache dir | Container path for temporary files |
 | `ABOGEN_UID` | `1000` | UID that the container should run as (matches host user) |
 | `ABOGEN_GID` | `1000` | GID that the container should run as (matches host group) |
-| `ABOGEN_TEMP_DIR` | `/data/cache` (Docker) or platform cache dir | Override the cache/temp directory |
-| `ABOGEN_OUTPUT_DIR` | Same as `ABOGEN_OUTPUT_ROOT` | Override the rendered output directory |
-| `ABOGEN_SETTINGS_DIR` | Platform config dir (e.g. `~/.config/abogen`) | Override where JSON settings (profiles, config) are stored |
 
 Set any of these with `-e VAR=value` when starting the container.
 
@@ -67,9 +67,12 @@ id -g
 
 Use those values to populate `ABOGEN_UID` / `ABOGEN_GID` in your `.env` file.
 
-When running via Docker Compose, the container defaults to `/data/cache` for
-temporary files. Make sure the corresponding host directory is writable (the
-compose volume at `${ABOGEN_DATA:-./data}` will automatically satisfy this).
+When running via Docker Compose, set `ABOGEN_SETTINGS_DIR`,
+`ABOGEN_OUTPUT_DIR`, and `ABOGEN_TEMP_DIR` in your `.env` file to the host
+directories you want mounted into the container. Compose maps them to
+`/config`, `/data/outputs`, and `/data/cache` respectively while exporting
+those in-container paths to the application. Ensure each host directory exists
+and is writable by the UID/GID you configure before starting the stack.
 
 ### Docker Compose (GPU by default)
 The repo includes `docker-compose.yaml`, which targets GPU hosts out of the box. Install the NVIDIA Container Toolkit and run:

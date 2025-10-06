@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import platform
 import re
@@ -142,14 +143,47 @@ def get_user_config_path():
 # Define cache path
 @lru_cache(maxsize=1)
 def get_user_cache_root():
+    logger = logging.getLogger(__name__)
+
+    def _try_paths(*paths):
+        last_error = None
+        for candidate in paths:
+            if not candidate:
+                continue
+            try:
+                return ensure_directory(candidate)
+            except OSError as exc:
+                last_error = exc
+                logger.debug("Unable to use cache directory %s: %s", candidate, exc)
+        if last_error is not None:
+            raise last_error
+
     override = os.environ.get("ABOGEN_TEMP_DIR")
     if override:
-        return ensure_directory(override)
+        try:
+            return ensure_directory(override)
+        except OSError as exc:
+            logger.warning("ABOGEN_TEMP_DIR=%s is not writable: %s", override, exc)
 
     from platformdirs import user_cache_dir
 
-    cache_dir = user_cache_dir("abogen", appauthor=False, opinion=True, ensure_exists=True)
-    return ensure_directory(cache_dir)
+    default_cache = user_cache_dir("abogen", appauthor=False, opinion=True)
+
+    data_root = os.environ.get("ABOGEN_DATA") or os.environ.get("ABOGEN_DATA_DIR")
+    fallback_paths = [
+        default_cache,
+        os.path.join(data_root, "cache") if data_root else None,
+        "/data/cache",
+        "/tmp/abogen-cache",
+    ]
+
+    try:
+        return _try_paths(*fallback_paths)
+    except OSError:
+        # Final safety net – attempt a tmp directory unique to this process.
+        tmp_candidate = os.path.join("/tmp", f"abogen-cache-{os.getpid()}")
+        logger.warning("Falling back to temp cache directory %s", tmp_candidate)
+        return ensure_directory(tmp_candidate)
 
 
 def get_user_cache_path(folder=None):
