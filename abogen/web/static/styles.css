@@ -183,6 +183,11 @@ body {
   gap: 0.4rem;
 }
 
+.field[hidden],
+.field[data-state="hidden"] {
+  display: none !important;
+}
+
 .field--full {
   max-width: none;
 }
@@ -222,6 +227,14 @@ body {
 .field select {
   max-width: 420px;
   width: min(100%, 420px);
+}
+
+.field input[type="range"] {
+  max-width: 420px;
+  width: min(100%, 420px);
+  padding: 0;
+  margin-inline: 0;
+  align-self: flex-start;
 }
 
 .field input[type="number"] {
