@@ -10,9 +10,19 @@ from threading import Thread
 
 from functools import lru_cache
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
-load_dotenv()
+def _load_environment() -> None:
+    explicit_path = os.environ.get("ABOGEN_ENV_FILE")
+    if explicit_path:
+        load_dotenv(explicit_path, override=False)
+        return
+    dotenv_path = find_dotenv(usecwd=True)
+    if dotenv_path:
+        load_dotenv(dotenv_path, override=False)
+
+
+_load_environment()
 
 warnings.filterwarnings("ignore")
 
