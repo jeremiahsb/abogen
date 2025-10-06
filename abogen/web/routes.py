@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import io
+import json
 import mimetypes
+import threading
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple, cast
 
 from flask import (
     Blueprint,
@@ -19,28 +22,67 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 
+import numpy as np
+import soundfile as sf
 from abogen.constants import (
     LANGUAGE_DESCRIPTIONS,
+    SAMPLE_VOICE_TEXTS,
     SUBTITLE_FORMATS,
     SUPPORTED_LANGUAGES_FOR_SUBTITLE_GENERATION,
     SUPPORTED_SOUND_FORMATS,
     VOICES_INTERNAL,
 )
-from abogen.utils import calculate_text_length, clean_text
-from abogen.voice_profiles import delete_profile, load_profiles, save_profiles
+from abogen.utils import calculate_text_length, clean_text, load_config, load_numpy_kpipeline
+from abogen.voice_profiles import (
+    delete_profile,
+    duplicate_profile,
+    export_profiles_payload,
+    import_profiles_data,
+    load_profiles,
+    normalize_voice_entries,
+    remove_profile,
+    save_profile,
+    save_profiles,
+    serialize_profiles,
+)
 
+from abogen.voice_formulas import get_new_voice
+from .conversion_runner import SPLIT_PATTERN, SAMPLE_RATE, _select_device, _to_float32
 from .service import ConversionService, Job, JobStatus
 
 web_bp = Blueprint("web", __name__)
 api_bp = Blueprint("api", __name__)
 
 
+_preview_pipeline_lock = threading.RLock()
+_preview_pipelines: Dict[Tuple[str, str], Any] = {}
+
+
 def _service() -> ConversionService:
     return current_app.extensions["conversion_service"]
 
 
+def _build_voice_catalog() -> List[Dict[str, str]]:
+    catalog: List[Dict[str, str]] = []
+    gender_map = {"f": "Female", "m": "Male"}
+    for voice_id in VOICES_INTERNAL:
+        prefix, _, rest = voice_id.partition("_")
+        language_code = prefix[0] if prefix else "a"
+        gender_code = prefix[1] if len(prefix) > 1 else ""
+        catalog.append(
+            {
+                "id": voice_id,
+                "language": language_code,
+                "language_label": LANGUAGE_DESCRIPTIONS.get(language_code, language_code.upper()),
+                "gender": gender_map.get(gender_code, "Unknown"),
+                "display_name": rest.replace("_", " ").title() if rest else voice_id,
+            }
+        )
+    return catalog
+
+
 def _template_options() -> Dict[str, Any]:
-    profiles = load_profiles()
+    profiles = serialize_profiles()
     ordered_profiles = sorted(profiles.items())
     return {
         "languages": LANGUAGE_DESCRIPTIONS,
@@ -50,6 +92,9 @@ def _template_options() -> Dict[str, Any]:
         "output_formats": SUPPORTED_SOUND_FORMATS,
         "voice_profiles": ordered_profiles,
         "separate_formats": ["wav", "flac", "mp3", "opus"],
+        "voice_catalog": _build_voice_catalog(),
+        "sample_voice_texts": SAMPLE_VOICE_TEXTS,
+        "voice_profiles_data": profiles,
     }
 
 
@@ -120,6 +165,54 @@ def _parse_voice_formula(formula: str) -> List[tuple[str, float]]:
     return voices
 
 
+def _sanitize_voice_entries(entries: Iterable[Any]) -> List[Dict[str, Any]]:
+    sanitized: List[Dict[str, Any]] = []
+    for entry in entries or []:
+        if isinstance(entry, dict):
+            voice_id = entry.get("id") or entry.get("voice")
+            if not voice_id:
+                continue
+            enabled = entry.get("enabled", True)
+            if not enabled:
+                continue
+            sanitized.append({"voice": voice_id, "weight": entry.get("weight")})
+        elif isinstance(entry, (list, tuple)) and len(entry) >= 2:
+            sanitized.append({"voice": entry[0], "weight": entry[1]})
+    return sanitized
+
+
+def _pairs_to_formula(pairs: Iterable[Tuple[str, float]]) -> Optional[str]:
+    voices = [(voice, float(weight)) for voice, weight in pairs if float(weight) > 0]
+    if not voices:
+        return None
+    total = sum(weight for _, weight in voices)
+    if total <= 0:
+        return None
+
+    def _format_value(value: float) -> str:
+        normalized = value / total if total else 0.0
+        return (f"{normalized:.4f}").rstrip("0").rstrip(".") or "0"
+
+    parts = [f"{voice}*{_format_value(weight)}" for voice, weight in voices]
+    return "+".join(parts)
+
+
+def _profiles_payload() -> Dict[str, Any]:
+    return {"profiles": serialize_profiles()}
+
+
+def _get_preview_pipeline(language: str, device: str):
+    key = (language, device)
+    with _preview_pipeline_lock:
+        pipeline = _preview_pipelines.get(key)
+        if pipeline is not None:
+            return pipeline
+        _, KPipeline = load_numpy_kpipeline()
+        pipeline = KPipeline(lang_code=language, repo_id="hexgrad/Kokoro-82M", device=device)
+        _preview_pipelines[key] = pipeline
+        return pipeline
+
+
 @web_bp.app_template_filter("datetimeformat")
 def datetimeformat(value: float, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
     if not value:
@@ -142,22 +235,8 @@ def index() -> str:
 
 @web_bp.get("/voices")
 def voice_profiles_page() -> str:
-    profiles = load_profiles()
-    rendered = []
-    for name, data in sorted(profiles.items()):
-        rendered.append(
-            {
-                "name": name,
-                "language": data.get("language", "a"),
-                "formula": _formula_from_profile(data) or "",
-            }
-        )
-    return render_template(
-        "voices.html",
-        profiles=rendered,
-        languages=LANGUAGE_DESCRIPTIONS,
-        voices=VOICES_INTERNAL,
-    )
+    options = _template_options()
+    return render_template("voices.html", options=options)
 
 
 @web_bp.post("/voices")
@@ -178,6 +257,223 @@ def save_voice_profile_route() -> Response:
 def delete_voice_profile_route(name: str) -> Response:
     delete_profile(name)
     return redirect(url_for("web.voice_profiles_page"))
+
+
+@api_bp.get("/voice-profiles")
+def api_list_voice_profiles() -> Response:
+    return jsonify(_profiles_payload())
+
+
+@api_bp.post("/voice-profiles")
+def api_save_voice_profile() -> Response:
+    payload = request.get_json(force=True, silent=False)
+    name = (payload.get("name") or "").strip()
+    if not name:
+        abort(400, "Profile name is required")
+
+    original = (payload.get("originalName") or "").strip()
+    language = (payload.get("language") or "a").strip() or "a"
+    formula = (payload.get("formula") or "").strip()
+
+    try:
+        if formula:
+            voices = _parse_voice_formula(formula)
+        else:
+            voices_raw = _sanitize_voice_entries(payload.get("voices", []))
+            voices = normalize_voice_entries(voices_raw)
+        if not voices:
+            raise ValueError("At least one voice must be enabled with a weight above zero")
+        save_profile(name, language=language, voices=voices)
+        if original and original != name:
+            remove_profile(original)
+    except ValueError as exc:
+        abort(400, str(exc))
+
+    return jsonify({"ok": True, "profile": name, **_profiles_payload()})
+
+
+@api_bp.delete("/voice-profiles/<name>")
+def api_delete_voice_profile(name: str) -> Response:
+    remove_profile(name)
+    return jsonify({"ok": True, **_profiles_payload()})
+
+
+@api_bp.post("/voice-profiles/<name>/duplicate")
+def api_duplicate_voice_profile(name: str) -> Response:
+    payload = request.get_json(silent=True) or {}
+    new_name = (payload.get("name") or payload.get("new_name") or "").strip()
+    if not new_name:
+        abort(400, "Duplicate name is required")
+    duplicate_profile(name, new_name)
+    return jsonify({"ok": True, "profile": new_name, **_profiles_payload()})
+
+
+@api_bp.post("/voice-profiles/import")
+def api_import_voice_profiles() -> Response:
+    replace = False
+    data: Optional[Dict[str, Any]] = None
+    if "file" in request.files:
+        file_storage = request.files["file"]
+        try:
+            data = json.load(file_storage)
+        except Exception as exc:  # pragma: no cover - defensive
+            abort(400, f"Invalid JSON file: {exc}")
+        replace = request.form.get("replace_existing") in {"true", "1", "on"}
+    else:
+        payload = request.get_json(force=True, silent=False)
+        replace = bool(payload.get("replace_existing", False))
+        data = payload.get("profiles") or payload.get("data") or payload
+        if not isinstance(data, dict):
+            data = None
+    if data is None:
+        abort(400, "Import payload must be a dictionary")
+    data_dict = cast(Dict[str, Any], data)
+    imported: List[str] = []
+    try:
+        imported = import_profiles_data(data_dict, replace_existing=replace)
+    except ValueError as exc:
+        abort(400, str(exc))
+    return jsonify({"ok": True, "imported": imported, **_profiles_payload()})
+
+
+@api_bp.get("/voice-profiles/export")
+def api_export_voice_profiles() -> Response:
+    names_param = request.args.get("names")
+    names = None
+    if names_param:
+        names = [name.strip() for name in names_param.split(",") if name.strip()]
+    payload = export_profiles_payload(names)
+    buffer = io.BytesIO()
+    buffer.write(json.dumps(payload, indent=2).encode("utf-8"))
+    buffer.seek(0)
+    filename = request.args.get("filename") or "voice_profiles.json"
+    return send_file(
+        buffer,
+        mimetype="application/json",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@api_bp.post("/voice-profiles/preview")
+def api_preview_voice_mix() -> Response:
+    payload = request.get_json(force=True, silent=False)
+    language = (payload.get("language") or "a").strip() or "a"
+    text = (payload.get("text") or "").strip()
+    speed = float(payload.get("speed", 1.0) or 1.0)
+    max_seconds = float(payload.get("max_seconds", 12.0) or 12.0)
+    profile_name = (payload.get("profile") or payload.get("profile_name") or "").strip()
+    formula = (payload.get("formula") or "").strip()
+
+    voices: List[Tuple[str, float]] = []
+    if profile_name:
+        profiles = load_profiles()
+        entry = profiles.get(profile_name)
+        if entry is None:
+            abort(404, "Profile not found")
+        if not isinstance(entry, dict):
+            abort(400, "Profile data is invalid")
+        entry_dict = cast(Dict[str, Any], entry)
+        language = entry_dict.get("language", language)
+        profile_voices = entry_dict.get("voices", [])
+        for item in profile_voices:
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                try:
+                    voices.append((str(item[0]), float(item[1])))
+                except (TypeError, ValueError):
+                    continue
+    else:
+        try:
+            if formula:
+                voices = _parse_voice_formula(formula)
+            else:
+                voices_raw = _sanitize_voice_entries(payload.get("voices", []))
+                voices = normalize_voice_entries(voices_raw)
+        except ValueError as exc:
+            abort(400, str(exc))
+
+    if not voices:
+        abort(400, "At least one voice must be provided for preview")
+
+    if not text:
+        text = SAMPLE_VOICE_TEXTS.get(language, SAMPLE_VOICE_TEXTS.get("a", "This is a sample of the selected voice."))
+
+    cfg = load_config()
+    use_gpu_cfg = bool(cfg.get("use_gpu", True))
+    use_gpu = use_gpu_cfg if payload.get("use_gpu") is None else bool(payload.get("use_gpu"))
+    device = "cpu"
+    if use_gpu:
+        try:
+            device = _select_device()
+        except Exception:  # pragma: no cover - fallback
+            device = "cpu"
+            use_gpu = False
+
+    pipeline: Any = None
+    try:
+        pipeline = _get_preview_pipeline(language, device)
+    except Exception as exc:  # pragma: no cover - defensive guard
+        abort(500, f"Failed to initialise preview pipeline: {exc}")
+    if pipeline is None:  # pragma: no cover - defensive double-check
+        abort(500, "Preview pipeline initialisation failed")
+
+    voice_choice: Any = None
+    if len(voices) == 1:
+        voice_choice = voices[0][0]
+    else:
+        formula_value = _pairs_to_formula(voices)
+        if not formula_value:
+            abort(400, "Invalid voice weights provided")
+        try:
+            voice_choice = get_new_voice(pipeline, formula_value, use_gpu)
+        except ValueError as exc:
+            abort(400, str(exc))
+    if voice_choice is None:
+        abort(400, "Unable to resolve voice selection")
+
+    segments = pipeline(
+        text,
+        voice=voice_choice,
+        speed=speed,
+        split_pattern=SPLIT_PATTERN,
+    )
+
+    audio_chunks: List[np.ndarray] = []
+    accumulated = 0
+    max_samples = int(max_seconds * SAMPLE_RATE)
+
+    for segment in segments:
+        graphemes = segment.graphemes.strip()
+        if not graphemes:
+            continue
+        audio = _to_float32(segment.audio)
+        if audio.size == 0:
+            continue
+        remaining = max_samples - accumulated
+        if remaining <= 0:
+            break
+        if audio.shape[0] > remaining:
+            audio = audio[:remaining]
+        audio_chunks.append(audio)
+        accumulated += audio.shape[0]
+        if accumulated >= max_samples:
+            break
+
+    if not audio_chunks:
+        abort(500, "Preview could not be generated")
+
+    audio_data = np.concatenate(audio_chunks)
+    buffer = io.BytesIO()
+    sf.write(buffer, audio_data, SAMPLE_RATE, format="WAV")
+    buffer.seek(0)
+    response = send_file(
+        buffer,
+        mimetype="audio/wav",
+        as_attachment=False,
+        download_name="voice_preview.wav",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @web_bp.post("/jobs")
@@ -298,19 +594,23 @@ def delete_job(job_id: str) -> Response:
 @web_bp.get("/jobs/<job_id>/download")
 def download_job(job_id: str) -> Response:
     job = _service().get_job(job_id)
-    if not job or job.status != JobStatus.COMPLETED:
+    if job is None or job.status != JobStatus.COMPLETED:
         abort(404)
-    if not job.result.audio_path:
+    result = getattr(job, "result", None)
+    audio_path = getattr(result, "audio_path", None)
+    if audio_path is None:
         abort(404)
-    path = job.result.audio_path
-    if not path.exists():
+    if not isinstance(audio_path, Path):  # pragma: no cover - sanity guard
         abort(404)
-    mime_type, _ = mimetypes.guess_type(str(path))
+    audio_path_path = cast(Path, audio_path)
+    if not audio_path_path.exists():
+        abort(404)
+    mime_type, _ = mimetypes.guess_type(str(audio_path_path))
     return send_file(
-        path,
+        audio_path_path,
         mimetype=mime_type or "application/octet-stream",
         as_attachment=True,
-        download_name=path.name,
+        download_name=audio_path_path.name,
     )
 
 
@@ -330,6 +630,10 @@ def job_logs_partial(job_id: str) -> str:
 @api_bp.get("/jobs/<job_id>")
 def job_json(job_id: str) -> Response:
     job = _service().get_job(job_id)
-    if not job:
+    if job is None:
         abort(404)
-    return jsonify(job.as_dict())
+    if not isinstance(job, Job):  # pragma: no cover - defensive guard
+        abort(404)
+    job_obj = cast(Job, job)
+    payload = job_obj.as_dict()
+    return jsonify(payload)
