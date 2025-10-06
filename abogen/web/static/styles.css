@@ -1035,12 +1035,15 @@ progress.progress::-moz-progress-bar {
   border-radius: 18px;
   border: 1px solid rgba(148, 163, 184, 0.18);
   background: rgba(15, 23, 42, 0.35);
+  max-width: 460px;
 }
 
 .field--slider {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
+  align-items: flex-start;
+  width: min(100%, 420px);
 }
 
 .field--slider label {
@@ -1086,10 +1089,12 @@ progress.progress::-moz-progress-bar {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+  justify-content: flex-start;
+  width: min(100%, 420px);
 }
 
 .voice-preview audio {
-  width: 100%;
+  width: min(100%, 420px);
   border-radius: 12px;
   background: rgba(15, 23, 42, 0.45);
   border: 1px solid rgba(148, 163, 184, 0.18);

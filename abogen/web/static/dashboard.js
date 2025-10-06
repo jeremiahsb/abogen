@@ -35,14 +35,28 @@ const initDashboard = () => {
     return true;
   };
 
+  const applySavedProfile = (option) => {
+    if (!option) return;
+    const presetFormula = option.dataset.formula || "";
+    const profileLang = option.dataset.language || "";
+    if (formulaInput) {
+      formulaInput.value = presetFormula;
+      formulaInput.readOnly = true;
+      formulaInput.dataset.state = "locked";
+    }
+    if (profileLang && languageSelect) {
+      languageSelect.value = profileLang;
+    }
+  };
+
   const updateVoiceControls = () => {
     if (!profileSelect) {
       return;
     }
-    const value = profileSelect.value;
-    const isStandard = !value || value === "__standard";
+    const value = profileSelect.value || "__standard";
+    const isStandard = value === "__standard";
     const isFormula = value === "__formula";
-    const isSavedProfile = Boolean(value && !isStandard && !isFormula);
+    const isSavedProfile = !isStandard && !isFormula;
 
     if (voiceField) {
       const showVoice = isStandard;
@@ -57,33 +71,24 @@ const initDashboard = () => {
       }
     }
 
-    let presetFormula = "";
     if (isSavedProfile) {
-      const option = profileSelect.selectedOptions[0];
-      if (option) {
-        presetFormula = option.dataset.formula || "";
-        const profileLang = option.dataset.language || "";
-        if (profileLang && languageSelect) {
-          languageSelect.value = profileLang;
-        }
-      }
+      applySavedProfile(profileSelect.selectedOptions[0] || null);
+    } else if (!isFormula && formulaInput) {
+      formulaInput.value = "";
     }
 
-    const showFormula = isFormula;
     if (formulaField) {
+      const showFormula = isFormula;
       formulaField.hidden = !showFormula;
       formulaField.setAttribute("aria-hidden", showFormula ? "false" : "true");
     }
     if (formulaInput) {
-      formulaInput.disabled = !showFormula;
-      if (showFormula) {
-        if (presetFormula && !formulaInput.value) {
-          formulaInput.value = presetFormula;
-        }
+      if (isFormula) {
+        formulaInput.disabled = false;
         formulaInput.readOnly = false;
         formulaInput.dataset.state = "editable";
       } else {
-        formulaInput.value = formulaInput.value.trim();
+        formulaInput.disabled = !isSavedProfile;
         formulaInput.readOnly = true;
         formulaInput.dataset.state = isSavedProfile ? "locked" : "editable";
       }
