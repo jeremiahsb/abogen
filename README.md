@@ -50,11 +50,22 @@ Browse to http://localhost:8808. Uploaded source files are stored in `/data/uplo
 | `ABOGEN_DEBUG` | `false` | Enable Flask debug mode |
 | `ABOGEN_UPLOAD_ROOT` | `/data/uploads` | Directory where uploaded files are stored |
 | `ABOGEN_OUTPUT_ROOT` | `/data/outputs` | Directory for generated audio and subtitles |
+| `ABOGEN_UID` | `1000` | UID that the container should run as (matches host user) |
+| `ABOGEN_GID` | `1000` | GID that the container should run as (matches host group) |
 | `ABOGEN_TEMP_DIR` | Platform cache dir (e.g. `~/.cache/abogen`) | Override the cache/temp directory |
 | `ABOGEN_OUTPUT_DIR` | Same as `ABOGEN_OUTPUT_ROOT` | Override the rendered output directory |
 | `ABOGEN_SETTINGS_DIR` | Platform config dir (e.g. `~/.config/abogen`) | Override where JSON settings (profiles, config) are stored |
 
 Set any of these with `-e VAR=value` when starting the container.
+
+To discover your local UID/GID for matching file permissions inside the container, run:
+
+```bash
+id -u
+id -g
+```
+
+Use those values to populate `ABOGEN_UID` / `ABOGEN_GID` in your `.env` file.
 
 ### Docker Compose (GPU by default)
 The repo includes `docker-compose.yaml`, which targets GPU hosts out of the box. Install the NVIDIA Container Toolkit and run:
