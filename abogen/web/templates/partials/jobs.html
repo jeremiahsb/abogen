@@ -1,37 +1,74 @@
 <div class="card__title">Queue</div>
-{% if jobs %}
-  <table class="jobs-table">
-    <thead>
-      <tr>
-        <th>Job</th>
-        <th>Status</th>
-        <th>Progress</th>
-        <th>Created</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for job in jobs %}
-      <tr>
-        <td>
-          <strong>{{ job.original_filename }}</strong>
-          <div class="tag">
-            {% if job.voice_profile %}Profile: {{ job.voice_profile }}{% else %}Voice: {{ job.voice }}{% endif %} · {{ job.language }}
+
+<section class="queue-section">
+  <header class="queue-section__header">
+    <h3>Active jobs</h3>
+  </header>
+  {% if active_jobs %}
+    <ul class="job-cards">
+      {% for job in active_jobs %}
+        <li class="job-card">
+          <div class="job-card__header">
+            <div>
+              <strong>{{ job.original_filename }}</strong>
+              <div class="job-card__meta">{% if job.voice_profile %}Profile: {{ job.voice_profile }}{% else %}Voice: {{ job.voice }}{% endif %} · {{ job.language }}</div>
+            </div>
+            <span class="badge badge--{{ job.status.value }}">{{ job.status.value|title }}</span>
           </div>
-        </td>
-        <td>
-          <span class="badge badge--{{ job.status.value }}">{{ job.status.value|title }}</span>
-        </td>
-        <td>
-          <progress value="{{ job.processed_characters or 0 }}" max="{{ job.total_characters or 1 }}" class="progress"></progress>
-          <small>{{ job.processed_characters }} / {{ job.total_characters or '—' }}</small>
-        </td>
-        <td><small>{{ job.created_at|datetimeformat }}</small></td>
-        <td><a class="btn" href="{{ url_for('web.job_detail', job_id=job.id) }}">Inspect</a></td>
-      </tr>
+          <div class="job-card__progress">
+            <div class="progress-bar" style="--progress: {{ ((job.progress or 0) * 100)|round(1) }}%">
+              <div class="progress-bar__fill"></div>
+            </div>
+            <small>{{ job.processed_characters }} / {{ job.total_characters or '—' }}</small>
+          </div>
+          <div class="job-card__footer">
+            <a class="button button--ghost" href="{{ url_for('web.job_detail', job_id=job.id) }}">Inspect</a>
+            {% if job.status in [JobStatus.PENDING, JobStatus.RUNNING] %}
+              <button type="button" class="button button--ghost" hx-post="{{ url_for('web.cancel_job', job_id=job.id) }}" hx-target="#jobs-panel" hx-swap="innerHTML" hx-confirm="Cancel this conversion?">Cancel</button>
+            {% endif %}
+          </div>
+        </li>
       {% endfor %}
-    </tbody>
-  </table>
-{% else %}
-  <p>No jobs yet. Drop a file or paste text to get started.</p>
-{% endif %}
+    </ul>
+  {% else %}
+    <p class="queue-empty">No active jobs. Drop a file or paste text to get started.</p>
+  {% endif %}
+</section>
+
+<section class="queue-section">
+  <header class="queue-section__header">
+    <h3>Recent results</h3>
+    {% if total_finished > 0 %}
+      <button type="button" class="button button--ghost" hx-post="{{ url_for('web.clear_finished_jobs') }}" hx-target="#jobs-panel" hx-swap="innerHTML" hx-confirm="Remove completed jobs from this list?">Clear finished</button>
+    {% endif %}
+  </header>
+  {% if finished_jobs %}
+    <ul class="job-cards job-cards--compact">
+      {% for job in finished_jobs %}
+        <li class="job-card">
+          <div class="job-card__header">
+            <div>
+              <strong>{{ job.original_filename }}</strong>
+              <div class="job-card__meta">Finished {{ job.finished_at|datetimeformat }}</div>
+            </div>
+            <span class="badge badge--{{ job.status.value }}">{{ job.status.value|title }}</span>
+          </div>
+          <div class="job-card__footer">
+            <a class="button button--ghost" href="{{ url_for('web.job_detail', job_id=job.id) }}">Inspect</a>
+            {% if job.status == JobStatus.COMPLETED and job.result.audio_path %}
+              <a class="button button--ghost" href="{{ url_for('web.download_job', job_id=job.id) }}">Download</a>
+            {% endif %}
+            <button type="button" class="button button--ghost" hx-post="{{ url_for('web.delete_job', job_id=job.id) }}" hx-target="#jobs-panel" hx-swap="innerHTML" hx-confirm="Remove this job from the list?">Remove</button>
+          </div>
+        </li>
+      {% endfor %}
+      {% if total_finished > finished_jobs|length %}
+        <li class="job-card job-card--info">
+          <div class="job-card__meta">{{ total_finished - finished_jobs|length }} more finished job{{ 's' if (total_finished - finished_jobs|length) != 1 else '' }} hidden. Clear finished to remove them.</div>
+        </li>
+      {% endif %}
+    </ul>
+  {% else %}
+    <p class="queue-empty">Completed jobs will appear here.</p>
+  {% endif %}
+</section>

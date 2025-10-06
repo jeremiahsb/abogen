@@ -7,8 +7,8 @@
   <h1 class="card__title">Create a New Audiobook</h1>
   <form action="{{ url_for('web.enqueue_job') }}" method="post" enctype="multipart/form-data" class="grid grid--two form-grid">
     <div class="grid">
-      <div class="field">
-  <label for="source_file">Source File</label>
+      <div class="field field--file">
+        <label for="source_file">Source File</label>
         <input type="file" id="source_file" name="source_file" accept=".txt,.pdf,.epub,.md,.markdown">
       </div>
       <div class="field">

@@ -222,6 +222,28 @@ class ConversionService:
                 self._update_queue_positions_locked()
             return True
 
+    def clear_finished(self, *, statuses: Optional[Iterable[JobStatus]] = None) -> int:
+        finished_statuses = set(statuses or {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED})
+        removed = 0
+        with self._lock:
+            # Remove any queued entries first to avoid stale references
+            filtered_queue: List[str] = []
+            for job_id in self._queue:
+                job = self._jobs.get(job_id)
+                if job and job.status in finished_statuses:
+                    continue
+                filtered_queue.append(job_id)
+            self._queue = filtered_queue
+
+            for job_id, job in list(self._jobs.items()):
+                if job.status in finished_statuses:
+                    self._jobs.pop(job_id)
+                    removed += 1
+
+            if removed:
+                self._update_queue_positions_locked()
+        return removed
+
     def shutdown(self) -> None:
         self._stop_event.set()
         self._wake_event.set()

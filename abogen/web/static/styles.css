@@ -144,6 +144,9 @@ body {
 
 .form-grid > .grid {
   align-items: start;
+  max-width: 460px;
+  width: min(100%, 460px);
+  justify-self: start;
 }
 
 .button {
@@ -367,6 +370,7 @@ body {
   border-radius: 999px;
   background: rgba(148, 163, 184, 0.15);
   overflow: hidden;
+  --progress: 0%;
 }
 
 .progress-bar__fill {
@@ -374,6 +378,7 @@ body {
   background: linear-gradient(90deg, var(--accent), var(--accent-strong));
   border-radius: inherit;
   transition: width 0.35s ease;
+  width: var(--progress);
 }
 
 .list {
@@ -393,6 +398,142 @@ body {
   padding: 1rem 1.25rem;
   background: rgba(15, 23, 42, 0.35);
   gap: 1rem;
+}
+
+.queue-section {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+}
+
+.queue-section:last-of-type {
+  margin-bottom: 0;
+}
+
+.queue-section__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.queue-section__header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.job-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+
+.job-card {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 20px;
+  padding: 1rem 1.25rem;
+  background: rgba(15, 23, 42, 0.35);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  display: grid;
+  gap: 0.75rem;
+}
+
+.job-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.job-card__meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 0.35rem;
+}
+
+.job-card__progress {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.job-card__progress small {
+  color: var(--muted);
+}
+
+.job-card__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.job-card__footer .button--ghost {
+  padding: 0.6rem 0.95rem;
+}
+
+.job-cards--compact .job-card {
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.job-cards--compact .job-card__meta {
+  margin-top: 0.25rem;
+}
+
+.job-card--info {
+  border-style: dashed;
+  border-color: rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.2);
+  text-align: center;
+}
+
+.job-card--info .job-card__meta {
+  margin-top: 0;
+}
+
+.queue-empty {
+  color: var(--muted);
+}
+
+.field--file input[type="file"] {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.45);
+  padding: 0.85rem 1rem;
+  font-size: 0.95rem;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.field--file input[type="file"]:hover,
+.field--file input[type="file"]:focus {
+  border-color: var(--accent);
+  background: rgba(56, 189, 248, 0.1);
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.12);
+}
+
+.field--file input[type="file"]::file-selector-button,
+.field--file input[type="file"]::-webkit-file-upload-button {
+  border: none;
+  border-radius: 12px;
+  background: rgba(56, 189, 248, 0.2);
+  color: var(--accent);
+  font-weight: 600;
+  padding: 0.55rem 1.05rem;
+  margin-right: 1rem;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.field--file input[type="file"]:hover::file-selector-button,
+.field--file input[type="file"]:focus::file-selector-button,
+.field--file input[type="file"]:hover::-webkit-file-upload-button,
+.field--file input[type="file"]:focus::-webkit-file-upload-button {
+  background: rgba(56, 189, 248, 0.35);
+  color: #fff;
 }
 
 .alert {

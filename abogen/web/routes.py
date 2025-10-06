@@ -763,6 +763,19 @@ def enqueue_job() -> Response:
     return redirect(url_for("web.job_detail", job_id=job.id))
 
 
+def _render_jobs_panel() -> str:
+    jobs = _service().list_jobs()
+    active_jobs = [job for job in jobs if job.status in {JobStatus.PENDING, JobStatus.RUNNING}]
+    finished_jobs = [job for job in jobs if job.status not in {JobStatus.PENDING, JobStatus.RUNNING}]
+    return render_template(
+        "partials/jobs.html",
+        active_jobs=active_jobs,
+        finished_jobs=finished_jobs[:5],
+        total_finished=len(finished_jobs),
+        JobStatus=JobStatus,
+    )
+
+
 @web_bp.get("/jobs/<job_id>")
 def job_detail(job_id: str) -> str:
     job = _service().get_job(job_id)
@@ -778,13 +791,25 @@ def job_detail(job_id: str) -> str:
 @web_bp.post("/jobs/<job_id>/cancel")
 def cancel_job(job_id: str) -> Response:
     _service().cancel(job_id)
+    if request.headers.get("HX-Request"):
+        return _render_jobs_panel()
     return redirect(url_for("web.job_detail", job_id=job_id))
 
 
 @web_bp.post("/jobs/<job_id>/delete")
 def delete_job(job_id: str) -> Response:
     _service().delete(job_id)
+    if request.headers.get("HX-Request"):
+        return _render_jobs_panel()
     return redirect(url_for("web.index"))
+
+
+@web_bp.post("/jobs/clear-finished")
+def clear_finished_jobs() -> Response:
+    _service().clear_finished()
+    if request.headers.get("HX-Request"):
+        return _render_jobs_panel()
+    return redirect(url_for("web.queue_page"))
 
 
 @web_bp.get("/jobs/<job_id>/download")
@@ -812,7 +837,7 @@ def download_job(job_id: str) -> Response:
 
 @web_bp.get("/partials/jobs")
 def jobs_partial() -> str:
-    return render_template("partials/jobs.html", jobs=_service().list_jobs())
+    return _render_jobs_panel()
 
 
 @web_bp.get("/partials/jobs/<job_id>/logs")
