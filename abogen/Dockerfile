@@ -34,7 +34,8 @@ RUN pip install --upgrade pip \
      else \
        pip install torch torchvision torchaudio --index-url "$TORCH_INDEX_URL"; \
      fi \
-  && pip install --no-cache-dir . en-core-web-sm==3.8.0
+  && pip install --no-cache-dir . \
+    https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 
 ENV ABOGEN_HOST=0.0.0.0 \
   ABOGEN_PORT=8808
