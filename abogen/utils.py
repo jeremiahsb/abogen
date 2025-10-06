@@ -183,6 +183,8 @@ def get_user_cache_root():
         for env_var in ("HUGGINGFACE_HUB_CACHE", "TRANSFORMERS_CACHE"):
             os.environ.setdefault(env_var, hf_cache)
 
+        os.environ.setdefault("ABOGEN_INTERNAL_CACHE_ROOT", cache_base)
+
     cache_root = None
 
     override = os.environ.get("ABOGEN_TEMP_DIR")
@@ -215,6 +217,22 @@ def get_user_cache_root():
 
     _configure_cache_env()
     return cache_root
+
+
+def get_internal_cache_root():
+    root = os.environ.get("ABOGEN_INTERNAL_CACHE_ROOT") or os.environ.get("XDG_CACHE_HOME")
+    if root:
+        return ensure_directory(root)
+    home_dir = os.environ.get("HOME") or os.path.join("/tmp", "abogen-home")
+    home_dir = ensure_directory(home_dir)
+    return ensure_directory(os.path.join(home_dir, ".cache"))
+
+
+def get_internal_cache_path(folder=None):
+    base = get_internal_cache_root()
+    if folder:
+        return ensure_directory(os.path.join(base, folder))
+    return base
 
 
 def get_user_cache_path(folder=None):

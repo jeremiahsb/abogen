@@ -17,6 +17,7 @@ from abogen.text_extractor import ExtractedChapter, extract_from_path
 from abogen.utils import (
     calculate_text_length,
     create_process,
+    get_internal_cache_path,
     get_user_cache_path,
     get_user_output_path,
     load_config,
@@ -310,7 +311,8 @@ def _open_audio_sink(
     fmt: Optional[str] = None,
     metadata: Optional[Dict[str, str]] = None,
 ) -> AudioSink:
-    static_ffmpeg.add_paths()
+    ffmpeg_cache = get_internal_cache_path("ffmpeg")
+    static_ffmpeg.add_paths(download_dir=ffmpeg_cache)
     fmt_value = (fmt or job.output_format).lower()
 
     if fmt_value in {"wav", "flac"}:
