@@ -33,21 +33,21 @@ import textwrap
 SUPPLEMENTAL_TITLE_PATTERNS = [
     re.compile(pattern, re.IGNORECASE)
     for pattern in [
-        r"\\btable\\s+of\\s+contents\\b",
+        r"\btable\s+of\s+contents\b",
         r"^contents$",
-        r"\\babout\\s+the\\s+author(s)?\\b",
-        r"\\babout\\s+the\\s+illustrator\\b",
-        r"\\babout\\s+the\\s+translator\\b",
-        r"\\btitle\\s+page\\b",
-        r"\\bcopyright\\b",
-        r"\\bcolophon\\b",
-        r"\\bfront\\s*matter\\b",
-        r"\\bback\\s*matter\\b",
-        r"\\bindex\\b",
-        r"\\bglossary\\b",
-        r"\\bbibliograph",
-        r"\\backnowledg(e)?ments?\\b",
-        r"\\bpublication\\s+data\\b",
+        r"\babout\s+the\s+author(s)?\b",
+        r"\babout\s+the\s+illustrator\b",
+        r"\babout\s+the\s+translator\b",
+        r"\btitle\s+page\b",
+        r"\bcopyright\b",
+        r"\bcolophon\b",
+        r"\bfront\s*matter\b",
+        r"\bback\s*matter\b",
+        r"\bindex\b",
+        r"\bglossary\b",
+        r"\bbibliograph",
+        r"\backnowledg(e)?ments?\b",
+        r"\bpublication\s+data\b",
     ]
 ]
 
@@ -1602,6 +1602,14 @@ class HandlerDialog(QDialog):
     def _run_auto_check(self):
         self._block_signals = True
 
+        # Start with all selectable items checked so users can quickly deselect as needed.
+        iterator = QTreeWidgetItemIterator(self.treeWidget)
+        while iterator.value():
+            item = iterator.value()
+            if item.flags() & Qt.ItemIsUserCheckable:
+                item.setCheckState(0, Qt.Checked)
+            iterator += 1
+
         if self.file_type == "epub":
             self._run_epub_auto_check()
         elif self.file_type == "markdown":
@@ -1618,6 +1626,13 @@ class HandlerDialog(QDialog):
             content = self.content_texts.get(identifier, "")
         return is_supplemental_section(title, content)
 
+    def _uncheck_descendants(self, item):
+        for i in range(item.childCount()):
+            child = item.child(i)
+            if child.flags() & Qt.ItemIsUserCheckable:
+                child.setCheckState(0, Qt.Unchecked)
+            self._uncheck_descendants(child)
+
     def _run_epub_auto_check(self):
         iterator = QTreeWidgetItemIterator(self.treeWidget)
         while iterator.value():
@@ -1631,36 +1646,23 @@ class HandlerDialog(QDialog):
 
             if self._should_skip_auto_select(title, src):
                 item.setCheckState(0, Qt.Unchecked)
+                self._uncheck_descendants(item)
                 iterator += 1
                 continue
 
-            has_significant_content = src and self.content_lengths.get(src, 0) > 1000
-            is_parent = item.childCount() > 0
-
-            if has_significant_content or is_parent:
-                item.setCheckState(0, Qt.Checked)
-                if is_parent:
-                    for i in range(item.childCount()):
-                        child = item.child(i)
-                        if child.flags() & Qt.ItemIsUserCheckable:
-                            child_src = child.data(0, Qt.UserRole)
-                            child_title = child.text(0) or ""
-                            child_has_content = (
-                                    child_src and self.content_lengths.get(child_src, 0) > 0
-                            )
-                            child_is_parent = child.childCount() > 0
-                            if child_has_content or child_is_parent:
-                                if self._should_skip_auto_select(child_title, child_src):
-                                    child.setCheckState(0, Qt.Unchecked)
-                                else:
-                                    child.setCheckState(0, Qt.Checked)
-            else:
+            if (
+                    src
+                    and self.content_lengths.get(src, 0) == 0
+                    and item.childCount() == 0
+            ):
                 item.setCheckState(0, Qt.Unchecked)
+                iterator += 1
+                continue
 
             iterator += 1
 
     def _run_markdown_auto_check(self):
-        """Auto-select markdown chapters with significant content"""
+        """Auto-select markdown chapters while skipping supplemental or empty entries."""
         iterator = QTreeWidgetItemIterator(self.treeWidget)
         while iterator.value():
             item = iterator.value()
@@ -1673,46 +1675,22 @@ class HandlerDialog(QDialog):
 
             if self._should_skip_auto_select(title, identifier):
                 item.setCheckState(0, Qt.Unchecked)
+                self._uncheck_descendants(item)
                 iterator += 1
                 continue
 
-            # Select chapters with content > 500 characters or parent items
-            has_significant_content = identifier and self.content_lengths.get(identifier, 0) > 500
-            is_parent = item.childCount() > 0
-
-            if has_significant_content or is_parent:
-                item.setCheckState(0, Qt.Checked)
-                # Also check children if this is a parent
-                if is_parent:
-                    for i in range(item.childCount()):
-                        child = item.child(i)
-                        if child.flags() & Qt.ItemIsUserCheckable:
-                            child_identifier = child.data(0, Qt.UserRole)
-                            child_title = child.text(0) or ""
-                            child_has_content = (
-                                    child_identifier and self.content_lengths.get(child_identifier, 0) > 0
-                            )
-                            child_is_parent = child.childCount() > 0
-                            if child_has_content or child_is_parent:
-                                if self._should_skip_auto_select(child_title, child_identifier):
-                                    child.setCheckState(0, Qt.Unchecked)
-                                else:
-                                    child.setCheckState(0, Qt.Checked)
-            else:
+            if (
+                    identifier
+                    and self.content_lengths.get(identifier, 0) == 0
+                    and item.childCount() == 0
+            ):
                 item.setCheckState(0, Qt.Unchecked)
+                iterator += 1
+                continue
 
             iterator += 1
 
     def _run_pdf_auto_check(self):
-        if hasattr(self, "has_pdf_bookmarks") and not self.has_pdf_bookmarks:
-            iterator = QTreeWidgetItemIterator(self.treeWidget)
-            while iterator.value():
-                item = iterator.value()
-                if item.flags() & Qt.ItemIsUserCheckable:
-                    item.setCheckState(0, Qt.Checked)
-                iterator += 1
-            return
-
         iterator = QTreeWidgetItemIterator(self.treeWidget)
         while iterator.value():
             item = iterator.value()
@@ -1729,6 +1707,7 @@ class HandlerDialog(QDialog):
             title = item.text(0) or ""
             if self._should_skip_auto_select(title, identifier):
                 item.setCheckState(0, Qt.Unchecked)
+                self._uncheck_descendants(item)
                 iterator += 1
                 continue
 
@@ -1737,6 +1716,8 @@ class HandlerDialog(QDialog):
                     or self.content_lengths.get(identifier, 0) > 0
             ):
                 item.setCheckState(0, Qt.Checked)
+            else:
+                item.setCheckState(0, Qt.Unchecked)
 
             iterator += 1
 
