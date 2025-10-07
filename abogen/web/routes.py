@@ -4,6 +4,7 @@ import io
 import json
 import mimetypes
 import os
+import re
 import threading
 import time
 import uuid
@@ -66,6 +67,109 @@ api_bp = Blueprint("api", __name__)
 
 _preview_pipeline_lock = threading.RLock()
 _preview_pipelines: Dict[Tuple[str, str], Any] = {}
+
+
+_SUPPLEMENT_TITLE_PATTERNS: List[tuple[re.Pattern[str], float]] = [
+    (re.compile(r"\btitle\s+page\b"), 3.0),
+    (re.compile(r"\bcopyright\b"), 2.4),
+    (re.compile(r"\btable\s+of\s+contents\b"), 2.8),
+    (re.compile(r"\bcontents\b"), 2.0),
+    (re.compile(r"\backnowledg(e)?ments?\b"), 2.0),
+    (re.compile(r"\bdedication\b"), 2.0),
+    (re.compile(r"\babout\s+the\s+author(s)?\b"), 2.4),
+    (re.compile(r"\balso\s+by\b"), 2.0),
+    (re.compile(r"\bpraise\s+for\b"), 2.0),
+    (re.compile(r"\bcolophon\b"), 2.2),
+    (re.compile(r"\bpublication\s+data\b"), 2.2),
+    (re.compile(r"\btranscriber'?s?\s+note\b"), 2.2),
+    (re.compile(r"\bglossary\b"), 2.0),
+    (re.compile(r"\bindex\b"), 2.0),
+    (re.compile(r"\bbibliograph(y|ies)\b"), 2.0),
+    (re.compile(r"\breferences\b"), 1.8),
+    (re.compile(r"\bappendix\b"), 1.9),
+]
+
+_CONTENT_TITLE_PATTERNS: List[re.Pattern[str]] = [
+    re.compile(r"\bchapter\b"),
+    re.compile(r"\bbook\b"),
+    re.compile(r"\bpart\b"),
+    re.compile(r"\bsection\b"),
+    re.compile(r"\bscene\b"),
+    re.compile(r"\bprologue\b"),
+    re.compile(r"\bepilogue\b"),
+    re.compile(r"\bintroduction\b"),
+    re.compile(r"\bstory\b"),
+]
+
+_SUPPLEMENT_TEXT_KEYWORDS: List[tuple[str, float]] = [
+    ("copyright", 1.2),
+    ("all rights reserved", 1.1),
+    ("isbn", 0.9),
+    ("library of congress", 1.0),
+    ("table of contents", 1.0),
+    ("dedicated to", 0.8),
+    ("acknowledg", 0.8),
+    ("printed in", 0.6),
+    ("permission", 0.6),
+    ("publisher", 0.5),
+    ("praise for", 0.9),
+    ("also by", 0.9),
+    ("glossary", 0.8),
+    ("index", 0.8),
+]
+
+
+def _supplement_score(title: str, text: str, index: int) -> float:
+    normalized_title = (title or "").lower()
+    score = 0.0
+
+    for pattern, weight in _SUPPLEMENT_TITLE_PATTERNS:
+        if pattern.search(normalized_title):
+            score += weight
+
+    for pattern in _CONTENT_TITLE_PATTERNS:
+        if pattern.search(normalized_title):
+            score -= 2.0
+
+    stripped_text = (text or "").strip()
+    length = len(stripped_text)
+    if length <= 150:
+        score += 0.9
+    elif length <= 400:
+        score += 0.6
+    elif length <= 800:
+        score += 0.35
+
+    lowercase_text = stripped_text.lower()
+    for keyword, weight in _SUPPLEMENT_TEXT_KEYWORDS:
+        if keyword in lowercase_text:
+            score += weight
+
+    if index == 0 and score > 0:
+        score += 0.25
+
+    return score
+
+
+def _should_preselect_chapter(
+    title: str,
+    text: str,
+    index: int,
+    total_count: int,
+) -> bool:
+    if total_count <= 1:
+        return True
+    score = _supplement_score(title, text, index)
+    return score < 1.9
+
+
+def _ensure_at_least_one_chapter_enabled(chapters: List[Dict[str, Any]]) -> None:
+    if not chapters:
+        return
+    if any(chapter.get("enabled") for chapter in chapters):
+        return
+    best_index = max(range(len(chapters)), key=lambda idx: chapters[idx].get("characters", 0))
+    chapters[best_index]["enabled"] = True
 
 
 def _service() -> ConversionService:
@@ -742,8 +846,15 @@ def enqueue_job() -> Response:
 
     metadata_tags = extraction.metadata or {}
     total_chars = extraction.total_characters or calculate_text_length(extraction.combined_text)
+    total_chapter_count = len(extraction.chapters)
     chapters_payload: List[Dict[str, Any]] = []
     for index, chapter in enumerate(extraction.chapters):
+        enabled = _should_preselect_chapter(
+            chapter.title,
+            chapter.text,
+            index,
+            total_chapter_count,
+        )
         chapters_payload.append(
             {
                 "id": f"{index:04d}",
@@ -751,7 +862,7 @@ def enqueue_job() -> Response:
                 "title": chapter.title,
                 "text": chapter.text,
                 "characters": len(chapter.text),
-                "enabled": True,
+                "enabled": enabled,
             }
         )
 
@@ -766,6 +877,8 @@ def enqueue_job() -> Response:
                 "enabled": True,
             }
         )
+
+    _ensure_at_least_one_chapter_enabled(chapters_payload)
 
     profiles = load_profiles()
     settings = _load_settings()
@@ -963,7 +1076,7 @@ def finalize_job(pending_id: str) -> Response:
         chapter_intro_delay=pending.chapter_intro_delay,
     )
 
-    return redirect(url_for("web.job_detail", job_id=job.id))
+    return redirect(url_for("web.queue_page"))
 
 
 @web_bp.post("/jobs/prepare/<pending_id>/cancel")
