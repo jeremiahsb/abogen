@@ -5,6 +5,7 @@ import math
 import os
 import re
 import subprocess
+import sys
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -312,16 +313,17 @@ def _open_audio_sink(
     fmt: Optional[str] = None,
     metadata: Optional[Dict[str, str]] = None,
 ) -> AudioSink:
-    ffmpeg_cache = get_internal_cache_path("ffmpeg")
-    os.makedirs(ffmpeg_cache, exist_ok=True)
+    ffmpeg_cache_root = get_internal_cache_path("ffmpeg")
+    platform_cache = os.path.join(ffmpeg_cache_root, sys.platform)
+    os.makedirs(platform_cache, exist_ok=True)
     try:
         import static_ffmpeg.run as static_ffmpeg_run  # type: ignore
 
-        static_ffmpeg_run.LOCK_FILE = os.path.join(ffmpeg_cache, "lock.file")
+        static_ffmpeg_run.LOCK_FILE = os.path.join(ffmpeg_cache_root, "lock.file")
     except Exception:
         pass
 
-    static_ffmpeg.add_paths(download_dir=ffmpeg_cache)
+    static_ffmpeg.add_paths(weak=True, download_dir=platform_cache)
     fmt_value = (fmt or job.output_format).lower()
 
     if fmt_value in {"wav", "flac"}:
