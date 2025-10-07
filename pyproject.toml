@@ -21,6 +21,7 @@ dependencies = [
     "PyMuPDF>=1.25.5",
     "platformdirs>=4.3.7",
     "soundfile>=0.13.1",
+    "mutagen>=1.47.0",
     "pygame>=2.6.1",
     "charset_normalizer>=3.4.1",
     "chardet>=5.2.0",

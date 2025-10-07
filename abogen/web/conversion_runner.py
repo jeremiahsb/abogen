@@ -272,6 +272,70 @@ def _write_ffmetadata_file(
         return Path(handle.name)
 
 
+def _apply_m4b_chapters_with_mutagen(
+    audio_path: Path,
+    chapters: List[Dict[str, Any]],
+    job: Job,
+) -> bool:
+    if not chapters:
+        return False
+
+    try:
+        from fractions import Fraction
+        from mutagen.mp4 import MP4, MP4Chapter  # type: ignore[import]
+    except ImportError:
+        job.add_log(
+            "Unable to write MP4 chapter atoms because mutagen is not installed.",
+            level="warning",
+        )
+        return False
+
+    try:
+        mp4 = MP4(str(audio_path))
+    except Exception as exc:  # pragma: no cover - defensive
+        job.add_log(f"Failed to open m4b for chapter embedding: {exc}", level="warning")
+        return False
+
+    chapter_objects: List[MP4Chapter] = []
+    for index, entry in enumerate(sorted(chapters, key=lambda item: float(item.get("start") or 0.0))):
+        start_raw = entry.get("start")
+        if start_raw is None:
+            continue
+        try:
+            start_seconds = max(0.0, float(start_raw))
+        except (TypeError, ValueError):
+            continue
+
+        title_value = entry.get("title")
+        title_text = str(title_value) if title_value else f"Chapter {index + 1}"
+
+        start_fraction = Fraction(int(round(start_seconds * 1000)), 1000)
+        chapter_atom = MP4Chapter(start_fraction, title_text)
+
+        end_raw = entry.get("end")
+        if end_raw is not None:
+            try:
+                end_seconds = float(end_raw)
+            except (TypeError, ValueError):
+                end_seconds = None
+            if end_seconds is not None and end_seconds > start_seconds:
+                chapter_atom.end = Fraction(int(round(end_seconds * 1000)), 1000)
+
+        chapter_objects.append(chapter_atom)
+
+    if not chapter_objects:
+        return False
+
+    try:
+        mp4.chapters = chapter_objects
+        mp4.save()
+    except Exception as exc:  # pragma: no cover - defensive
+        job.add_log(f"Failed to persist MP4 chapter atoms: {exc}", level="warning")
+        return False
+
+    return True
+
+
 def _embed_m4b_metadata(
     audio_path: Path,
     metadata_payload: Dict[str, Any],
@@ -299,7 +363,7 @@ def _embed_m4b_metadata(
     next_index = 1
 
     if ffmetadata_path:
-        command += ["-i", str(ffmetadata_path)]
+        command += ["-f", "ffmetadata", "-i", str(ffmetadata_path)]
         metadata_index = next_index
         next_index += 1
 
@@ -350,6 +414,12 @@ def _embed_m4b_metadata(
 
     temp_output.replace(audio_path)
     job.add_log("Embedded metadata and chapters into m4b output", level="info")
+
+    mutagen_applied = _apply_m4b_chapters_with_mutagen(audio_path, chapter_entries, job)
+    if mutagen_applied:
+        job.add_log(
+            f"Applied {len(chapter_entries)} chapter markers via mutagen", level="info"
+        )
 
 
 def run_conversion_job(job: Job) -> None:
@@ -780,7 +850,7 @@ def _open_audio_sink(
     def _write(data: np.ndarray) -> None:
         if job.cancel_requested or process.stdin is None:
             return
-        process.stdin.write(data.tobytes())
+        process.stdin.write(data.tobytes())  # type: ignore[arg-type]
 
     return AudioSink(write=_write)
 
