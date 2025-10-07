@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import threading
 import time
 import uuid
@@ -10,7 +11,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Mapping
 
-from abogen.utils import get_internal_cache_path
+from abogen.utils import get_internal_cache_path, get_user_settings_dir
 
 
 def _create_set_event() -> threading.Event:
@@ -192,8 +193,7 @@ class ConversionService:
         self._runner = runner
         self._poll_interval = poll_interval
         self._pending_jobs: Dict[str, PendingJob] = {}
-        self._state_path = Path(get_internal_cache_path("jobs")) / "queue_state.json"
-        self._state_path.parent.mkdir(parents=True, exist_ok=True)
+        self._state_path = self._determine_state_path()
         self._ensure_directories()
         self._load_state()
 
@@ -410,6 +410,7 @@ class ConversionService:
     def _ensure_directories(self) -> None:
         self._output_root.mkdir(parents=True, exist_ok=True)
         self._uploads_root.mkdir(parents=True, exist_ok=True)
+        self._state_path.parent.mkdir(parents=True, exist_ok=True)
 
     def _ensure_worker(self) -> None:
         with self._lock:
@@ -551,6 +552,40 @@ class ConversionService:
         except Exception:
             # Persistence failures should not disrupt runtime; ignore.
             pass
+
+    def _determine_state_path(self) -> Path:
+        override_file = os.environ.get("ABOGEN_QUEUE_STATE_PATH")
+        if override_file:
+            target_path = Path(override_file).expanduser()
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            return target_path
+
+        override_dir = os.environ.get("ABOGEN_QUEUE_STATE_DIR")
+        if override_dir:
+            base_dir = Path(override_dir).expanduser()
+        else:
+            settings_override = os.environ.get("ABOGEN_SETTINGS_DIR")
+            if settings_override:
+                base_dir = Path(settings_override).expanduser() / "queue"
+            else:
+                try:
+                    base_dir = Path(get_user_settings_dir()) / "queue"
+                except ModuleNotFoundError:
+                    base_dir = Path(get_internal_cache_path("jobs"))
+        base_dir.mkdir(parents=True, exist_ok=True)
+        target_path = base_dir / "queue_state.json"
+
+        legacy_path = Path(get_internal_cache_path("jobs")) / "queue_state.json"
+        if legacy_path.exists() and not target_path.exists():
+            try:
+                shutil.move(str(legacy_path), target_path)
+            except Exception:
+                try:
+                    shutil.copy2(str(legacy_path), target_path)
+                except Exception:
+                    pass
+
+        return target_path
 
     def _deserialize_job(self, payload: Dict[str, Any]) -> Job:
         stored_path = Path(payload["stored_path"])
