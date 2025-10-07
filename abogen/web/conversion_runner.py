@@ -517,6 +517,8 @@ def _embed_m4b_metadata(
     command += ["-movflags", "+faststart+use_metadata_tags"]
 
     temp_output = audio_path.with_suffix(audio_path.suffix + ".tmp")
+    if audio_path.suffix.lower() in {".m4b", ".mp4", ".m4a"}:
+        command += ["-f", "mp4"]
     command.append(str(temp_output))
 
     process = create_process(command, text=True)
