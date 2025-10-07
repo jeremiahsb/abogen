@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Mapping
 
 
 class JobStatus(str, Enum):
@@ -64,7 +64,7 @@ class Job:
     logs: List[JobLog] = field(default_factory=list)
     error: Optional[str] = None
     result: JobResult = field(default_factory=JobResult)
-    chapters: List[str] = field(default_factory=list)
+    chapters: List[Dict[str, Any]] = field(default_factory=list)
     queue_position: Optional[int] = None
     cancel_requested: bool = False
 
@@ -100,6 +100,18 @@ class Job:
                 "voice_profile": self.voice_profile,
                 "max_subtitle_words": self.max_subtitle_words,
             },
+            "metadata_tags": dict(self.metadata_tags),
+            "chapters": [
+                {
+                    "id": entry.get("id"),
+                    "index": entry.get("index"),
+                    "order": entry.get("order"),
+                    "title": entry.get("title"),
+                    "enabled": bool(entry.get("enabled", True)),
+                    "characters": len(str(entry.get("text", ""))),
+                }
+                for entry in self.chapters
+            ],
         }
 
 
@@ -149,7 +161,7 @@ class ConversionService:
         replace_single_newlines: bool,
         subtitle_format: str,
         total_characters: int,
-        chapters: Optional[Iterable[str]] = None,
+        chapters: Optional[Iterable[Any]] = None,
         save_chapters_separately: bool = False,
         merge_chapters_at_end: bool = True,
         separate_chapters_format: str = "wav",
@@ -157,8 +169,13 @@ class ConversionService:
         save_as_project: bool = False,
         voice_profile: Optional[str] = None,
         max_subtitle_words: int = 50,
+        metadata_tags: Optional[Mapping[str, Any]] = None,
     ) -> Job:
         job_id = uuid.uuid4().hex
+        normalized_metadata = self._normalize_metadata_tags(metadata_tags)
+        normalized_chapters = self._normalize_chapters(chapters)
+        if total_characters <= 0 and normalized_chapters:
+            total_characters = sum(len(str(entry.get("text", ""))) for entry in normalized_chapters)
         job = Job(
             id=job_id,
             original_filename=original_filename,
@@ -180,9 +197,10 @@ class ConversionService:
             save_as_project=save_as_project,
             voice_profile=voice_profile,
             max_subtitle_words=max_subtitle_words,
+            metadata_tags=normalized_metadata,
             created_at=time.time(),
             total_characters=total_characters,
-            chapters=list(chapters or []),
+            chapters=normalized_chapters,
         )
         with self._lock:
             self._jobs[job_id] = job
@@ -321,6 +339,128 @@ class ConversionService:
             job = self._jobs.get(job_id)
             if job:
                 job.queue_position = index
+
+    @staticmethod
+    def _coerce_bool(value: Any, default: bool = True) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"true", "1", "yes", "on"}:
+                return True
+            if lowered in {"false", "0", "no", "off"}:
+                return False
+            return default
+        if value is None:
+            return default
+        return bool(value)
+
+    @staticmethod
+    def _coerce_optional_int(value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _normalize_metadata_tags(values: Optional[Mapping[str, Any]]) -> Dict[str, str]:
+        if not values:
+            return {}
+        normalized: Dict[str, str] = {}
+        for key, raw_value in values.items():
+            if raw_value is None:
+                continue
+            key_str = str(key).strip()
+            if not key_str:
+                continue
+            normalized[key_str] = str(raw_value)
+        return normalized
+
+    @classmethod
+    def _normalize_chapters(cls, chapters: Optional[Iterable[Any]]) -> List[Dict[str, Any]]:
+        if not chapters:
+            return []
+
+        normalized: List[Dict[str, Any]] = []
+        for order, raw in enumerate(chapters):
+            if raw is None:
+                continue
+
+            if isinstance(raw, str):
+                raw_dict: Dict[str, Any] = {"title": raw}
+            elif isinstance(raw, dict):
+                raw_dict = dict(raw)
+            else:
+                continue
+
+            entry: Dict[str, Any] = {}
+
+            id_value = raw_dict.get("id") or raw_dict.get("chapter_id") or raw_dict.get("key")
+            if id_value is not None:
+                entry["id"] = str(id_value)
+
+            index_value = (
+                cls._coerce_optional_int(raw_dict.get("index"))
+                or cls._coerce_optional_int(raw_dict.get("original_index"))
+                or cls._coerce_optional_int(raw_dict.get("source_index"))
+                or cls._coerce_optional_int(raw_dict.get("chapter_index"))
+            )
+            if index_value is not None:
+                entry["index"] = index_value
+
+            order_value = (
+                cls._coerce_optional_int(raw_dict.get("order"))
+                or cls._coerce_optional_int(raw_dict.get("position"))
+                or cls._coerce_optional_int(raw_dict.get("sort"))
+                or cls._coerce_optional_int(raw_dict.get("sort_order"))
+            )
+            entry["order"] = order_value if order_value is not None else order
+
+            source_title = (
+                raw_dict.get("source_title")
+                or raw_dict.get("original_title")
+                or raw_dict.get("base_title")
+            )
+            if source_title:
+                entry["source_title"] = str(source_title)
+
+            title_value = (
+                raw_dict.get("title")
+                or raw_dict.get("name")
+                or raw_dict.get("label")
+                or raw_dict.get("chapter")
+            )
+            if title_value is not None:
+                entry["title"] = str(title_value)
+            elif source_title:
+                entry["title"] = str(source_title)
+            else:
+                entry["title"] = f"Chapter {order + 1}"
+
+            text_value = raw_dict.get("text")
+            if text_value is None:
+                text_value = raw_dict.get("content") or raw_dict.get("body") or raw_dict.get("value")
+            if text_value is not None:
+                entry["text"] = str(text_value)
+
+            enabled = cls._coerce_bool(
+                raw_dict.get("enabled", raw_dict.get("include", raw_dict.get("selected", True))),
+                True,
+            )
+            if "disabled" in raw_dict and cls._coerce_bool(raw_dict.get("disabled"), False):
+                enabled = False
+            entry["enabled"] = enabled
+
+            metadata_payload = raw_dict.get("metadata") or raw_dict.get("metadata_tags")
+            normalized_metadata = cls._normalize_metadata_tags(metadata_payload)
+            if normalized_metadata:
+                entry["metadata"] = normalized_metadata
+
+            normalized.append(entry)
+
+        return normalized
 
 
 def default_storage_root() -> Path:
