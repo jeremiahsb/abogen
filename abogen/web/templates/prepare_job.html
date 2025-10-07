@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}Prepare · {{ pending.original_filename }}{% endblock %}
+
+{% block content %}
+<section class="card">
+  <div class="card__title">Prepare audiobook</div>
+  <p class="card__subtitle">Review the detected chapters, choose which ones to render, and optionally override the voice per chapter before sending the job to the queue.</p>
+
+  <div class="prepare-summary">
+    <dl>
+      <div>
+        <dt>Source</dt>
+        <dd>{{ pending.original_filename }}</dd>
+      </div>
+      <div>
+        <dt>Language</dt>
+        <dd>{{ options.languages.get(pending.language, pending.language|upper) }}</dd>
+      </div>
+      <div>
+        <dt>Default voice</dt>
+        <dd>{% if pending.voice_profile %}Profile · {{ pending.voice_profile }}{% else %}{{ pending.voice }}{% endif %}</dd>
+      </div>
+      <div>
+        <dt>Total chapters</dt>
+        <dd>{{ pending.chapters|length }}</dd>
+      </div>
+      <div>
+        <dt>Characters</dt>
+        <dd>{{ pending.total_characters|default(0) }}</dd>
+      </div>
+    </dl>
+    {% if pending.metadata_tags %}
+    <div class="prepare-metadata">
+      <h2>Metadata</h2>
+      <ul>
+        {% for key, value in pending.metadata_tags.items() %}
+          <li><strong>{{ key|replace('_', ' ')|title }}:</strong> {{ value }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if error %}
+    <div class="alert alert--error">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('web.finalize_job', pending_id=pending.id) }}" class="prepare-form" id="prepare-form">
+    <div class="chapter-grid">
+      {% for chapter in pending.chapters %}
+      {% set is_enabled = chapter.enabled is not defined or chapter.enabled %}
+      {% set selected_option = '__default' %}
+      {% if chapter.voice_profile %}
+        {% set selected_option = 'profile:' ~ chapter.voice_profile %}
+      {% elif chapter.voice %}
+        {% set selected_option = 'voice:' ~ chapter.voice %}
+      {% elif chapter.voice_formula %}
+        {% set selected_option = 'formula' %}
+      {% endif %}
+      <article class="chapter-card" data-role="chapter-row">
+        <header class="chapter-card__header">
+          <div class="chapter-card__title">
+            <label class="chapter-card__checkbox">
+              <input type="checkbox" name="chapter-{{ loop.index0 }}-enabled" data-role="chapter-enabled" {% if is_enabled %}checked{% endif %}>
+              <span>Chapter {{ loop.index }} · {{ chapter.title }}</span>
+            </label>
+          </div>
+          <div class="chapter-card__metrics">
+            {{ chapter.characters }} characters
+          </div>
+        </header>
+        <div class="chapter-card__body">
+          <div class="chapter-card__field">
+            <label for="chapter-{{ loop.index0 }}-title">Title</label>
+            <input type="text" id="chapter-{{ loop.index0 }}-title" name="chapter-{{ loop.index0 }}-title" value="{{ chapter.title }}">
+          </div>
+          <div class="chapter-card__preview">
+            <details>
+              <summary>Preview text</summary>
+              <pre>{{ chapter.text[:2000] }}{% if chapter.text|length > 2000 %}…{% endif %}</pre>
+            </details>
+          </div>
+          <div class="chapter-card__field">
+            <label for="chapter-{{ loop.index0 }}-voice">Voice override</label>
+            <select id="chapter-{{ loop.index0 }}-voice" name="chapter-{{ loop.index0 }}-voice" data-role="voice-select">
+              <option value="__default" {% if selected_option == '__default' %}selected{% endif %}>Use job default</option>
+              <optgroup label="Voices">
+                {% for voice in options.voices %}
+                  <option value="voice:{{ voice }}" {% if selected_option == 'voice:' ~ voice %}selected{% endif %}>{{ voice }}</option>
+                {% endfor %}
+              </optgroup>
+              {% if options.voice_profile_options %}
+              <optgroup label="Profiles">
+                {% for profile in options.voice_profile_options %}
+                  <option value="profile:{{ profile.name }}" {% if selected_option == 'profile:' ~ profile.name %}selected{% endif %}>{{ profile.name }}{% if profile.language %} · {{ profile.language|upper }}{% endif %}</option>
+                {% endfor %}
+              </optgroup>
+              {% endif %}
+              <option value="formula" {% if selected_option == 'formula' %}selected{% endif %}>Custom formula…</option>
+            </select>
+            <input type="text" name="chapter-{{ loop.index0 }}-formula" class="chapter-card__formula" data-role="formula-input" placeholder="af_nova*0.4+am_liam*0.6" value="{{ chapter.voice_formula or '' }}" {% if selected_option != 'formula' %}hidden aria-hidden="true"{% else %}aria-hidden="false"{% endif %}>
+          </div>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    <div class="prepare-actions">
+      <button type="submit" class="button">Queue conversion</button>
+      <button type="submit" class="button button--ghost" form="cancel-form">Cancel</button>
+    </div>
+  </form>
+  <form method="post" action="{{ url_for('web.cancel_pending_job', pending_id=pending.id) }}" id="cancel-form"></form>
+</section>
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script type="module" src="{{ url_for('static', filename='prepare.js') }}"></script>
+{% endblock %}

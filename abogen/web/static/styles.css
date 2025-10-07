@@ -441,6 +441,26 @@ body {
   gap: 0.75rem;
 }
 
+.job-card[data-status="paused"] {
+  border-color: rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.job-card__title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.job-card__title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.job-card__title a:hover {
+  color: var(--accent);
+}
+
 .job-card__header {
   display: flex;
   justify-content: space-between;
@@ -452,6 +472,10 @@ body {
   color: var(--muted);
   font-size: 0.85rem;
   margin-top: 0.35rem;
+}
+
+.job-card__meta--warning {
+  color: var(--warning);
 }
 
 .job-card__progress {
@@ -549,6 +573,12 @@ body {
   color: var(--success);
 }
 
+.alert--error {
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  color: var(--danger);
+}
+
 .button--danger {
   background: linear-gradient(135deg, var(--danger), #ef4444);
   box-shadow: 0 12px 30px rgba(239, 68, 68, 0.2);
@@ -616,6 +646,164 @@ body {
 
 .toggle-pill input:focus-visible + span {
   box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.18);
+}
+
+.prepare-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.prepare-summary dl {
+  margin: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.prepare-summary dt {
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.prepare-summary dd {
+  margin: 0;
+  font-weight: 500;
+}
+
+.prepare-metadata h2 {
+  font-size: 1rem;
+  margin: 0 0 0.6rem;
+  color: var(--muted);
+}
+
+.prepare-metadata ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.95rem;
+}
+
+.prepare-form {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.chapter-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.chapter-card {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 20px;
+  padding: 1rem 1.25rem;
+  background: rgba(15, 23, 42, 0.32);
+  display: grid;
+  gap: 0.85rem;
+}
+
+.chapter-card[data-disabled="true"] {
+  opacity: 0.5;
+}
+
+.chapter-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.chapter-card__title {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.chapter-card__checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.chapter-card__checkbox input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+}
+
+.chapter-card__metrics {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.chapter-card__body {
+  display: grid;
+  gap: 1rem;
+}
+
+.chapter-card__field {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.chapter-card__field label {
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.chapter-card__field input,
+.chapter-card__field select {
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.45);
+  padding: 0.7rem 0.9rem;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.chapter-card__preview summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.chapter-card__preview pre {
+  margin: 0.35rem 0 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.55);
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.chapter-card__formula {
+  max-width: 420px;
+}
+
+.prepare-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.prepare-actions .button {
+  min-width: 190px;
+}
+
+.prepare-actions .button--ghost {
+  border-color: rgba(148, 163, 184, 0.25);
 }
 
 .toggle-pill input:checked + span {

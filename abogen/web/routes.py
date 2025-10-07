@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple, cast
@@ -55,8 +56,9 @@ from abogen.voice_profiles import (
 )
 
 from abogen.voice_formulas import get_new_voice
+from abogen.text_extractor import extract_from_path
 from .conversion_runner import SPLIT_PATTERN, SAMPLE_RATE, _select_device, _to_float32
-from .service import ConversionService, Job, JobStatus
+from .service import ConversionService, Job, JobStatus, PendingJob
 
 web_bp = Blueprint("web", __name__)
 api_bp = Blueprint("api", __name__)
@@ -270,6 +272,28 @@ def _resolve_voice_choice(
         selected_profile = None
 
     return resolved_voice, resolved_language, selected_profile
+
+
+def _persist_cover_image(extraction_result: Any, stored_path: Path) -> tuple[Optional[Path], Optional[str]]:
+    cover_bytes = getattr(extraction_result, "cover_image", None)
+    if not cover_bytes:
+        return None, None
+
+    mime = getattr(extraction_result, "cover_mime", None)
+    extension = mimetypes.guess_extension(mime or "") or ".png"
+    base_stem = Path(stored_path).stem or "cover"
+    candidate = stored_path.parent / f"{base_stem}_cover{extension}"
+    counter = 1
+    while candidate.exists():
+        candidate = stored_path.parent / f"{base_stem}_cover_{counter}{extension}"
+        counter += 1
+
+    try:
+        candidate.write_bytes(cover_bytes)
+    except OSError:
+        return None, None
+
+    return candidate, mime
 
 
 def _parse_voice_formula(formula: str) -> List[tuple[str, float]]:
@@ -690,12 +714,54 @@ def enqueue_job() -> Response:
         stored_path = uploads_dir / f"{uuid.uuid4().hex}_{filename}"
         file.save(stored_path)
         original_name = filename
-        total_chars = 0
     else:
         original_name = "direct_text.txt"
         stored_path = uploads_dir / f"{uuid.uuid4().hex}_{original_name}"
         stored_path.write_text(text_input, encoding="utf-8")
-        total_chars = calculate_text_length(clean_text(text_input))
+
+    extraction = None
+    try:
+        extraction = extract_from_path(stored_path)
+    except Exception as exc:  # pragma: no cover - defensive
+        try:
+            stored_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        abort(400, f"Unable to read the supplied content: {exc}")
+
+    if extraction is None:  # pragma: no cover - defensive
+        abort(400, "Unable to read the supplied content")
+
+    assert extraction is not None
+
+    cover_path, cover_mime = _persist_cover_image(extraction, stored_path)
+
+    metadata_tags = extraction.metadata or {}
+    total_chars = extraction.total_characters or calculate_text_length(extraction.combined_text)
+    chapters_payload: List[Dict[str, Any]] = []
+    for index, chapter in enumerate(extraction.chapters):
+        chapters_payload.append(
+            {
+                "id": f"{index:04d}",
+                "index": index,
+                "title": chapter.title,
+                "text": chapter.text,
+                "characters": len(chapter.text),
+                "enabled": True,
+            }
+        )
+
+    if not chapters_payload:
+        chapters_payload.append(
+            {
+                "id": "0000",
+                "index": 0,
+                "title": original_name,
+                "text": "",
+                "characters": 0,
+                "enabled": True,
+            }
+        )
 
     profiles = load_profiles()
     settings = _load_settings()
@@ -737,7 +803,8 @@ def enqueue_job() -> Response:
     silence_between_chapters = settings["silence_between_chapters"]
     max_subtitle_words = settings["max_subtitle_words"]
 
-    job = service.enqueue(
+    pending = PendingJob(
+        id=uuid.uuid4().hex,
         original_filename=original_name,
         stored_path=stored_path,
         language=language,
@@ -758,20 +825,165 @@ def enqueue_job() -> Response:
         save_as_project=save_as_project,
         voice_profile=selected_profile,
         max_subtitle_words=max_subtitle_words,
+        metadata_tags=metadata_tags,
+        chapters=chapters_payload,
+        created_at=time.time(),
+        cover_image_path=cover_path,
+        cover_image_mime=cover_mime,
     )
+
+    service.store_pending_job(pending)
+    return redirect(url_for("web.prepare_job", pending_id=pending.id))
+
+
+@web_bp.get("/jobs/prepare/<pending_id>")
+def prepare_job(pending_id: str) -> str:
+    pending = _service().get_pending_job(pending_id)
+    if not pending:
+        abort(404)
+    pending = cast(PendingJob, pending)
+    return _render_prepare_page(pending)
+
+
+@web_bp.post("/jobs/prepare/<pending_id>")
+def finalize_job(pending_id: str) -> Response:
+    service = _service()
+    pending = service.get_pending_job(pending_id)
+    if not pending:
+        abort(404)
+    pending = cast(PendingJob, pending)
+
+    profiles = serialize_profiles()
+    overrides: List[Dict[str, Any]] = []
+    selected_total = 0
+    errors: List[str] = []
+
+    for index, chapter in enumerate(pending.chapters):
+        enabled = request.form.get(f"chapter-{index}-enabled") == "on"
+        title_input = (request.form.get(f"chapter-{index}-title") or "").strip()
+        title = title_input or chapter.get("title") or f"Chapter {index + 1}"
+        voice_selection = request.form.get(f"chapter-{index}-voice", "__default")
+        formula_input = (request.form.get(f"chapter-{index}-formula") or "").strip()
+
+        entry: Dict[str, Any] = {
+            "id": chapter.get("id") or f"{index:04d}",
+            "index": index,
+            "order": index,
+            "source_title": chapter.get("title") or title,
+            "title": title,
+            "text": chapter.get("text", ""),
+            "enabled": enabled,
+        }
+        entry["characters"] = len(entry["text"])
+
+        if enabled:
+            if voice_selection.startswith("voice:"):
+                entry["voice"] = voice_selection.split(":", 1)[1]
+                entry["resolved_voice"] = entry["voice"]
+            elif voice_selection.startswith("profile:"):
+                profile_name = voice_selection.split(":", 1)[1]
+                entry["voice_profile"] = profile_name
+                profile_entry = profiles.get(profile_name) or {}
+                formula_value = _formula_from_profile(profile_entry)
+                if formula_value:
+                    entry["voice_formula"] = formula_value
+                    entry["resolved_voice"] = formula_value
+                else:
+                    errors.append(f"Profile '{profile_name}' has no configured voices.")
+            elif voice_selection == "formula":
+                if not formula_input:
+                    errors.append(f"Provide a custom formula for chapter {index + 1}.")
+                else:
+                    try:
+                        _parse_voice_formula(formula_input)
+                    except ValueError as exc:
+                        errors.append(str(exc))
+                    else:
+                        entry["voice_formula"] = formula_input
+                        entry["resolved_voice"] = formula_input
+            selected_total += len(entry["text"] or "")
+
+        overrides.append(entry)
+        pending.chapters[index] = dict(entry)
+
+    if not any(item.get("enabled") for item in overrides):
+        return _render_prepare_page(pending, error="Select at least one chapter to convert.")
+
+    if errors:
+        return _render_prepare_page(pending, error=" ".join(errors))
+
+    total_characters = selected_total or pending.total_characters
+
+    service.pop_pending_job(pending_id)
+
+    job = service.enqueue(
+        original_filename=pending.original_filename,
+        stored_path=pending.stored_path,
+        language=pending.language,
+        voice=pending.voice,
+        speed=pending.speed,
+        use_gpu=pending.use_gpu,
+        subtitle_mode=pending.subtitle_mode,
+        output_format=pending.output_format,
+        save_mode=pending.save_mode,
+        output_folder=pending.output_folder,
+        replace_single_newlines=pending.replace_single_newlines,
+        subtitle_format=pending.subtitle_format,
+        total_characters=total_characters,
+        chapters=overrides,
+        metadata_tags=pending.metadata_tags,
+        save_chapters_separately=pending.save_chapters_separately,
+        merge_chapters_at_end=pending.merge_chapters_at_end,
+        separate_chapters_format=pending.separate_chapters_format,
+        silence_between_chapters=pending.silence_between_chapters,
+        save_as_project=pending.save_as_project,
+        voice_profile=pending.voice_profile,
+        max_subtitle_words=pending.max_subtitle_words,
+        cover_image_path=pending.cover_image_path,
+        cover_image_mime=pending.cover_image_mime,
+    )
+
     return redirect(url_for("web.job_detail", job_id=job.id))
+
+
+@web_bp.post("/jobs/prepare/<pending_id>/cancel")
+def cancel_pending_job(pending_id: str) -> Response:
+    pending = _service().pop_pending_job(pending_id)
+    if pending and pending.stored_path.exists():
+        try:
+            pending.stored_path.unlink()
+        except OSError:
+            pass
+    if pending and pending.cover_image_path and pending.cover_image_path.exists():
+        try:
+            pending.cover_image_path.unlink()
+        except OSError:
+            pass
+    return redirect(url_for("web.index"))
 
 
 def _render_jobs_panel() -> str:
     jobs = _service().list_jobs()
-    active_jobs = [job for job in jobs if job.status in {JobStatus.PENDING, JobStatus.RUNNING}]
-    finished_jobs = [job for job in jobs if job.status not in {JobStatus.PENDING, JobStatus.RUNNING}]
+    active_statuses = {JobStatus.PENDING, JobStatus.RUNNING, JobStatus.PAUSED}
+    active_jobs = [job for job in jobs if job.status in active_statuses]
+    active_jobs.sort(key=lambda job: ((job.queue_position or 10_000), -job.created_at))
+    finished_jobs = [job for job in jobs if job.status not in active_statuses]
     return render_template(
         "partials/jobs.html",
         active_jobs=active_jobs,
         finished_jobs=finished_jobs[:5],
         total_finished=len(finished_jobs),
         JobStatus=JobStatus,
+    )
+
+
+def _render_prepare_page(pending: PendingJob, *, error: Optional[str] = None) -> str:
+    return render_template(
+        "prepare_job.html",
+        pending=pending,
+        options=_template_options(),
+        settings=_load_settings(),
+        error=error,
     )
 
 
@@ -785,6 +997,22 @@ def job_detail(job_id: str) -> str:
         job=job,
         options=_template_options(),
     )
+
+
+@web_bp.post("/jobs/<job_id>/pause")
+def pause_job(job_id: str) -> Response:
+    _service().pause(job_id)
+    if request.headers.get("HX-Request"):
+        return _render_jobs_panel()
+    return redirect(url_for("web.job_detail", job_id=job_id))
+
+
+@web_bp.post("/jobs/<job_id>/resume")
+def resume_job(job_id: str) -> Response:
+    _service().resume(job_id)
+    if request.headers.get("HX-Request"):
+        return _render_jobs_panel()
+    return redirect(url_for("web.job_detail", job_id=job_id))
 
 
 @web_bp.post("/jobs/<job_id>/cancel")
@@ -837,7 +1065,6 @@ def download_job(job_id: str) -> Response:
 @web_bp.get("/partials/jobs")
 def jobs_partial() -> str:
     return _render_jobs_panel()
-
 
 @web_bp.get("/partials/jobs/<job_id>/logs")
 def job_logs_partial(job_id: str) -> str:

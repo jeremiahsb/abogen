@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import threading
 import time
 import uuid
@@ -8,10 +10,22 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Mapping
 
+from abogen.utils import get_internal_cache_path
+
+
+def _create_set_event() -> threading.Event:
+    event = threading.Event()
+    event.set()
+    return event
+
+
+STATE_VERSION = 2
+
 
 class JobStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
+    PAUSED = "paused"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -67,6 +81,12 @@ class Job:
     chapters: List[Dict[str, Any]] = field(default_factory=list)
     queue_position: Optional[int] = None
     cancel_requested: bool = False
+    pause_requested: bool = False
+    paused: bool = False
+    resume_token: Optional[str] = None
+    pause_event: threading.Event = field(default_factory=_create_set_event, repr=False, compare=False)
+    cover_image_path: Optional[Path] = None
+    cover_image_mime: Optional[str] = None
 
     def add_log(self, message: str, level: str = "info") -> None:
         self.logs.append(JobLog(timestamp=time.time(), message=message, level=level))
@@ -108,11 +128,45 @@ class Job:
                     "order": entry.get("order"),
                     "title": entry.get("title"),
                     "enabled": bool(entry.get("enabled", True)),
+                    "voice": entry.get("voice"),
+                    "voice_profile": entry.get("voice_profile"),
+                    "voice_formula": entry.get("voice_formula"),
+                    "resolved_voice": entry.get("resolved_voice"),
                     "characters": len(str(entry.get("text", ""))),
                 }
                 for entry in self.chapters
             ],
         }
+
+
+@dataclass
+class PendingJob:
+    id: str
+    original_filename: str
+    stored_path: Path
+    language: str
+    voice: str
+    speed: float
+    use_gpu: bool
+    subtitle_mode: str
+    output_format: str
+    save_mode: str
+    output_folder: Optional[Path]
+    replace_single_newlines: bool
+    subtitle_format: str
+    total_characters: int
+    save_chapters_separately: bool
+    merge_chapters_at_end: bool
+    separate_chapters_format: str
+    silence_between_chapters: float
+    save_as_project: bool
+    voice_profile: Optional[str]
+    max_subtitle_words: int
+    metadata_tags: Dict[str, Any]
+    chapters: List[Dict[str, Any]]
+    created_at: float
+    cover_image_path: Optional[Path] = None
+    cover_image_mime: Optional[str] = None
 
 
 class ConversionService:
@@ -134,7 +188,11 @@ class ConversionService:
         self._uploads_root = uploads_root or output_root / "uploads"
         self._runner = runner
         self._poll_interval = poll_interval
+        self._pending_jobs: Dict[str, PendingJob] = {}
+        self._state_path = Path(get_internal_cache_path("jobs")) / "queue_state.json"
+        self._state_path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_directories()
+        self._load_state()
 
     # Public API ---------------------------------------------------------
     def list_jobs(self) -> List[Job]:
@@ -170,6 +228,8 @@ class ConversionService:
         voice_profile: Optional[str] = None,
         max_subtitle_words: int = 50,
         metadata_tags: Optional[Mapping[str, Any]] = None,
+        cover_image_path: Optional[Path] = None,
+        cover_image_mime: Optional[str] = None,
     ) -> Job:
         job_id = uuid.uuid4().hex
         normalized_metadata = self._normalize_metadata_tags(metadata_tags)
@@ -201,6 +261,8 @@ class ConversionService:
             created_at=time.time(),
             total_characters=total_characters,
             chapters=normalized_chapters,
+            cover_image_path=cover_image_path,
+            cover_image_mime=cover_image_mime,
         )
         with self._lock:
             self._jobs[job_id] = job
@@ -211,6 +273,18 @@ class ConversionService:
         job.add_log("Job queued")
         return job
 
+    def store_pending_job(self, pending: PendingJob) -> None:
+        with self._lock:
+            self._pending_jobs[pending.id] = pending
+
+    def get_pending_job(self, pending_id: str) -> Optional[PendingJob]:
+        with self._lock:
+            return self._pending_jobs.get(pending_id)
+
+    def pop_pending_job(self, pending_id: str) -> Optional[PendingJob]:
+        with self._lock:
+            return self._pending_jobs.pop(pending_id, None)
+
     def cancel(self, job_id: str) -> bool:
         with self._lock:
             job = self._jobs.get(job_id)
@@ -219,12 +293,68 @@ class ConversionService:
             if job.status in {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}:
                 return False
             job.cancel_requested = True
+            job.pause_requested = False
+            job.paused = False
             job.add_log("Cancellation requested", level="warning")
+            job.pause_event.set()
             if job.status == JobStatus.PENDING:
                 job.status = JobStatus.CANCELLED
                 self._queue.remove(job_id)
                 job.finished_at = time.time()
                 self._update_queue_positions_locked()
+            self._persist_state()
+            return True
+
+    def pause(self, job_id: str) -> bool:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return False
+            if job.status in {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}:
+                return False
+            if job.pause_requested or job.paused:
+                return True
+
+            job.pause_requested = True
+            job.add_log("Pause requested; finishing current chunk before stopping.", level="warning")
+
+            if job.status == JobStatus.PENDING:
+                if job_id in self._queue:
+                    self._queue.remove(job_id)
+                    self._update_queue_positions_locked()
+                job.status = JobStatus.PAUSED
+                job.paused = True
+                job.pause_event.clear()
+            self._persist_state()
+            return True
+
+    def resume(self, job_id: str) -> bool:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return False
+            if job.status in {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}:
+                return False
+
+            job.pause_requested = False
+
+            if job.status == JobStatus.PAUSED and job.started_at is None:
+                job.status = JobStatus.PENDING
+                job.paused = False
+                job.pause_event.set()
+                if job_id not in self._queue:
+                    self._queue.insert(0, job_id)
+                self._update_queue_positions_locked()
+                self._wake_event.set()
+                job.add_log("Resume requested; returning job to queue.", level="info")
+            else:
+                job.paused = False
+                job.pause_event.set()
+                if job.status == JobStatus.PAUSED:
+                    job.status = JobStatus.RUNNING
+                job.add_log("Resume requested", level="info")
+
+            self._persist_state()
             return True
 
     def delete(self, job_id: str) -> bool:
@@ -238,6 +368,7 @@ class ConversionService:
             if job_id in self._queue:
                 self._queue.remove(job_id)
                 self._update_queue_positions_locked()
+            self._persist_state()
             return True
 
     def clear_finished(self, *, statuses: Optional[Iterable[JobStatus]] = None) -> int:
@@ -260,6 +391,7 @@ class ConversionService:
 
             if removed:
                 self._update_queue_positions_locked()
+            self._persist_state()
         return removed
 
     def shutdown(self) -> None:
@@ -312,9 +444,13 @@ class ConversionService:
             self._run_job(job)
 
     def _run_job(self, job: Job) -> None:
+        job.pause_event.set()
+        job.pause_requested = False
+        job.paused = False
         job.status = JobStatus.RUNNING
         job.started_at = time.time()
         job.add_log("Job started", level="info")
+        self._persist_state()
         try:
             self._runner(job)
         except Exception as exc:  # pragma: no cover - defensive
@@ -331,6 +467,8 @@ class ConversionService:
                 job.add_log("Job completed", level="success")
             job.finished_at = time.time()
         finally:
+            job.pause_event.set()
+            self._persist_state()
             with self._lock:
                 self._update_queue_positions_locked()
 
@@ -339,6 +477,177 @@ class ConversionService:
             job = self._jobs.get(job_id)
             if job:
                 job.queue_position = index
+        self._persist_state()
+
+    # Persistence ------------------------------------------------------
+    def _serialize_job(self, job: Job) -> Dict[str, Any]:
+        result_audio = str(job.result.audio_path) if job.result.audio_path else None
+        result_subtitles = [str(path) for path in job.result.subtitle_paths]
+        result_artifacts = {key: str(path) for key, path in job.result.artifacts.items()}
+        return {
+            "id": job.id,
+            "original_filename": job.original_filename,
+            "stored_path": str(job.stored_path),
+            "language": job.language,
+            "voice": job.voice,
+            "speed": job.speed,
+            "use_gpu": job.use_gpu,
+            "subtitle_mode": job.subtitle_mode,
+            "output_format": job.output_format,
+            "save_mode": job.save_mode,
+            "output_folder": str(job.output_folder) if job.output_folder else None,
+            "replace_single_newlines": job.replace_single_newlines,
+            "subtitle_format": job.subtitle_format,
+            "created_at": job.created_at,
+            "save_chapters_separately": job.save_chapters_separately,
+            "merge_chapters_at_end": job.merge_chapters_at_end,
+            "separate_chapters_format": job.separate_chapters_format,
+            "silence_between_chapters": job.silence_between_chapters,
+            "save_as_project": job.save_as_project,
+            "voice_profile": job.voice_profile,
+            "metadata_tags": job.metadata_tags,
+            "max_subtitle_words": job.max_subtitle_words,
+            "status": job.status.value,
+            "started_at": job.started_at,
+            "finished_at": job.finished_at,
+            "progress": job.progress,
+            "total_characters": job.total_characters,
+            "processed_characters": job.processed_characters,
+            "error": job.error,
+            "logs": [log.__dict__ for log in job.logs][-500:],
+            "result": {
+                "audio_path": result_audio,
+                "subtitle_paths": result_subtitles,
+                "artifacts": result_artifacts,
+            },
+            "chapters": [dict(entry) for entry in job.chapters],
+            "queue_position": job.queue_position,
+            "cancel_requested": job.cancel_requested,
+            "pause_requested": job.pause_requested,
+            "paused": job.paused,
+            "resume_token": job.resume_token,
+            "cover_image_path": str(job.cover_image_path) if job.cover_image_path else None,
+            "cover_image_mime": job.cover_image_mime,
+        }
+
+    def _persist_state(self) -> None:
+        try:
+            with self._lock:
+                snapshot = {
+                    "version": STATE_VERSION,
+                    "jobs": [self._serialize_job(job) for job in self._jobs.values()],
+                    "queue": list(self._queue),
+                }
+            tmp_path = self._state_path.with_suffix(".tmp")
+            with tmp_path.open("w", encoding="utf-8") as handle:
+                json.dump(snapshot, handle, indent=2)
+            os.replace(tmp_path, self._state_path)
+        except Exception:
+            # Persistence failures should not disrupt runtime; ignore.
+            pass
+
+    def _deserialize_job(self, payload: Dict[str, Any]) -> Job:
+        stored_path = Path(payload["stored_path"])
+        output_folder_raw = payload.get("output_folder")
+        output_folder = Path(output_folder_raw) if output_folder_raw else None
+        job = Job(
+            id=payload["id"],
+            original_filename=payload["original_filename"],
+            stored_path=stored_path,
+            language=payload.get("language", "a"),
+            voice=payload.get("voice", ""),
+            speed=float(payload.get("speed", 1.0)),
+            use_gpu=bool(payload.get("use_gpu", True)),
+            subtitle_mode=payload.get("subtitle_mode", "Disabled"),
+            output_format=payload.get("output_format", "wav"),
+            save_mode=payload.get("save_mode", "Save next to input file"),
+            output_folder=output_folder,
+            replace_single_newlines=bool(payload.get("replace_single_newlines", False)),
+            subtitle_format=payload.get("subtitle_format", "srt"),
+            created_at=float(payload.get("created_at", time.time())),
+            save_chapters_separately=bool(payload.get("save_chapters_separately", False)),
+            merge_chapters_at_end=bool(payload.get("merge_chapters_at_end", True)),
+            separate_chapters_format=payload.get("separate_chapters_format", "wav"),
+            silence_between_chapters=float(payload.get("silence_between_chapters", 2.0)),
+            save_as_project=bool(payload.get("save_as_project", False)),
+            voice_profile=payload.get("voice_profile"),
+            metadata_tags=payload.get("metadata_tags", {}),
+            max_subtitle_words=int(payload.get("max_subtitle_words", 50)),
+        )
+        job.status = JobStatus(payload.get("status", job.status.value))
+        job.started_at = payload.get("started_at")
+        job.finished_at = payload.get("finished_at")
+        job.progress = float(payload.get("progress", 0.0))
+        job.total_characters = int(payload.get("total_characters", 0))
+        job.processed_characters = int(payload.get("processed_characters", 0))
+        job.error = payload.get("error")
+        job.logs = [JobLog(**entry) for entry in payload.get("logs", [])]
+        result_payload = payload.get("result", {})
+        audio_path_raw = result_payload.get("audio_path")
+        job.result.audio_path = Path(audio_path_raw) if audio_path_raw else None
+        job.result.subtitle_paths = [Path(item) for item in result_payload.get("subtitle_paths", [])]
+        job.result.artifacts = {
+            key: Path(value) for key, value in result_payload.get("artifacts", {}).items()
+        }
+        job.chapters = payload.get("chapters", [])
+        job.queue_position = payload.get("queue_position")
+        job.cancel_requested = bool(payload.get("cancel_requested", False))
+        job.pause_requested = bool(payload.get("pause_requested", False))
+        job.paused = bool(payload.get("paused", False))
+        job.resume_token = payload.get("resume_token")
+        cover_path_raw = payload.get("cover_image_path")
+        job.cover_image_path = Path(cover_path_raw) if cover_path_raw else None
+        job.cover_image_mime = payload.get("cover_image_mime")
+        job.pause_event.set()
+        return job
+
+    def _load_state(self) -> None:
+        if not self._state_path.exists():
+            return
+        try:
+            with self._state_path.open("r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except Exception:
+            return
+
+        if payload.get("version") != STATE_VERSION:
+            return
+
+        jobs_payload = payload.get("jobs", [])
+        queue_payload = payload.get("queue", [])
+        loaded_jobs: Dict[str, Job] = {}
+        requeue: List[str] = []
+
+        for entry in jobs_payload:
+            try:
+                job = self._deserialize_job(entry)
+            except Exception:
+                continue
+
+            if job.status in {JobStatus.RUNNING, JobStatus.PAUSED}:
+                job.status = JobStatus.PENDING
+                job.add_log("Job restored after restart: resetting to pending queue.", level="warning")
+                job.progress = 0.0
+                job.processed_characters = 0
+                job.pause_requested = False
+                job.paused = False
+                job.pause_event.set()
+                requeue.append(job.id)
+            elif job.status == JobStatus.PENDING:
+                requeue.append(job.id)
+
+            loaded_jobs[job.id] = job
+
+        with self._lock:
+            self._jobs = loaded_jobs
+            self._queue = [job_id for job_id in queue_payload if job_id in loaded_jobs]
+            for job_id in requeue:
+                if job_id not in self._queue:
+                    self._queue.append(job_id)
+            self._update_queue_positions_locked()
+
+        if self._queue:
+            self._ensure_worker()
 
     @staticmethod
     def _coerce_bool(value: Any, default: bool = True) -> bool:
@@ -457,6 +766,30 @@ class ConversionService:
             normalized_metadata = cls._normalize_metadata_tags(metadata_payload)
             if normalized_metadata:
                 entry["metadata"] = normalized_metadata
+
+            voice_value = raw_dict.get("voice")
+            if voice_value:
+                entry["voice"] = str(voice_value)
+
+            profile_value = raw_dict.get("voice_profile")
+            if profile_value:
+                entry["voice_profile"] = str(profile_value)
+
+            formula_value = raw_dict.get("voice_formula") or raw_dict.get("formula")
+            if formula_value:
+                entry["voice_formula"] = str(formula_value)
+
+            resolved_value = raw_dict.get("resolved_voice")
+            if resolved_value:
+                entry["resolved_voice"] = str(resolved_value)
+
+            if "characters" in raw_dict:
+                try:
+                    entry["characters"] = int(raw_dict.get("characters", 0))
+                except (TypeError, ValueError):
+                    entry["characters"] = len(str(entry.get("text", "")))
+            else:
+                entry["characters"] = len(str(entry.get("text", "")))
 
             normalized.append(entry)
 

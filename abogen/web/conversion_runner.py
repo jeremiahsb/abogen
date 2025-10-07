@@ -15,6 +15,11 @@ import numpy as np
 import soundfile as sf
 import static_ffmpeg
 
+from abogen.kokoro_text_normalization import (
+    ApostropheConfig,
+    apply_phoneme_hints,
+    normalize_apostrophes,
+)
 from abogen.text_extractor import ExtractedChapter, extract_from_path
 from abogen.utils import (
     calculate_text_length,
@@ -163,6 +168,35 @@ def _merge_metadata(
     return merged
 
 
+_APOSTROPHE_CONFIG = ApostropheConfig()
+
+
+def _normalize_for_pipeline(text: str) -> str:
+    normalized, _details = normalize_apostrophes(text, _APOSTROPHE_CONFIG)
+    if _APOSTROPHE_CONFIG.add_phoneme_hints:
+        return apply_phoneme_hints(normalized, iz_marker=_APOSTROPHE_CONFIG.sibilant_iz_marker)
+    return normalized
+
+
+def _chapter_voice_spec(job: Job, override: Optional[Dict[str, Any]]) -> str:
+    if not override:
+        return job.voice or ""
+
+    resolved = str(override.get("resolved_voice", "")).strip()
+    if resolved:
+        return resolved
+
+    formula = str(override.get("voice_formula", "")).strip()
+    if formula:
+        return formula
+
+    voice = str(override.get("voice", "")).strip()
+    if voice:
+        return voice
+
+    return job.voice or ""
+
+
 def run_conversion_job(job: Job) -> None:
     job.add_log("Preparing conversion pipeline")
     canceller = _make_canceller(job)
@@ -175,6 +209,7 @@ def run_conversion_job(job: Job) -> None:
         extraction = extract_from_path(job.stored_path)
 
         metadata_overrides: Dict[str, Any] = dict(job.metadata_tags or {})
+        active_chapter_configs: List[Dict[str, Any]] = []
         if job.chapters:
             selected_chapters, chapter_metadata, diagnostics = _apply_chapter_overrides(
                 extraction.chapters,
@@ -189,6 +224,9 @@ def run_conversion_job(job: Job) -> None:
                     f"Chapter overrides applied: {len(selected_chapters)} selected.",
                     level="info",
                 )
+                active_chapter_configs = [
+                    entry for entry in job.chapters if _coerce_truthy(entry.get("enabled", True))
+                ][: len(selected_chapters)]
             else:
                 raise ValueError("No chapters were enabled in the requested job.")
 
@@ -220,19 +258,33 @@ def run_conversion_job(job: Job) -> None:
             chapter_dir = audio_dir / "chapters"
             chapter_dir.mkdir(parents=True, exist_ok=True)
 
-        voice_spec = job.voice or ""
-        cached_voice = None
-        if "*" not in voice_spec:
-            cached_voice = _resolve_voice(pipeline, voice_spec, job.use_gpu)
+        base_voice_spec = (job.voice or "").strip()
+        voice_cache: Dict[str, Any] = {}
+        if base_voice_spec and "*" not in base_voice_spec:
+            voice_cache[base_voice_spec] = _resolve_voice(pipeline, base_voice_spec, job.use_gpu)
         processed_chars = 0
         subtitle_index = 1
         current_time = 0.0
         total_chapters = len(extraction.chapters)
+        chapter_markers: List[Dict[str, Any]] = []
         job.add_log(f"Detected {total_chapters} chapter{'s' if total_chapters != 1 else ''}")
 
         for idx, chapter in enumerate(extraction.chapters, start=1):
             canceller()
             job.add_log(f"Processing chapter {idx}/{total_chapters}: {chapter.title}")
+
+            chapter_start_time = current_time
+            chapter_override = (
+                active_chapter_configs[idx - 1] if idx - 1 < len(active_chapter_configs) else None
+            )
+            chapter_voice_spec = _chapter_voice_spec(job, chapter_override)
+            if not chapter_voice_spec:
+                chapter_voice_spec = base_voice_spec
+
+            voice_choice = voice_cache.get(chapter_voice_spec)
+            if voice_choice is None:
+                voice_choice = _resolve_voice(pipeline, chapter_voice_spec, job.use_gpu)
+                voice_cache[chapter_voice_spec] = voice_choice
 
             chapter_sink_stack = ExitStack()
             chapter_sink: Optional[AudioSink] = None
@@ -251,14 +303,11 @@ def run_conversion_job(job: Job) -> None:
                     fmt=job.separate_chapters_format,
                 )
 
-            voice_choice = cached_voice if cached_voice is not None else _resolve_voice(
-                pipeline, voice_spec, job.use_gpu
-            )
-
             segments_emitted = 0
+            tts_input = _normalize_for_pipeline(chapter.text)
 
             for segment in pipeline(
-                chapter.text,
+                tts_input,
                 voice=voice_choice,
                 speed=job.speed,
                 split_pattern=SPLIT_PATTERN,
@@ -303,6 +352,8 @@ def run_conversion_job(job: Job) -> None:
             if chapter_sink:
                 chapter_sink_stack.close()
 
+            chapter_end_time = current_time
+
             if chapter_audio_path is not None:
                 job.result.artifacts[f"chapter_{idx:02d}"] = chapter_audio_path
                 chapter_paths.append(chapter_audio_path)
@@ -326,6 +377,17 @@ def run_conversion_job(job: Job) -> None:
                     silence = np.zeros(silence_samples, dtype="float32")
                     audio_sink.write(silence)
                     current_time += job.silence_between_chapters
+                    chapter_end_time = current_time
+
+            chapter_markers.append(
+                {
+                    "index": idx,
+                    "title": chapter.title,
+                    "start": chapter_start_time,
+                    "end": chapter_end_time,
+                    "voice": chapter_voice_spec,
+                }
+            )
 
         if not audio_path and chapter_paths:
             job.result.audio_path = chapter_paths[0]
@@ -333,7 +395,11 @@ def run_conversion_job(job: Job) -> None:
         if metadata_dir:
             metadata_dir.mkdir(parents=True, exist_ok=True)
             metadata_file = metadata_dir / "metadata.json"
-            metadata_file.write_text(json.dumps({"metadata": job.metadata_tags}, indent=2), encoding="utf-8")
+            metadata_payload = {
+                "metadata": job.metadata_tags,
+                "chapters": chapter_markers,
+            }
+            metadata_file.write_text(json.dumps(metadata_payload, indent=2), encoding="utf-8")
             job.result.artifacts["metadata"] = metadata_file
 
         if job.save_as_project:

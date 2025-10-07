@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import mimetypes
 import re
 import textwrap
 import urllib.parse
@@ -31,6 +32,9 @@ METADATA_KEY_MAP: Dict[str, str] = {
     "COMPOSER": "composer",
     "GENRE": "genre",
     "DATE": "date",
+    "PUBLISHER": "publisher",
+    "COMMENT": "comment",
+    "LANGUAGE": "language",
 }
 
 
@@ -48,6 +52,8 @@ class ExtractedChapter:
 class ExtractionResult:
     chapters: List[ExtractedChapter]
     metadata: Dict[str, str] = field(default_factory=dict)
+    cover_image: Optional[bytes] = None
+    cover_mime: Optional[str] = None
 
     @property
     def combined_text(self) -> str:
@@ -65,6 +71,7 @@ class MetadataSource:
     description: Optional[str] = None
     publisher: Optional[str] = None
     publication_year: Optional[str] = None
+    language: Optional[str] = None
 
 
 @dataclass
@@ -188,6 +195,12 @@ def _build_metadata_payload(
         "COMPOSER": "Narrator",
         "GENRE": "Audiobook",
     }
+    if metadata_source.publisher:
+        metadata["PUBLISHER"] = metadata_source.publisher
+    if metadata_source.description:
+        metadata["COMMENT"] = metadata_source.description
+    if metadata_source.language:
+        metadata["LANGUAGE"] = metadata_source.language
     return _normalize_metadata_keys(metadata)
 
 
@@ -370,7 +383,14 @@ class EpubExtractor:
         if not chapters:
             chapters = [ExtractedChapter(title=self.path.stem, text="")]
         metadata = _build_metadata_payload(metadata_source, len(chapters), "epub", self.path.stem)
-        return ExtractionResult(chapters=chapters, metadata=metadata)
+        metadata.setdefault("chapter_count", str(len(chapters)))
+        cover_image, cover_mime = self._extract_cover()
+        return ExtractionResult(
+            chapters=chapters,
+            metadata=metadata,
+            cover_image=cover_image,
+            cover_mime=cover_mime,
+        )
 
     def _collect_metadata(self) -> MetadataSource:
         metadata = MetadataSource()
@@ -411,7 +431,41 @@ class EpubExtractor:
         except Exception as exc:
             logger.debug("Failed to extract EPUB publication year metadata: %s", exc)
 
+        try:
+            language_items = self.book.get_metadata("DC", "language")
+            if language_items:
+                metadata.language = language_items[0][0]
+        except Exception as exc:
+            logger.debug("Failed to extract EPUB language metadata: %s", exc)
+
         return metadata
+
+    def _extract_cover(self) -> Tuple[Optional[bytes], Optional[str]]:
+        try:
+            for item in self.book.get_items_of_type(ebooklib.ITEM_COVER):
+                data = item.get_content()
+                if data:
+                    media_type = getattr(item, "media_type", None)
+                    return data, media_type
+        except Exception as exc:
+            logger.debug("Failed to read dedicated EPUB cover image: %s", exc)
+
+        try:
+            for item in self.book.get_items_of_type(ebooklib.ITEM_IMAGE):
+                name = item.get_name().lower()
+                if "cover" not in name and "front" not in name:
+                    continue
+                data = item.get_content()
+                if not data:
+                    continue
+                media_type = getattr(item, "media_type", None)
+                if not media_type:
+                    media_type = mimetypes.guess_type(name)[0]
+                return data, media_type
+        except Exception as exc:
+            logger.debug("Failed to locate fallback EPUB cover image: %s", exc)
+
+        return None, None
 
     def _process_nav(self) -> List[ExtractedChapter]:
         nav_item, nav_type = self._find_navigation_item()
