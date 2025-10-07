@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -197,6 +198,142 @@ def _chapter_voice_spec(job: Job, override: Optional[Dict[str, Any]]) -> str:
     return job.voice or ""
 
 
+def _escape_ffmetadata_value(value: str) -> str:
+    escaped = str(value).replace("\\", "\\\\").replace("\n", "\\n")
+    escaped = escaped.replace("=", "\\=").replace(";", "\\;").replace("#", "\\#")
+    return escaped
+
+
+def _render_ffmetadata(metadata: Dict[str, Any], chapters: List[Dict[str, Any]]) -> str:
+    lines: List[str] = [";FFMETADATA1"]
+    for key, value in (metadata or {}).items():
+        if value is None:
+            continue
+        key_str = str(key).strip()
+        if not key_str:
+            continue
+        lines.append(f"{key_str}={_escape_ffmetadata_value(value)}")
+
+    for chapter in chapters or []:
+        start = chapter.get("start")
+        end = chapter.get("end")
+        if start is None or end is None:
+            continue
+        try:
+            start_ms = max(0, int(round(float(start) * 1000)))
+            end_ms = int(round(float(end) * 1000))
+        except (TypeError, ValueError):
+            continue
+        if end_ms <= start_ms:
+            end_ms = start_ms + 1
+        lines.append("[CHAPTER]")
+        lines.append("TIMEBASE=1/1000")
+        lines.append(f"START={start_ms}")
+        lines.append(f"END={end_ms}")
+        title = chapter.get("title")
+        if title:
+            lines.append(f"title={_escape_ffmetadata_value(title)}")
+        voice = chapter.get("voice")
+        if voice:
+            lines.append(f"voice={_escape_ffmetadata_value(voice)}")
+
+    return "\n".join(lines) + "\n"
+
+
+def _write_ffmetadata_file(
+    audio_path: Path,
+    metadata: Dict[str, Any],
+    chapters: List[Dict[str, Any]],
+) -> Optional[Path]:
+    content = _render_ffmetadata(metadata, chapters)
+    if content.strip() == ";FFMETADATA1":
+        return None
+    directory = audio_path.parent if audio_path.parent.exists() else Path(tempfile.gettempdir())
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        suffix=".ffmeta",
+        delete=False,
+        dir=str(directory),
+    ) as handle:
+        handle.write(content)
+        return Path(handle.name)
+
+
+def _embed_m4b_metadata(
+    audio_path: Path,
+    metadata_payload: Dict[str, Any],
+    job: Job,
+) -> None:
+    metadata_map = dict(metadata_payload.get("metadata") or {})
+    chapter_entries = list(metadata_payload.get("chapters") or [])
+    ffmetadata_path = _write_ffmetadata_file(audio_path, metadata_map, chapter_entries)
+    cover_path: Optional[Path] = None
+    if job.cover_image_path:
+        candidate = Path(job.cover_image_path)
+        if candidate.exists():
+            cover_path = candidate
+
+    if not ffmetadata_path and not cover_path:
+        return
+
+    job.add_log("Embedding chapters and cover metadata into m4b output")
+
+    command: List[str] = ["ffmpeg", "-y", "-i", str(audio_path)]
+    metadata_index: Optional[int] = None
+    cover_index: Optional[int] = None
+    next_index = 1
+
+    if ffmetadata_path:
+        command += ["-i", str(ffmetadata_path)]
+        metadata_index = next_index
+        next_index += 1
+
+    if cover_path:
+        command += ["-i", str(cover_path)]
+        cover_index = next_index
+        next_index += 1
+
+    command += ["-map", "0:a"]
+    command += ["-c:a", "copy"]
+
+    if cover_index is not None:
+        command += ["-map", f"{cover_index}:v:0"]
+        command += ["-c:v:0", "mjpeg"]
+        command += ["-disposition:v:0", "attached_pic"]
+        command += ["-metadata:s:v:0", "title=Cover Art"]
+        if job.cover_image_mime:
+            command += ["-metadata:s:v:0", f"mimetype={job.cover_image_mime}"]
+
+    if metadata_index is not None:
+        command += ["-map_metadata", str(metadata_index)]
+        command += ["-map_chapters", str(metadata_index)]
+    else:
+        command += ["-map_metadata", "0"]
+
+    command += ["-movflags", "+faststart+use_metadata_tags"]
+
+    temp_output = audio_path.with_suffix(audio_path.suffix + ".tmp")
+    command.append(str(temp_output))
+
+    process = create_process(command, text=True)
+    try:
+        return_code = process.wait()
+    finally:
+        if ffmetadata_path and ffmetadata_path.exists():
+            try:
+                ffmetadata_path.unlink()
+            except OSError:
+                pass
+
+    if return_code != 0:
+        if temp_output.exists():
+            temp_output.unlink(missing_ok=True)
+        raise RuntimeError(f"ffmpeg failed to embed metadata (exit code {return_code})")
+
+    temp_output.replace(audio_path)
+
+
 def run_conversion_job(job: Job) -> None:
     job.add_log("Preparing conversion pipeline")
     canceller = _make_canceller(job)
@@ -204,6 +341,9 @@ def run_conversion_job(job: Job) -> None:
     sink_stack = ExitStack()
     subtitle_writer: Optional[SubtitleWriter] = None
     chapter_paths: list[Path] = []
+    chapter_markers: List[Dict[str, Any]] = []
+    metadata_payload: Dict[str, Any] = {"metadata": {}, "chapters": []}
+    audio_output_path: Optional[Path] = None
     try:
         pipeline = _load_pipeline(job)
         extraction = extract_from_path(job.stored_path)
@@ -266,7 +406,6 @@ def run_conversion_job(job: Job) -> None:
         subtitle_index = 1
         current_time = 0.0
         total_chapters = len(extraction.chapters)
-        chapter_markers: List[Dict[str, Any]] = []
         job.add_log(f"Detected {total_chapters} chapter{'s' if total_chapters != 1 else ''}")
 
         for idx, chapter in enumerate(extraction.chapters, start=1):
@@ -392,13 +531,14 @@ def run_conversion_job(job: Job) -> None:
         if not audio_path and chapter_paths:
             job.result.audio_path = chapter_paths[0]
 
+        metadata_payload = {
+            "metadata": dict(job.metadata_tags or {}),
+            "chapters": chapter_markers,
+        }
+
         if metadata_dir:
             metadata_dir.mkdir(parents=True, exist_ok=True)
             metadata_file = metadata_dir / "metadata.json"
-            metadata_payload = {
-                "metadata": job.metadata_tags,
-                "chapters": chapter_markers,
-            }
             metadata_file.write_text(json.dumps(metadata_payload, indent=2), encoding="utf-8")
             job.result.artifacts["metadata"] = metadata_file
 
@@ -407,6 +547,8 @@ def run_conversion_job(job: Job) -> None:
 
         if job.status != JobStatus.CANCELLED:
             job.progress = 1.0
+
+        audio_output_path = job.result.audio_path
 
     except _JobCancelled:
         job.status = JobStatus.CANCELLED
@@ -419,6 +561,17 @@ def run_conversion_job(job: Job) -> None:
         sink_stack.close()
         if subtitle_writer:
             subtitle_writer.close()
+
+        if (
+            audio_output_path
+            and job.output_format.lower() == "m4b"
+            and not job.cancel_requested
+            and job.status not in {JobStatus.FAILED, JobStatus.CANCELLED}
+        ):
+            try:
+                _embed_m4b_metadata(audio_output_path, metadata_payload, job)
+            except Exception as exc:  # pragma: no cover - best effort
+                job.add_log(f"Unable to embed metadata into m4b output: {exc}", level="warning")
 
 
 def _load_pipeline(job: Job):
