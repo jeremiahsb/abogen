@@ -189,11 +189,12 @@ def _build_metadata_payload(
     metadata = {
         "TITLE": title,
         "ARTIST": authors_text,
-        "ALBUM": f"{title} ({chapter_count} {chapter_label})",
+        "ALBUM": title,
         "YEAR": metadata_source.publication_year or now_year,
         "ALBUM_ARTIST": authors_text,
         "COMPOSER": "Narrator",
         "GENRE": "Audiobook",
+        "CHAPTER_COUNT": str(chapter_count),
     }
     if metadata_source.publisher:
         metadata["PUBLISHER"] = metadata_source.publisher
@@ -201,7 +202,10 @@ def _build_metadata_payload(
         metadata["COMMENT"] = metadata_source.description
     if metadata_source.language:
         metadata["LANGUAGE"] = metadata_source.language
-    return _normalize_metadata_keys(metadata)
+    normalized = _normalize_metadata_keys(metadata)
+    # Ensure chapter_count survives normalization even if upstream metadata provided it
+    normalized.setdefault("chapter_count", str(chapter_count))
+    return normalized
 
 
 def _extract_pdf(path: Path) -> ExtractionResult:

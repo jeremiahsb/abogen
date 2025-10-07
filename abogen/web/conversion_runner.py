@@ -334,7 +334,12 @@ def _metadata_to_ffmpeg_args(metadata: Dict[str, Any]) -> List[str]:
         key_str = str(key).strip()
         if not key_str:
             continue
-        args.extend(["-metadata", f"{key_str}={value}"])
+        normalized_key = key_str.lower()
+        if normalized_key == "year":
+            ffmpeg_key = "date"
+        else:
+            ffmpeg_key = key_str
+        args.extend(["-metadata", f"{ffmpeg_key}={value}"])
     return args
 
 
