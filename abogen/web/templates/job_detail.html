@@ -23,6 +23,7 @@
         <li><strong>Merge at end:</strong> {{ 'Yes' if job.merge_chapters_at_end else 'No' }}</li>
         <li><strong>Separate chapter format:</strong> {{ job.separate_chapters_format|upper }}</li>
         <li><strong>Silence between chapters:</strong> {{ '%.1f'|format(job.silence_between_chapters) }}s</li>
+        <li><strong>Chapter intro delay:</strong> {{ '%.1f'|format(job.chapter_intro_delay) }}s</li>
         <li><strong>Max words per subtitle:</strong> {{ job.max_subtitle_words }}</li>
         <li><strong>Project folder:</strong> {{ 'Yes' if job.save_as_project else 'No' }}</li>
       </ul>

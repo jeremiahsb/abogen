@@ -29,6 +29,10 @@
         <dt>Characters</dt>
         <dd>{{ pending.total_characters|default(0) }}</dd>
       </div>
+      <div>
+        <dt>Chapter intro delay</dt>
+        <dd>{{ '%.1f'|format(pending.chapter_intro_delay) }} seconds</dd>
+      </div>
     </dl>
     {% if pending.metadata_tags %}
     <div class="prepare-metadata">
@@ -104,6 +108,13 @@
         </div>
       </article>
       {% endfor %}
+    </div>
+    <div class="prepare-options">
+      <div class="field">
+        <label for="chapter_intro_delay">Pause after chapter titles (seconds)</label>
+        <input type="number" step="0.1" min="0" id="chapter_intro_delay" name="chapter_intro_delay" value="{{ '%.2f'|format(pending.chapter_intro_delay) }}">
+        <p class="hint">Set to 0 to disable the pause after speaking each chapter title.</p>
+      </div>
     </div>
     <div class="prepare-actions">
       <button type="submit" class="button">Queue conversion</button>

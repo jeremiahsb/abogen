@@ -204,6 +204,18 @@ def _escape_ffmetadata_value(value: str) -> str:
     return escaped
 
 
+def _metadata_to_ffmpeg_args(metadata: Dict[str, Any]) -> List[str]:
+    args: List[str] = []
+    for key, value in (metadata or {}).items():
+        if value in (None, ""):
+            continue
+        key_str = str(key).strip()
+        if not key_str:
+            continue
+        args.extend(["-metadata", f"{key_str}={value}"])
+    return args
+
+
 def _render_ffmetadata(metadata: Dict[str, Any], chapters: List[Dict[str, Any]]) -> str:
     lines: List[str] = [";FFMETADATA1"]
     for key, value in (metadata or {}).items():
@@ -274,10 +286,12 @@ def _embed_m4b_metadata(
         if candidate.exists():
             cover_path = candidate
 
-    if not ffmetadata_path and not cover_path:
+    metadata_args = _metadata_to_ffmpeg_args(metadata_map)
+
+    if not ffmetadata_path and not cover_path and not metadata_args:
         return
 
-    job.add_log("Embedding chapters and cover metadata into m4b output")
+    job.add_log("Embedding metadata into m4b output")
 
     command: List[str] = ["ffmpeg", "-y", "-i", str(audio_path)]
     metadata_index: Optional[int] = None
@@ -311,6 +325,9 @@ def _embed_m4b_metadata(
     else:
         command += ["-map_metadata", "0"]
 
+    if metadata_args:
+        command.extend(metadata_args)
+
     command += ["-movflags", "+faststart+use_metadata_tags"]
 
     temp_output = audio_path.with_suffix(audio_path.suffix + ".tmp")
@@ -332,6 +349,7 @@ def _embed_m4b_metadata(
         raise RuntimeError(f"ffmpeg failed to embed metadata (exit code {return_code})")
 
     temp_output.replace(audio_path)
+    job.add_log("Embedded metadata and chapters into m4b output", level="info")
 
 
 def run_conversion_job(job: Job) -> None:
@@ -408,6 +426,83 @@ def run_conversion_job(job: Job) -> None:
         total_chapters = len(extraction.chapters)
         job.add_log(f"Detected {total_chapters} chapter{'s' if total_chapters != 1 else ''}")
 
+        def emit_text(
+            text: str,
+            *,
+            voice_choice: Any,
+            chapter_sink: Optional[AudioSink],
+            preview_prefix: Optional[str] = None,
+            split_pattern: Optional[str] = SPLIT_PATTERN,
+        ) -> int:
+            nonlocal processed_chars, subtitle_index, current_time
+            normalized = _normalize_for_pipeline(text)
+            local_segments = 0
+
+            for segment in pipeline(
+                normalized,
+                voice=voice_choice,
+                speed=job.speed,
+                split_pattern=split_pattern,
+            ):
+                canceller()
+                graphemes_raw = getattr(segment, "graphemes", "") or ""
+                graphemes = graphemes_raw.strip()
+
+                audio = _to_float32(getattr(segment, "audio", None))
+                if audio.size == 0:
+                    continue
+
+                local_segments += 1
+                if chapter_sink:
+                    chapter_sink.write(audio)
+                if audio_sink:
+                    audio_sink.write(audio)
+
+                duration = len(audio) / SAMPLE_RATE
+                processed_chars += len(graphemes)
+                job.processed_characters = processed_chars
+                if job.total_characters:
+                    job.progress = min(processed_chars / job.total_characters, 0.999)
+                else:
+                    job.progress = 0.0 if processed_chars == 0 else 0.999
+
+                preview_text = graphemes or (graphemes_raw[:80] if graphemes_raw else "[silence]")
+                prefix = f"{preview_prefix} · " if preview_prefix else ""
+                job.add_log(f"{prefix}{processed_chars:,}/{job.total_characters or '—'}: {preview_text[:80]}")
+
+                if subtitle_writer and audio_sink and graphemes:
+                    subtitle_writer.write_segment(
+                        index=subtitle_index,
+                        text=graphemes,
+                        start=current_time,
+                        end=current_time + duration,
+                    )
+                    subtitle_index += 1
+
+                if audio_sink:
+                    current_time += duration
+
+            return local_segments
+
+        def append_silence(
+            duration_seconds: float,
+            *,
+            include_in_chapter: bool,
+            chapter_sink: Optional[AudioSink],
+        ) -> None:
+            nonlocal current_time
+            if duration_seconds <= 0:
+                return
+            samples = int(round(duration_seconds * SAMPLE_RATE))
+            if samples <= 0:
+                return
+            silence = np.zeros(samples, dtype="float32")
+            if include_in_chapter and chapter_sink:
+                chapter_sink.write(silence)
+            if audio_sink:
+                audio_sink.write(silence)
+                current_time += duration_seconds
+
         for idx, chapter in enumerate(extraction.chapters, start=1):
             canceller()
             job.add_log(f"Processing chapter {idx}/{total_chapters}: {chapter.title}")
@@ -425,71 +520,54 @@ def run_conversion_job(job: Job) -> None:
                 voice_choice = _resolve_voice(pipeline, chapter_voice_spec, job.use_gpu)
                 voice_cache[chapter_voice_spec] = voice_choice
 
-            chapter_sink_stack = ExitStack()
-            chapter_sink: Optional[AudioSink] = None
             chapter_audio_path: Optional[Path] = None
-
-            if chapter_dir is not None:
-                chapter_audio_path = _build_output_path(
-                    chapter_dir,
-                    f"{Path(job.original_filename).stem}_{_slugify(chapter.title, idx)}",
-                    job.separate_chapters_format,
-                )
-                chapter_sink = _open_audio_sink(
-                    chapter_audio_path,
-                    job,
-                    chapter_sink_stack,
-                    fmt=job.separate_chapters_format,
-                )
-
             segments_emitted = 0
-            tts_input = _normalize_for_pipeline(chapter.text)
 
-            for segment in pipeline(
-                tts_input,
-                voice=voice_choice,
-                speed=job.speed,
-                split_pattern=SPLIT_PATTERN,
-            ):
-                canceller()
-                graphemes_raw = getattr(segment, "graphemes", "") or ""
-                graphemes = graphemes_raw.strip()
+            with ExitStack() as chapter_sink_stack:
+                chapter_sink: Optional[AudioSink] = None
 
-                audio = _to_float32(getattr(segment, "audio", None))
-                if audio.size == 0:
-                    continue
-
-                segments_emitted += 1
-                if chapter_sink:
-                    chapter_sink.write(audio)
-                if audio_sink:
-                    audio_sink.write(audio)
-
-                duration = len(audio) / SAMPLE_RATE
-                processed_chars += len(graphemes)
-                job.processed_characters = processed_chars
-                if job.total_characters:
-                    job.progress = min(processed_chars / job.total_characters, 0.999)
-                else:
-                    job.progress = 0.0 if processed_chars == 0 else 0.999
-
-                preview_text = graphemes or (graphemes_raw[:80] if graphemes_raw else "[silence]")
-                job.add_log(f"{processed_chars:,}/{job.total_characters or '—'}: {preview_text[:80]}")
-
-                if subtitle_writer and audio_sink and graphemes:
-                    subtitle_writer.write_segment(
-                        index=subtitle_index,
-                        text=graphemes,
-                        start=current_time,
-                        end=current_time + duration,
+                if chapter_dir is not None:
+                    chapter_audio_path = _build_output_path(
+                        chapter_dir,
+                        f"{Path(job.original_filename).stem}_{_slugify(chapter.title, idx)}",
+                        job.separate_chapters_format,
                     )
-                    subtitle_index += 1
+                    chapter_sink = _open_audio_sink(
+                        chapter_audio_path,
+                        job,
+                        chapter_sink_stack,
+                        fmt=job.separate_chapters_format,
+                    )
 
-                if audio_sink:
-                    current_time += duration
+                speak_heading = bool(chapter.title.strip())
+                if speak_heading:
+                    stripped_title = chapter.title.strip()
+                    if stripped_title:
+                        first_line = next((line.strip() for line in chapter.text.splitlines() if line.strip()), "")
+                        if first_line and first_line.casefold() == stripped_title.casefold():
+                            speak_heading = False
 
-            if chapter_sink:
-                chapter_sink_stack.close()
+                if speak_heading:
+                    heading_segments = emit_text(
+                        chapter.title,
+                        voice_choice=voice_choice,
+                        chapter_sink=chapter_sink,
+                        preview_prefix=f"Chapter {idx} title",
+                        split_pattern=SPLIT_PATTERN,
+                    )
+                    segments_emitted += heading_segments
+                    if heading_segments > 0 and job.chapter_intro_delay > 0:
+                        append_silence(
+                            job.chapter_intro_delay,
+                            include_in_chapter=True,
+                            chapter_sink=chapter_sink,
+                        )
+
+                segments_emitted += emit_text(
+                    chapter.text,
+                    voice_choice=voice_choice,
+                    chapter_sink=chapter_sink,
+                )
 
             chapter_end_time = current_time
 
@@ -511,12 +589,12 @@ def run_conversion_job(job: Job) -> None:
                 and idx < total_chapters
                 and job.silence_between_chapters > 0
             ):
-                silence_samples = int(job.silence_between_chapters * SAMPLE_RATE)
-                if silence_samples > 0:
-                    silence = np.zeros(silence_samples, dtype="float32")
-                    audio_sink.write(silence)
-                    current_time += job.silence_between_chapters
-                    chapter_end_time = current_time
+                append_silence(
+                    job.silence_between_chapters,
+                    include_in_chapter=False,
+                    chapter_sink=None,
+                )
+                chapter_end_time = current_time
 
             chapter_markers.append(
                 {
@@ -730,9 +808,7 @@ def _build_ffmpeg_command(path: Path, fmt: str, metadata: Optional[Dict[str, str
         base += ["-c:a", "copy"]
 
     if metadata:
-        for key, value in metadata.items():
-            if value:
-                base += ["-metadata", f"{key}={value}"]
+        base.extend(_metadata_to_ffmpeg_args(metadata))
     base.append(str(path))
     return base
 

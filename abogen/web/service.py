@@ -19,7 +19,7 @@ def _create_set_event() -> threading.Event:
     return event
 
 
-STATE_VERSION = 2
+STATE_VERSION = 3
 
 
 class JobStatus(str, Enum):
@@ -69,6 +69,7 @@ class Job:
     voice_profile: Optional[str] = None
     metadata_tags: Dict[str, str] = field(default_factory=dict)
     max_subtitle_words: int = 50
+    chapter_intro_delay: float = 0.5
     status: JobStatus = JobStatus.PENDING
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
@@ -119,6 +120,7 @@ class Job:
                 "save_as_project": self.save_as_project,
                 "voice_profile": self.voice_profile,
                 "max_subtitle_words": self.max_subtitle_words,
+                "chapter_intro_delay": self.chapter_intro_delay,
             },
             "metadata_tags": dict(self.metadata_tags),
             "chapters": [
@@ -167,6 +169,7 @@ class PendingJob:
     created_at: float
     cover_image_path: Optional[Path] = None
     cover_image_mime: Optional[str] = None
+    chapter_intro_delay: float = 0.5
 
 
 class ConversionService:
@@ -230,6 +233,7 @@ class ConversionService:
         metadata_tags: Optional[Mapping[str, Any]] = None,
         cover_image_path: Optional[Path] = None,
         cover_image_mime: Optional[str] = None,
+        chapter_intro_delay: float = 0.5,
     ) -> Job:
         job_id = uuid.uuid4().hex
         normalized_metadata = self._normalize_metadata_tags(metadata_tags)
@@ -263,6 +267,7 @@ class ConversionService:
             chapters=normalized_chapters,
             cover_image_path=cover_image_path,
             cover_image_mime=cover_image_mime,
+            chapter_intro_delay=chapter_intro_delay,
         )
         with self._lock:
             self._jobs[job_id] = job
@@ -528,6 +533,7 @@ class ConversionService:
             "resume_token": job.resume_token,
             "cover_image_path": str(job.cover_image_path) if job.cover_image_path else None,
             "cover_image_mime": job.cover_image_mime,
+            "chapter_intro_delay": job.chapter_intro_delay,
         }
 
     def _persist_state(self) -> None:
@@ -573,6 +579,7 @@ class ConversionService:
             voice_profile=payload.get("voice_profile"),
             metadata_tags=payload.get("metadata_tags", {}),
             max_subtitle_words=int(payload.get("max_subtitle_words", 50)),
+            chapter_intro_delay=float(payload.get("chapter_intro_delay", 0.5)),
         )
         job.status = JobStatus(payload.get("status", job.status.value))
         job.started_at = payload.get("started_at")

@@ -135,7 +135,7 @@ BOOLEAN_SETTINGS = {
     "save_as_project",
 }
 
-FLOAT_SETTINGS = {"silence_between_chapters"}
+FLOAT_SETTINGS = {"silence_between_chapters", "chapter_intro_delay"}
 INT_SETTINGS = {"max_subtitle_words"}
 
 
@@ -156,6 +156,7 @@ def _settings_defaults() -> Dict[str, Any]:
         "save_as_project": False,
         "separate_chapters_format": "wav",
         "silence_between_chapters": 2.0,
+        "chapter_intro_delay": 0.5,
         "max_subtitle_words": 50,
     }
 
@@ -419,6 +420,9 @@ def settings_page() -> Response | str:
         )
         updated["silence_between_chapters"] = _coerce_float(
             form.get("silence_between_chapters"), defaults["silence_between_chapters"]
+        )
+        updated["chapter_intro_delay"] = _coerce_float(
+            form.get("chapter_intro_delay"), defaults["chapter_intro_delay"]
         )
         updated["max_subtitle_words"] = _coerce_int(
             form.get("max_subtitle_words"), defaults["max_subtitle_words"]
@@ -801,6 +805,7 @@ def enqueue_job() -> Response:
     save_as_project = settings["save_as_project"]
     separate_chapters_format = settings["separate_chapters_format"]
     silence_between_chapters = settings["silence_between_chapters"]
+    chapter_intro_delay = settings["chapter_intro_delay"]
     max_subtitle_words = settings["max_subtitle_words"]
 
     pending = PendingJob(
@@ -830,6 +835,7 @@ def enqueue_job() -> Response:
         created_at=time.time(),
         cover_image_path=cover_path,
         cover_image_mime=cover_mime,
+        chapter_intro_delay=chapter_intro_delay,
     )
 
     service.store_pending_job(pending)
@@ -854,6 +860,19 @@ def finalize_job(pending_id: str) -> Response:
     pending = cast(PendingJob, pending)
 
     profiles = serialize_profiles()
+    delay_value = pending.chapter_intro_delay
+    raw_delay = request.form.get("chapter_intro_delay")
+    if raw_delay is not None:
+        raw_normalized = raw_delay.strip()
+        if raw_normalized:
+            try:
+                delay_value = max(0.0, float(raw_normalized))
+            except ValueError:
+                return _render_prepare_page(pending, error="Enter a valid number for the chapter intro delay.")
+        else:
+            delay_value = 0.0
+    pending.chapter_intro_delay = delay_value
+
     overrides: List[Dict[str, Any]] = []
     selected_total = 0
     errors: List[str] = []
@@ -941,6 +960,7 @@ def finalize_job(pending_id: str) -> Response:
         max_subtitle_words=pending.max_subtitle_words,
         cover_image_path=pending.cover_image_path,
         cover_image_mime=pending.cover_image_mime,
+        chapter_intro_delay=pending.chapter_intro_delay,
     )
 
     return redirect(url_for("web.job_detail", job_id=job.id))
