@@ -29,6 +29,77 @@ import urllib.parse
 import markdown
 import textwrap
 
+
+SUPPLEMENTAL_TITLE_PATTERNS = [
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in [
+        r"\\btable\\s+of\\s+contents\\b",
+        r"^contents$",
+        r"\\babout\\s+the\\s+author(s)?\\b",
+        r"\\babout\\s+the\\s+illustrator\\b",
+        r"\\babout\\s+the\\s+translator\\b",
+        r"\\btitle\\s+page\\b",
+        r"\\bcopyright\\b",
+        r"\\bcolophon\\b",
+        r"\\bfront\\s*matter\\b",
+        r"\\bback\\s*matter\\b",
+        r"\\bindex\\b",
+        r"\\bglossary\\b",
+        r"\\bbibliograph",
+        r"\\backnowledg(e)?ments?\\b",
+        r"\\bpublication\\s+data\\b",
+    ]
+]
+
+SUPPLEMENTAL_TEXT_PATTERNS = [
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in [
+        r"all rights reserved",
+        r"no part of (this )?book may be reproduced",
+        r"isbn",
+        r"library of congress",
+        r"printed in",
+        r"cover design",
+        r"for more information",
+        r"this is a work of fiction",
+        r"copyright",
+        r"table of contents",
+    ]
+]
+
+
+def is_supplemental_section(title: str | None, text: str | None) -> bool:
+    """Return True if the title/content look like non-narrative front/back matter."""
+
+    title = (title or "").strip()
+    if title:
+        for pattern in SUPPLEMENTAL_TITLE_PATTERNS:
+            if pattern.search(title):
+                return True
+
+    if not text:
+        return False
+
+    snippet = text[:4000]
+    for pattern in SUPPLEMENTAL_TEXT_PATTERNS:
+        if pattern.search(snippet):
+            return True
+
+    lines = [line.strip() for line in snippet.splitlines() if line.strip()]
+    if not lines:
+        return False
+
+    preview = lines[:25]
+    short_lines = sum(1 for line in preview if len(line.split()) <= 4)
+    dotted_lines = sum(1 for line in preview if re.search(r"\.{3,}", line))
+    numbered_lines = sum(1 for line in preview if re.search(r"\b\d{1,4}\b", line))
+
+    # Table-of-contents heuristic: many short entries with leaders or numbers.
+    if preview and short_lines / len(preview) >= 0.6 and (dotted_lines >= 2 or numbered_lines >= 4):
+        return True
+
+    return False
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -1541,6 +1612,12 @@ class HandlerDialog(QDialog):
         self._block_signals = False
         self._update_checked_set_from_tree()
 
+    def _should_skip_auto_select(self, title, identifier):
+        content = None
+        if identifier:
+            content = self.content_texts.get(identifier, "")
+        return is_supplemental_section(title, content)
+
     def _run_epub_auto_check(self):
         iterator = QTreeWidgetItemIterator(self.treeWidget)
         while iterator.value():
@@ -1550,6 +1627,12 @@ class HandlerDialog(QDialog):
                 continue
 
             src = item.data(0, Qt.UserRole)
+            title = item.text(0) or ""
+
+            if self._should_skip_auto_select(title, src):
+                item.setCheckState(0, Qt.Unchecked)
+                iterator += 1
+                continue
 
             has_significant_content = src and self.content_lengths.get(src, 0) > 1000
             is_parent = item.childCount() > 0
@@ -1561,12 +1644,16 @@ class HandlerDialog(QDialog):
                         child = item.child(i)
                         if child.flags() & Qt.ItemIsUserCheckable:
                             child_src = child.data(0, Qt.UserRole)
+                            child_title = child.text(0) or ""
                             child_has_content = (
                                     child_src and self.content_lengths.get(child_src, 0) > 0
                             )
                             child_is_parent = child.childCount() > 0
                             if child_has_content or child_is_parent:
-                                child.setCheckState(0, Qt.Checked)
+                                if self._should_skip_auto_select(child_title, child_src):
+                                    child.setCheckState(0, Qt.Unchecked)
+                                else:
+                                    child.setCheckState(0, Qt.Checked)
             else:
                 item.setCheckState(0, Qt.Unchecked)
 
@@ -1582,6 +1669,12 @@ class HandlerDialog(QDialog):
                 continue
 
             identifier = item.data(0, Qt.UserRole)
+            title = item.text(0) or ""
+
+            if self._should_skip_auto_select(title, identifier):
+                item.setCheckState(0, Qt.Unchecked)
+                iterator += 1
+                continue
 
             # Select chapters with content > 500 characters or parent items
             has_significant_content = identifier and self.content_lengths.get(identifier, 0) > 500
@@ -1595,12 +1688,16 @@ class HandlerDialog(QDialog):
                         child = item.child(i)
                         if child.flags() & Qt.ItemIsUserCheckable:
                             child_identifier = child.data(0, Qt.UserRole)
+                            child_title = child.text(0) or ""
                             child_has_content = (
                                     child_identifier and self.content_lengths.get(child_identifier, 0) > 0
                             )
                             child_is_parent = child.childCount() > 0
                             if child_has_content or child_is_parent:
-                                child.setCheckState(0, Qt.Checked)
+                                if self._should_skip_auto_select(child_title, child_identifier):
+                                    child.setCheckState(0, Qt.Unchecked)
+                                else:
+                                    child.setCheckState(0, Qt.Checked)
             else:
                 item.setCheckState(0, Qt.Unchecked)
 
@@ -1626,6 +1723,12 @@ class HandlerDialog(QDialog):
             identifier = item.data(0, Qt.UserRole)
 
             if not identifier:
+                iterator += 1
+                continue
+
+            title = item.text(0) or ""
+            if self._should_skip_auto_select(title, identifier):
+                item.setCheckState(0, Qt.Unchecked)
                 iterator += 1
                 continue
 
