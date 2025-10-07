@@ -10,7 +10,7 @@ import tempfile
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, cast
 
 import numpy as np
 import soundfile as sf
@@ -62,6 +62,128 @@ def _coerce_truthy(value: Any, default: bool = True) -> bool:
     if value is None:
         return default
     return bool(value)
+
+
+_SIGNIFICANT_LENGTH_THRESHOLDS: Dict[str, int] = {"epub": 1000, "markdown": 500}
+_MIN_SHORT_CONTENT: Dict[str, int] = {"epub": 240, "markdown": 160}
+_STRUCTURAL_KEYWORDS = (
+    "preface",
+    "prologue",
+    "introduction",
+    "foreword",
+    "epilogue",
+    "afterword",
+    "appendix",
+    "acknowledgment",
+    "acknowledgement",
+)
+_STRUCTURAL_MIN_LENGTH = 120
+_MAX_SHORT_CHAPTERS = 2
+
+
+def _infer_file_type(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix == ".epub":
+        return "epub"
+    if suffix in {".md", ".markdown"}:
+        return "markdown"
+    if suffix == ".pdf":
+        return "pdf"
+    if suffix == ".txt":
+        return "text"
+    return suffix.lstrip(".") or "text"
+
+
+def _looks_structural(title: str) -> bool:
+    lowered = title.strip().lower()
+    if not lowered:
+        return False
+    return any(keyword in lowered for keyword in _STRUCTURAL_KEYWORDS)
+
+
+def _auto_select_relevant_chapters(
+    chapters: List[ExtractedChapter],
+    file_type: str,
+) -> tuple[List[ExtractedChapter], List[tuple[str, int]]]:
+    if not chapters:
+        return [], []
+
+    normalized = file_type.lower()
+    threshold = _SIGNIFICANT_LENGTH_THRESHOLDS.get(normalized, 0)
+    min_short = _MIN_SHORT_CONTENT.get(normalized, 0)
+
+    kept: List[ExtractedChapter] = []
+    skipped: List[tuple[str, int]] = []
+    short_kept = 0
+
+    for chapter in chapters:
+        stripped = chapter.text.strip()
+        length = len(stripped)
+        if length == 0:
+            skipped.append((chapter.title, length))
+            continue
+
+        keep = False
+        if threshold == 0:
+            keep = True
+        elif length >= threshold:
+            keep = True
+        elif not kept:
+            keep = True
+        elif min_short and length >= min_short and short_kept < _MAX_SHORT_CHAPTERS:
+            keep = True
+            short_kept += 1
+        elif _looks_structural(chapter.title) and length >= _STRUCTURAL_MIN_LENGTH:
+            keep = True
+
+        if keep:
+            kept.append(chapter)
+        else:
+            skipped.append((chapter.title, length))
+
+    if kept:
+        return kept, skipped
+
+    # Fallback: retain the longest non-empty chapter so conversion can proceed.
+    longest_idx = None
+    longest_length = 0
+    for idx, chapter in enumerate(chapters):
+        stripped_length = len(chapter.text.strip())
+        if stripped_length > longest_length:
+            longest_length = stripped_length
+            longest_idx = idx
+
+    if longest_idx is None or longest_length == 0:
+        return [], []
+
+    fallback_chapter = chapters[longest_idx]
+    kept = [fallback_chapter]
+    skipped = [
+        (chapter.title, len(chapter.text.strip()))
+        for idx, chapter in enumerate(chapters)
+        if idx != longest_idx and chapter.text.strip()
+    ]
+    return kept, skipped
+
+
+def _chapter_label(file_type: str) -> str:
+    return "chapters" if file_type.lower() in {"epub", "markdown"} else "pages"
+
+
+def _update_metadata_for_chapter_count(metadata: Dict[str, Any], count: int, file_type: str) -> None:
+    if not metadata or count <= 0:
+        return
+
+    label = "Chapters" if file_type.lower() in {"epub", "markdown"} else "Pages"
+    metadata["chapter_count"] = str(count)
+
+    pattern = re.compile(r"\(\d+\s+(Chapters?|Pages?)\)")
+    replacement = f"({count} {label})"
+    for key in ("album", "ALBUM"):
+        value = metadata.get(key)
+        if not isinstance(value, str):
+            continue
+        metadata[key] = pattern.sub(replacement, value)
 
 
 def _apply_chapter_overrides(
@@ -327,7 +449,7 @@ def _apply_m4b_chapters_with_mutagen(
         return False
 
     try:
-        mp4.chapters = chapter_objects
+        mp4.chapters = cast(Any, chapter_objects)
         mp4.save()
     except Exception as exc:  # pragma: no cover - defensive
         job.add_log(f"Failed to persist MP4 chapter atoms: {exc}", level="warning")
@@ -435,6 +557,37 @@ def run_conversion_job(job: Job) -> None:
     try:
         pipeline = _load_pipeline(job)
         extraction = extract_from_path(job.stored_path)
+        file_type = _infer_file_type(job.stored_path)
+
+        if not job.chapters:
+            filtered, skipped_info = _auto_select_relevant_chapters(extraction.chapters, file_type)
+            original_count = len(extraction.chapters)
+            if filtered and len(filtered) < original_count:
+                extraction.chapters = filtered
+                _update_metadata_for_chapter_count(extraction.metadata, len(filtered), file_type)
+                threshold = _SIGNIFICANT_LENGTH_THRESHOLDS.get(file_type.lower())
+                label = _chapter_label(file_type)
+                qualifier = f" (< {threshold} characters)" if threshold else ""
+                job.add_log(
+                    f"Auto-selected {len(filtered)} of {original_count} {label} based on content{qualifier}.",
+                    level="info",
+                )
+                if skipped_info:
+                    preview_count = 5
+                    preview = ", ".join(
+                        f"{title or 'Untitled'} ({length})" for title, length in skipped_info[:preview_count]
+                    )
+                    if len(skipped_info) > preview_count:
+                        preview += ", …"
+                    job.add_log(
+                        f"Skipped {len(skipped_info)} short {label}: {preview}",
+                        level="debug",
+                    )
+            elif not filtered:
+                job.add_log(
+                    "Auto-selection did not identify usable chapters; retaining original set.",
+                    level="warning",
+                )
 
         metadata_overrides: Dict[str, Any] = dict(job.metadata_tags or {})
         active_chapter_configs: List[Dict[str, Any]] = []
@@ -468,6 +621,13 @@ def run_conversion_job(job: Job) -> None:
 
         base_output_dir = _prepare_output_dir(job)
         project_root, audio_dir, subtitle_dir, metadata_dir = _prepare_project_layout(job, base_output_dir)
+
+        if job.output_format.lower() == "m4b" and not job.merge_chapters_at_end:
+            job.add_log(
+                "Forcing merged output for m4b format; ignoring 'merge chapters at end' setting.",
+                level="warning",
+            )
+            job.merge_chapters_at_end = True
 
         merged_required = job.merge_chapters_at_end or not job.save_chapters_separately
         audio_path: Optional[Path] = None
@@ -718,8 +878,14 @@ def run_conversion_job(job: Job) -> None:
         ):
             try:
                 _embed_m4b_metadata(audio_output_path, metadata_payload, job)
-            except Exception as exc:  # pragma: no cover - best effort
-                job.add_log(f"Unable to embed metadata into m4b output: {exc}", level="warning")
+            except Exception as exc:  # pragma: no cover - ensure failure propagates
+                job.add_log(
+                    f"Failed to embed metadata into m4b output: {exc}",
+                    level="error",
+                )
+                raise RuntimeError(
+                    f"Failed to embed metadata into m4b output: {exc}"
+                ) from exc
 
 
 def _load_pipeline(job: Job):
