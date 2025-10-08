@@ -7,130 +7,138 @@
   <div class="card__title">Prepare audiobook</div>
   <p class="card__subtitle">Review the detected chapters, choose which ones to render, and optionally override the voice per chapter before sending the job to the queue.</p>
 
+  {% set analysis = pending.speaker_analysis or {} %}
+  {% set analysis_speakers = analysis.get('speakers', {}) %}
+  {% set show_analysis_prompt = pending.speaker_mode == 'multi' and not pending.analysis_requested %}
+  {% set has_metadata = pending.metadata_tags %}
   <div class="prepare-summary">
-    <dl>
-      <div>
-        <dt>Source</dt>
-        <dd>{{ pending.original_filename }}</dd>
+    <div class="prepare-summary__stats">
+      <dl>
+        <div>
+          <dt>Source</dt>
+          <dd>{{ pending.original_filename }}</dd>
+        </div>
+        <div>
+          <dt>Language</dt>
+          <dd>{{ options.languages.get(pending.language, pending.language|upper) }}</dd>
+        </div>
+        <div>
+          <dt>Default voice</dt>
+          <dd>{% if pending.voice_profile %}Profile · {{ pending.voice_profile }}{% else %}{{ pending.voice }}{% endif %}</dd>
+        </div>
+        <div>
+          <dt>Total chapters</dt>
+          <dd>{{ pending.chapters|length }}</dd>
+        </div>
+        <div>
+          <dt>Characters</dt>
+          <dd>{{ '{:,}'.format(pending.total_characters|default(0)) }}</dd>
+        </div>
+        <div>
+          <dt>Chapter intro delay</dt>
+          <dd>{{ '%.1f'|format(pending.chapter_intro_delay) }} seconds</dd>
+        </div>
+        <div>
+          <dt>Chunk granularity</dt>
+          <dd>{{ pending.chunk_level|replace('_', ' ')|title }}</dd>
+        </div>
+        <div>
+          <dt>Speaker mode</dt>
+          <dd>{{ pending.speaker_mode|replace('_', ' ')|title }}</dd>
+        </div>
+        <div>
+          <dt>Speaker analysis threshold</dt>
+          <dd>{{ pending.speaker_analysis_threshold }} {{ 'mention' if pending.speaker_analysis_threshold == 1 else 'mentions' }}</dd>
+        </div>
+        <div>
+          <dt>EPUB 3 package</dt>
+          <dd>{% if pending.generate_epub3 %}Enabled{% else %}Disabled{% endif %}</dd>
+        </div>
+      </dl>
+    </div>
+    {% if analysis_speakers or show_analysis_prompt or has_metadata %}
+    <div class="prepare-summary__insights">
+      {% if analysis_speakers %}
+      {% set active = namespace(items=[]) %}
+      {% for sid, payload in analysis_speakers.items() %}
+        {% if sid != 'narrator' and not payload.get('suppressed') %}
+          {% set _ = active.items.append(payload) %}
+        {% endif %}
+      {% endfor %}
+      <div class="prepare-analysis">
+        <h2>Detected speakers</h2>
+        {% if active.items %}
+        <ul>
+          {% for speaker in active.items|sort(attribute='label') %}
+            <li><strong>{{ speaker.label }}</strong> · {{ speaker.count }} lines · confidence {{ speaker.confidence|title }}</li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p>No additional speakers met the threshold yet. All dialogue will use the narrator voice.</p>
+        {% endif %}
       </div>
-      <div>
-        <dt>Language</dt>
-        <dd>{{ options.languages.get(pending.language, pending.language|upper) }}</dd>
+      {% elif show_analysis_prompt %}
+      <div class="prepare-analysis">
+        <h2>Detected speakers</h2>
+        <p>Press <strong>Analyze speakers</strong> after selecting chapters to discover recurring voices.</p>
       </div>
-      <div>
-        <dt>Default voice</dt>
-        <dd>{% if pending.voice_profile %}Profile · {{ pending.voice_profile }}{% else %}{{ pending.voice }}{% endif %}</dd>
-      </div>
-      <div>
-        <dt>Total chapters</dt>
-        <dd>{{ pending.chapters|length }}</dd>
-      </div>
-      <div>
-        <dt>Characters</dt>
-        <dd>{{ pending.total_characters|default(0) }}</dd>
-      </div>
-      <div>
-        <dt>Chapter intro delay</dt>
-        <dd>{{ '%.1f'|format(pending.chapter_intro_delay) }} seconds</dd>
-      </div>
-      <div>
-        <dt>Chunk granularity</dt>
-        <dd>{{ pending.chunk_level|replace('_', ' ')|title }}</dd>
-      </div>
-      <div>
-        <dt>Speaker mode</dt>
-        <dd>{{ pending.speaker_mode|replace('_', ' ')|title }}</dd>
-      </div>
-      <div>
-        <dt>Speaker analysis threshold</dt>
-        <dd>{{ pending.speaker_analysis_threshold }} {{ 'mention' if pending.speaker_analysis_threshold == 1 else 'mentions' }}</dd>
-      </div>
-      <div>
-        <dt>EPUB 3 package</dt>
-        <dd>{% if pending.generate_epub3 %}Enabled{% else %}Disabled{% endif %}</dd>
-      </div>
-    </dl>
-    {% set analysis = pending.speaker_analysis or {} %}
-    {% set analysis_speakers = analysis.get('speakers', {}) %}
-    {% if analysis_speakers %}
-    {% set active = namespace(items=[]) %}
-    {% for sid, payload in analysis_speakers.items() %}
-      {% if sid != 'narrator' and not payload.get('suppressed') %}
-        {% set _ = active.items.append(payload) %}
       {% endif %}
-    {% endfor %}
-    <div class="prepare-analysis">
-      <h2>Detected speakers</h2>
-      {% if active.items %}
-      <ul>
-        {% for speaker in active.items|sort(attribute='label') %}
-          <li><strong>{{ speaker.label }}</strong> · {{ speaker.count }} lines · confidence {{ speaker.confidence|title }}</li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      <p>No additional speakers met the threshold yet. All dialogue will use the narrator voice.</p>
+      {% if has_metadata %}
+      <div class="prepare-metadata">
+        <h2>Metadata</h2>
+        <ul>
+          {% for key, value in pending.metadata_tags.items() %}
+            <li><strong>{{ key|replace('_', ' ')|title }}:</strong> {{ value }}</li>
+          {% endfor %}
+        </ul>
+      </div>
       {% endif %}
-    </div>
-    {% elif pending.speaker_mode == 'multi' and not pending.analysis_requested %}
-    <div class="prepare-analysis">
-      <h2>Detected speakers</h2>
-      <p>Press <strong>Analyze speakers</strong> after selecting chapters to discover recurring voices.</p>
-    </div>
-    {% endif %}
-    {% set roster = pending.speakers or {} %}
-    {% if roster %}
-    {% set preview_template = options.speaker_pronunciation_sentence or "This is {{name}} speaking." %}
-    <div class="prepare-speakers">
-      <h2>Speaker pronunciation guide</h2>
-      <p class="hint">Add a phonetic spelling (IPA or plain text) so pronunciations sound right. Leave blank to use the written label.</p>
-      <ul class="speaker-list">
-        {% for speaker_id, speaker in roster.items() %}
-        {% set spoken_name = speaker.pronunciation or speaker.label %}
-        {% set preview_text = preview_template | replace("{{name}}", spoken_name) %}
-        <li class="speaker-list__item">
-          <div class="speaker-list__header">
-            <span class="speaker-list__name">{{ speaker.label }}</span>
-            <button type="button"
-                    class="icon-button speaker-list__preview"
-                    data-role="speaker-preview"
-                    data-speaker-id="{{ speaker_id }}"
-                    data-preview-text="{{ preview_text|e }}"
-                    data-language="{{ pending.language }}"
-                    data-voice="{{ speaker.resolved_voice or speaker.voice_formula or speaker.voice or pending.voice }}"
-                    data-speed="{{ '%.2f'|format(pending.speed) }}"
-                    data-use-gpu="{{ 'true' if pending.use_gpu else 'false' }}"
-                    aria-label="Preview pronunciation for {{ speaker.label }}"
-                    title="Preview pronunciation">
-              🔊
-            </button>
-          </div>
-          <label class="speaker-list__field" for="speaker-{{ speaker_id }}-pronunciation">
-            <span>Pronunciation</span>
-            <input type="text"
-                   id="speaker-{{ speaker_id }}-pronunciation"
-                   name="speaker-{{ speaker_id }}-pronunciation"
-                   value="{{ speaker.pronunciation or '' }}"
-                   placeholder="{{ speaker.label }}">
-          </label>
-          {% if speaker.get('analysis_count') %}
-          <p class="hint speaker-list__stats">{{ speaker.analysis_count }} detected lines · confidence {{ speaker.analysis_confidence|default('low')|title }}</p>
-          {% endif %}
-        </li>
-        {% endfor %}
-      </ul>
-    </div>
-    {% endif %}
-    {% if pending.metadata_tags %}
-    <div class="prepare-metadata">
-      <h2>Metadata</h2>
-      <ul>
-        {% for key, value in pending.metadata_tags.items() %}
-          <li><strong>{{ key|replace('_', ' ')|title }}:</strong> {{ value }}</li>
-        {% endfor %}
-      </ul>
     </div>
     {% endif %}
   </div>
+  {% set roster = pending.speakers or {} %}
+  {% if roster %}
+  {% set preview_template = options.speaker_pronunciation_sentence or "This is {{name}} speaking." %}
+  <div class="prepare-speakers">
+    <h2>Speaker pronunciation guide</h2>
+    <p class="hint">Add a phonetic spelling (IPA or plain text) so pronunciations sound right. Leave blank to use the written label.</p>
+    <ul class="speaker-list">
+      {% for speaker_id, speaker in roster.items() %}
+      {% set spoken_name = speaker.pronunciation or speaker.label %}
+      {% set preview_text = preview_template | replace("{{name}}", spoken_name) %}
+      <li class="speaker-list__item">
+        <div class="speaker-list__header">
+          <span class="speaker-list__name">{{ speaker.label }}</span>
+          <button type="button"
+                  class="icon-button speaker-list__preview"
+                  data-role="speaker-preview"
+                  data-speaker-id="{{ speaker_id }}"
+                  data-preview-text="{{ preview_text|e }}"
+                  data-language="{{ pending.language }}"
+                  data-voice="{{ speaker.resolved_voice or speaker.voice_formula or speaker.voice or pending.voice }}"
+                  data-speed="{{ '%.2f'|format(pending.speed) }}"
+                  data-use-gpu="{{ 'true' if pending.use_gpu else 'false' }}"
+                  aria-label="Preview pronunciation for {{ speaker.label }}"
+                  title="Preview pronunciation">
+            🔊
+          </button>
+        </div>
+        <label class="speaker-list__field" for="speaker-{{ speaker_id }}-pronunciation">
+          <span>Pronunciation</span>
+          <input type="text"
+                 id="speaker-{{ speaker_id }}-pronunciation"
+                 name="speaker-{{ speaker_id }}-pronunciation"
+                 value="{{ speaker.pronunciation or '' }}"
+                 placeholder="{{ speaker.label }}">
+        </label>
+        {% if speaker.get('analysis_count') %}
+        <p class="hint speaker-list__stats">{{ speaker.analysis_count }} detected lines · confidence {{ speaker.analysis_confidence|default('low')|title }}</p>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
 
   {% if error %}
     <div class="alert alert--error">{{ error }}</div>
@@ -160,7 +168,7 @@
             </label>
           </div>
           <div class="chapter-card__metrics">
-            {{ chapter.characters }} characters
+            {{ '{:,}'.format(chapter.characters) }} characters
           </div>
         </header>
         <div class="chapter-card__body">

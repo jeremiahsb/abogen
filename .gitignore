@@ -36,3 +36,4 @@ storage/
 build/
 dist/
 .old/
+test_assets/

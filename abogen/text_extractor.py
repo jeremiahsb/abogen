@@ -8,7 +8,7 @@ import textwrap
 import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, cast
 
 import ebooklib  # type: ignore[import]
 import fitz  # type: ignore[import]
@@ -16,7 +16,7 @@ import markdown  # type: ignore[import]
 from bs4 import BeautifulSoup, NavigableString  # type: ignore[import]
 from ebooklib import epub  # type: ignore[import]
 
-from .utils import clean_text, detect_encoding
+from .utils import calculate_text_length, clean_text, detect_encoding
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class ExtractedChapter:
 
     @property
     def characters(self) -> int:
-        return len(self.text)
+        return calculate_text_length(self.text)
 
 
 @dataclass
@@ -192,7 +192,7 @@ def _build_metadata_payload(
         "ALBUM": title,
         "YEAR": metadata_source.publication_year or now_year,
         "ALBUM_ARTIST": authors_text,
-        "COMPOSER": "Narrator",
+        "COMPOSER": authors_text,
         "GENRE": "Audiobook",
         "CHAPTER_COUNT": str(chapter_count),
     }
@@ -213,8 +213,10 @@ def _extract_pdf(path: Path) -> ExtractionResult:
     chapters: List[ExtractedChapter] = []
     with fitz.open(str(path)) as document:
         metadata_source = _collect_pdf_metadata(document)
-        for index, page in enumerate(document):
-            text = _clean_pdf_text(page.get_text())
+        pages = cast(Iterable[fitz.Page], document)
+        for index, page in enumerate(pages):
+            page_obj = cast(Any, page)
+            text = _clean_pdf_text(page_obj.get_text())
             if not text:
                 continue
             title = f"Page {index + 1}"
@@ -544,8 +546,8 @@ class EpubExtractor:
             chapters.append(ExtractedChapter(title=title, text=text))
         return chapters
 
-    def _find_navigation_item(self) -> Tuple[Optional[ebooklib.epub.EpubItem], Optional[str]]:
-        nav_item: Optional[ebooklib.epub.EpubItem] = None
+    def _find_navigation_item(self) -> Tuple[Optional[epub.EpubItem], Optional[str]]:
+        nav_item: Optional[epub.EpubItem] = None
         nav_type: Optional[str] = None
 
         nav_items = list(self.book.get_items_of_type(ebooklib.ITEM_NAVIGATION))
@@ -621,12 +623,14 @@ class EpubExtractor:
             for content_node in nav_soup.find_all("content"):
                 src = content_node.get("src")
                 if src:
-                    targets.append(src.split("#", 1)[0])
+                    src_value = str(src)
+                    targets.append(src_value.split("#", 1)[0])
         else:
             for link in nav_soup.find_all("a"):
                 href = link.get("href")
                 if href:
-                    targets.append(href.split("#", 1)[0])
+                    href_value = str(href)
+                    targets.append(href_value.split("#", 1)[0])
         return targets
 
     def _cache_relevant_documents(self, doc_order: Dict[str, int], nav_targets: List[str]) -> None:
@@ -896,11 +900,16 @@ class EpubExtractor:
         for tag in soup.find_all(["p", "div"]):
             tag.append("\n\n")
         for ol in soup.find_all("ol"):
-            start = int(ol.get("start", 1))
+            start_attr = ol.get("start")
+            try:
+                start = int(str(start_attr)) if start_attr is not None else 1
+            except (TypeError, ValueError):
+                start = 1
             for idx, li in enumerate(ol.find_all("li", recursive=False)):
                 number_text = f"{start + idx}) "
-                if li.string:
-                    li.string.replace_with(number_text + li.string)
+                existing = li.string
+                if isinstance(existing, NavigableString):
+                    existing.replace_with(NavigableString(number_text + str(existing)))
                 else:
                     li.insert(0, NavigableString(number_text))
         for tag in soup.find_all(["sup", "sub"]):

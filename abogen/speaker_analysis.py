@@ -28,14 +28,16 @@ _DIALOGUE_VERBS = (
 )
 
 _VERB_PATTERN = "(?:" + "|".join(_DIALOGUE_VERBS) + ")"
-_NAME_FRAGMENT = r"[A-Z][A-Za-z'\-]+"
+_NAME_FRAGMENT = r"[A-ZÀ-ÖØ-Þ][\w'’\-]*"
 _NAME_PATTERN = rf"{_NAME_FRAGMENT}(?:\s+{_NAME_FRAGMENT})*"
 
 _COLON_PATTERN = re.compile(rf"^\s*({_NAME_PATTERN})\s*:\s*(.+)$")
 _NAME_BEFORE_VERB = re.compile(rf"({_NAME_PATTERN})\s+{_VERB_PATTERN}\b", re.IGNORECASE)
 _VERB_BEFORE_NAME = re.compile(rf"{_VERB_PATTERN}\s+({_NAME_PATTERN})", re.IGNORECASE)
 _PRONOUN_PATTERN = re.compile(r"\b(?:he|she|they)\b", re.IGNORECASE)
-_QUOTE_PATTERN = re.compile(r'"([^"\\]*(?:\\.[^"\\]*)*)"')
+_QUOTE_PATTERN = re.compile(r'["“”]([^"“”\\]*(?:\\.[^"“”\\]*)*)["”]')
+_MALE_PRONOUN_PATTERN = re.compile(r"\b(?:he|him|his|himself)\b", re.IGNORECASE)
+_FEMALE_PRONOUN_PATTERN = re.compile(r"\b(?:she|her|hers|herself)\b", re.IGNORECASE)
 
 _CONFIDENCE_RANK = {"low": 1, "medium": 2, "high": 3}
 
@@ -48,6 +50,9 @@ class SpeakerGuess:
     confidence: str = "low"
     sample_quotes: List[str] = field(default_factory=list)
     suppressed: bool = False
+    gender: str = "unknown"
+    male_votes: int = 0
+    female_votes: int = 0
 
     def register_occurrence(self, confidence: str, quote: Optional[str]) -> None:
         self.count += 1
@@ -60,6 +65,13 @@ class SpeakerGuess:
                 if len(self.sample_quotes) > 3:
                     self.sample_quotes = self.sample_quotes[:3]
 
+    def register_gender(self, male_votes: int, female_votes: int) -> None:
+        if male_votes:
+            self.male_votes += male_votes
+        if female_votes:
+            self.female_votes += female_votes
+        self.gender = _derive_gender(self.male_votes, self.female_votes, self.gender)
+
     def as_dict(self) -> Dict[str, Any]:
         return {
             "id": self.speaker_id,
@@ -68,6 +80,7 @@ class SpeakerGuess:
             "confidence": self.confidence,
             "sample_quotes": list(self.sample_quotes),
             "suppressed": self.suppressed,
+            "gender": self.gender,
         }
 
 
@@ -131,14 +144,23 @@ def analyze_speakers(
         assignments[chunk_id] = speaker_id
         unique_speakers.add(speaker_id)
 
-        label = _normalize_label(speaker_id)
-        record_id = label_index.get(label)
-        if record_id is None:
-            record_id = _dedupe_slug(_slugify(label), speaker_guesses)
-            label_index[label] = record_id
-            speaker_guesses[record_id] = SpeakerGuess(speaker_id=record_id, label=label)
-        guess = speaker_guesses[record_id]
+        male_votes, female_votes = _count_gender_votes(text)
+
+        if speaker_id in speaker_guesses:
+            record_id = speaker_id
+            guess = speaker_guesses[record_id]
+            label = guess.label
+        else:
+            label = _normalize_label(speaker_id)
+            record_id = label_index.get(label)
+            if record_id is None:
+                record_id = _dedupe_slug(_slugify(label), speaker_guesses)
+                label_index[label] = record_id
+                speaker_guesses[record_id] = SpeakerGuess(speaker_id=record_id, label=label)
+            guess = speaker_guesses[record_id]
         guess.register_occurrence(confidence, quote)
+        if record_id != narrator_id and (male_votes or female_votes):
+            guess.register_gender(male_votes, female_votes)
         if record_id != speaker_id:
             # Maintain mapping to canonical ID in assignments.
             assignments[chunk_id] = record_id
@@ -294,3 +316,28 @@ def _reassign(assignments: Dict[str, str], old: str, new: str) -> None:
     for key, value in list(assignments.items()):
         if value == old:
             assignments[key] = new
+
+
+def _count_gender_votes(text: str) -> Tuple[int, int]:
+    if not text:
+        return 0, 0
+    male = len(_MALE_PRONOUN_PATTERN.findall(text))
+    female = len(_FEMALE_PRONOUN_PATTERN.findall(text))
+    return male, female
+
+
+def _derive_gender(male_votes: int, female_votes: int, current: str) -> str:
+    if male_votes == 0 and female_votes == 0:
+        return current if current != "unknown" else "unknown"
+
+    male_threshold = max(2, female_votes + 1)
+    female_threshold = max(2, male_votes + 1)
+
+    if male_votes >= male_threshold:
+        return "male"
+    if female_votes >= female_threshold:
+        return "female"
+
+    if current in {"male", "female"}:
+        return current
+    return "unknown"

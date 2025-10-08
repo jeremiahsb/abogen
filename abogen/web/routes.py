@@ -332,7 +332,7 @@ def _apply_prepare_form(
             "text": chapter.get("text", ""),
             "enabled": enabled,
         }
-        entry["characters"] = len(entry["text"])
+        entry["characters"] = calculate_text_length(entry["text"])
 
         if enabled:
             if voice_selection.startswith("voice:"):
@@ -359,7 +359,7 @@ def _apply_prepare_form(
                     else:
                         entry["voice_formula"] = formula_input
                         entry["resolved_voice"] = formula_input
-            selected_total += len(entry["text"] or "")
+            selected_total += entry["characters"]
 
         overrides.append(entry)
         pending.chapters[index] = dict(entry)
@@ -1299,7 +1299,7 @@ def enqueue_job() -> ResponseReturnValue:
                 "index": index,
                 "title": chapter.title,
                 "text": chapter.text,
-                "characters": len(chapter.text),
+                "characters": calculate_text_length(chapter.text),
                 "enabled": enabled,
             }
         )
