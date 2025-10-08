@@ -26,6 +26,10 @@
         <li><strong>Chapter intro delay:</strong> {{ '%.1f'|format(job.chapter_intro_delay) }}s</li>
         <li><strong>Max words per subtitle:</strong> {{ job.max_subtitle_words }}</li>
         <li><strong>Project folder:</strong> {{ 'Yes' if job.save_as_project else 'No' }}</li>
+        <li><strong>Chunk granularity:</strong> {{ job.chunk_level|replace('_', ' ')|title }}</li>
+        <li><strong>Speaker mode:</strong> {{ job.speaker_mode|replace('_', ' ')|title }}</li>
+        <li><strong>Speaker analysis threshold:</strong> {{ job.speaker_analysis_threshold }}</li>
+        <li><strong>Generate EPUB 3:</strong> {{ 'Yes' if job.generate_epub3 else 'No' }}</li>
       </ul>
     </article>
     <article>
@@ -45,7 +49,97 @@
   </div>
 </section>
 
+{% set analysis = job.speaker_analysis or {} %}
+{% if analysis %}
+{% set preview_template = options.speaker_pronunciation_sentence or "This is {{name}} speaking." %}
+<section class="card">
+  <div class="card__title">Speaker analysis</div>
+  <div class="grid grid--two">
+    <article>
+      <h2>Summary</h2>
+      {% set stats = analysis.get('stats', {}) %}
+      <ul>
+        <li><strong>Total chunks:</strong> {{ stats.get('total_chunks', '—') }}</li>
+        <li><strong>Explicit dialogue chunks:</strong> {{ stats.get('explicit_chunks', '—') }}</li>
+        <li><strong>Active speakers:</strong> {{ stats.get('active_speakers', '—') }}</li>
+        <li><strong>Unique speakers observed:</strong> {{ stats.get('unique_speakers', '—') }}</li>
+        <li><strong>Suppressed speakers:</strong> {{ stats.get('suppressed', 0) }}</li>
+      </ul>
+    </article>
+    <article>
+      <h2>Detected speakers</h2>
+      {% set speakers = analysis.get('speakers', {}) %}
+      {% set narrator_id = analysis.get('narrator', 'narrator') %}
+      {% if speakers %}
+      <ul>
+        {% for speaker_id, payload in speakers.items() if speaker_id != narrator_id and not payload.get('suppressed') %}
+        {% set spoken_name = payload.get('pronunciation') or payload.get('label') or speaker_id|replace('_', ' ')|title %}
+        {% set preview_text = preview_template | replace("{{name}}", spoken_name) %}
+        <li>
+          <div class="speaker-line">
+            <strong>{{ payload.get('label', speaker_id|replace('_', ' ')|title) }}</strong>
+            <button type="button"
+                    class="icon-button speaker-list__preview"
+                    data-role="speaker-preview"
+                    data-job-id="{{ job.id }}"
+                    data-speaker-id="{{ speaker_id }}"
+                    data-preview-text="{{ preview_text|e }}"
+                    data-language="{{ job.language }}"
+                    data-voice="{{ payload.get('resolved_voice') or payload.get('voice_formula') or payload.get('voice') or job.voice }}"
+                    data-speed="{{ '%.2f'|format(job.speed) }}"
+                    data-use-gpu="{{ 'true' if job.use_gpu else 'false' }}"
+                    aria-label="Preview pronunciation for {{ payload.get('label', speaker_id|replace('_', ' ')|title) }}"
+                    title="Preview pronunciation">
+              <span class="icon-button__glyph" aria-hidden="true">🔊</span>
+              <span class="spinner spinner--sm spinner--muted" aria-hidden="true"></span>
+            </button>
+          </div>
+          <div class="meta">
+            <span>{{ payload.get('count', 0) }} chunks</span>
+            <span>Confidence: {{ payload.get('confidence', 'low')|title }}</span>
+            {% if payload.get('pronunciation') %}
+            <span>Pronunciation: {{ payload.get('pronunciation') }}</span>
+            {% endif %}
+          </div>
+          {% set quotes = payload.get('sample_quotes', []) %}
+          {% if quotes %}
+          <details>
+            <summary>Sample quotes</summary>
+            <ul>
+              {% for quote in quotes %}
+              <li>{{ quote }}</li>
+              {% endfor %}
+            </ul>
+          </details>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p>No additional speakers detected.</p>
+      {% endif %}
+      {% set suppressed = analysis.get('suppressed_details') or analysis.get('suppressed', []) %}
+      {% if suppressed %}
+      <p class="muted">
+        Suppressed speakers:
+        {% if suppressed[0] is string %}
+          {{ suppressed | join(', ') }}
+        {% else %}
+          {{ suppressed | map(attribute='label') | join(', ') }}
+        {% endif %}
+      </p>
+      {% endif %}
+    </article>
+  </div>
+</section>
+{% endif %}
+
 <section class="card" id="logs" hx-get="{{ url_for('web.job_logs_partial', job_id=job.id) }}" hx-trigger="load, every 2s" hx-target="#logs" hx-swap="innerHTML">
   {% include "partials/logs.html" %}
 </section>
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script type="module" src="{{ url_for('static', filename='speakers.js') }}"></script>
 {% endblock %}

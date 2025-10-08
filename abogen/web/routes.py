@@ -9,7 +9,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple, cast
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, cast
 
 from flask import (
     Blueprint,
@@ -35,6 +35,7 @@ from abogen.constants import (
     SUPPORTED_SOUND_FORMATS,
     VOICES_INTERNAL,
 )
+from abogen.chunking import ChunkLevel, build_chunks_for_chapters
 from abogen.utils import (
     calculate_text_length,
     clean_text,
@@ -57,6 +58,7 @@ from abogen.voice_profiles import (
 )
 
 from abogen.voice_formulas import get_new_voice
+from abogen.speaker_analysis import analyze_speakers
 from abogen.text_extractor import extract_from_path
 from .conversion_runner import SPLIT_PATTERN, SAMPLE_RATE, _select_device, _to_float32
 from .service import ConversionService, Job, JobStatus, PendingJob
@@ -67,6 +69,174 @@ api_bp = Blueprint("api", __name__)
 
 _preview_pipeline_lock = threading.RLock()
 _preview_pipelines: Dict[Tuple[str, str], Any] = {}
+
+
+_CHUNK_LEVEL_OPTIONS = [
+    {"value": "paragraph", "label": "Paragraphs"},
+    {"value": "sentence", "label": "Sentences"},
+]
+
+_SPEAKER_MODE_OPTIONS = [
+    {"value": "single", "label": "Single Speaker"},
+    {"value": "multi", "label": "Multi-Speaker"},
+]
+
+_CHUNK_LEVEL_VALUES = {option["value"] for option in _CHUNK_LEVEL_OPTIONS}
+_SPEAKER_MODE_VALUES = {option["value"] for option in _SPEAKER_MODE_OPTIONS}
+
+
+_DEFAULT_ANALYSIS_THRESHOLD = 3
+_MAX_ANALYSIS_SPEAKERS = 6
+
+
+def _build_narrator_roster(
+    voice: str,
+    voice_profile: Optional[str],
+    existing: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    roster: Dict[str, Any] = {
+        "narrator": {
+            "id": "narrator",
+            "label": "Narrator",
+            "voice": voice,
+        }
+    }
+    if voice_profile:
+        roster["narrator"]["voice_profile"] = voice_profile
+    existing_entry: Optional[Mapping[str, Any]] = None
+    if existing is not None:
+        existing_entry = existing.get("narrator") if isinstance(existing, Mapping) else None
+    if isinstance(existing_entry, Mapping):
+        roster_entry = roster["narrator"]
+        for key in ("label", "voice", "voice_profile", "voice_formula", "pronunciation"):
+            value = existing_entry.get(key)
+            if value is not None and value != "":
+                roster_entry[key] = value
+    return roster
+
+
+def _build_speaker_roster(
+    analysis: Dict[str, Any],
+    base_voice: str,
+    voice_profile: Optional[str],
+    existing: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    roster = _build_narrator_roster(base_voice, voice_profile, existing)
+    existing_map: Dict[str, Any] = dict(existing) if isinstance(existing, Mapping) else {}
+    speakers = analysis.get("speakers", {}) if isinstance(analysis, dict) else {}
+    for speaker_id, payload in speakers.items():
+        if speaker_id == "narrator":
+            continue
+        if payload.get("suppressed"):
+            continue
+        previous = existing_map.get(speaker_id)
+        roster[speaker_id] = {
+            "id": speaker_id,
+            "label": payload.get("label") or speaker_id.replace("_", " ").title(),
+            "voice": base_voice,
+            "analysis_confidence": payload.get("confidence"),
+            "analysis_count": payload.get("count"),
+        }
+        if isinstance(previous, Mapping):
+            for key in ("voice", "voice_profile", "voice_formula", "resolved_voice", "pronunciation"):
+                value = previous.get(key)
+                if value is not None and value != "":
+                    roster[speaker_id][key] = value
+    return roster
+
+
+def _prepare_speaker_metadata(
+    *,
+    chapters: List[Dict[str, Any]],
+    chunks: List[Dict[str, Any]],
+    speaker_mode: str,
+    voice: str,
+    voice_profile: Optional[str],
+    threshold: int,
+    existing_roster: Optional[Mapping[str, Any]] = None,
+) -> tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
+    chunk_list = [dict(chunk) for chunk in chunks]
+    threshold_value = max(1, int(threshold))
+
+    if speaker_mode != "multi":
+        for chunk in chunk_list:
+            chunk["speaker_id"] = "narrator"
+            chunk["speaker_label"] = "Narrator"
+        analysis_payload = {
+            "version": "1.0",
+            "narrator": "narrator",
+            "assignments": {str(chunk.get("id")): "narrator" for chunk in chunk_list},
+            "speakers": {
+                "narrator": {
+                    "id": "narrator",
+                    "label": "Narrator",
+                    "count": len(chunk_list),
+                    "confidence": "low",
+                    "sample_quotes": [],
+                    "suppressed": False,
+                }
+            },
+            "suppressed": [],
+            "stats": {
+                "total_chunks": len(chunk_list),
+                "explicit_chunks": 0,
+                "active_speakers": 0,
+                "unique_speakers": 1,
+                "suppressed": 0,
+            },
+        }
+        roster = _build_narrator_roster(voice, voice_profile, existing_roster)
+        narrator_pron = roster["narrator"].get("pronunciation")
+        if narrator_pron:
+            analysis_payload["speakers"]["narrator"]["pronunciation"] = narrator_pron
+        return chunk_list, roster, analysis_payload
+
+    analysis_result = analyze_speakers(
+        chapters, chunk_list, threshold=threshold_value, max_speakers=_MAX_ANALYSIS_SPEAKERS
+    )
+    analysis_payload = analysis_result.to_dict()
+    assignments = analysis_payload.get("assignments", {})
+    suppressed_ids = analysis_payload.get("suppressed", [])
+    suppressed_details: List[Dict[str, Any]] = []
+    speakers_payload = analysis_payload.get("speakers", {})
+    if isinstance(suppressed_ids, Iterable):
+        for suppressed_id in suppressed_ids:
+            speaker_meta = speakers_payload.get(suppressed_id) if isinstance(speakers_payload, dict) else None
+            if isinstance(speaker_meta, dict):
+                suppressed_details.append(
+                    {
+                        "id": suppressed_id,
+                        "label": speaker_meta.get("label")
+                        or str(suppressed_id).replace("_", " ").title(),
+                        "pronunciation": speaker_meta.get("pronunciation"),
+                    }
+                )
+            else:
+                suppressed_details.append(
+                    {
+                        "id": suppressed_id,
+                        "label": str(suppressed_id).replace("_", " ").title(),
+                        "pronunciation": None,
+                    }
+                )
+    analysis_payload["suppressed_details"] = suppressed_details
+    roster = _build_speaker_roster(analysis_payload, voice, voice_profile, existing=existing_roster)
+    speakers_payload = analysis_payload.get("speakers")
+    if isinstance(speakers_payload, dict):
+        for roster_id, roster_payload in roster.items():
+            if roster_id in speakers_payload and isinstance(roster_payload, dict):
+                pronunciation_value = roster_payload.get("pronunciation")
+                if pronunciation_value:
+                    speakers_payload[roster_id]["pronunciation"] = pronunciation_value
+
+    for chunk in chunk_list:
+        chunk_id = str(chunk.get("id"))
+        speaker_id = assignments.get(chunk_id, "narrator")
+        chunk["speaker_id"] = speaker_id
+        speaker_meta = roster.get(speaker_id)
+        chunk["speaker_label"] = speaker_meta.get("label") if isinstance(speaker_meta, dict) else speaker_id
+
+    return chunk_list, roster, analysis_payload
 
 
 _SUPPLEMENT_TITLE_PATTERNS: List[tuple[re.Pattern[str], float]] = [
@@ -196,6 +366,7 @@ def _build_voice_catalog() -> List[Dict[str, str]]:
 
 
 def _template_options() -> Dict[str, Any]:
+    current_settings = _load_settings()
     profiles = serialize_profiles()
     ordered_profiles = sorted(profiles.items())
     profile_options = []
@@ -219,6 +390,14 @@ def _template_options() -> Dict[str, Any]:
         "voice_catalog": _build_voice_catalog(),
         "sample_voice_texts": SAMPLE_VOICE_TEXTS,
         "voice_profiles_data": profiles,
+        "chunk_levels": _CHUNK_LEVEL_OPTIONS,
+        "speaker_modes": _SPEAKER_MODE_OPTIONS,
+        "speaker_analysis_threshold": current_settings.get(
+            "speaker_analysis_threshold", _DEFAULT_ANALYSIS_THRESHOLD
+        ),
+        "speaker_pronunciation_sentence": current_settings.get(
+            "speaker_pronunciation_sentence", _settings_defaults()["speaker_pronunciation_sentence"]
+        ),
     }
 
 
@@ -237,10 +416,11 @@ BOOLEAN_SETTINGS = {
     "save_chapters_separately",
     "merge_chapters_at_end",
     "save_as_project",
+    "generate_epub3",
 }
 
 FLOAT_SETTINGS = {"silence_between_chapters", "chapter_intro_delay"}
-INT_SETTINGS = {"max_subtitle_words"}
+INT_SETTINGS = {"max_subtitle_words", "speaker_analysis_threshold"}
 
 
 def _has_output_override() -> bool:
@@ -262,6 +442,11 @@ def _settings_defaults() -> Dict[str, Any]:
         "silence_between_chapters": 2.0,
         "chapter_intro_delay": 0.5,
         "max_subtitle_words": 50,
+        "chunk_level": "paragraph",
+        "speaker_mode": "single",
+        "generate_epub3": False,
+        "speaker_analysis_threshold": _DEFAULT_ANALYSIS_THRESHOLD,
+        "speaker_pronunciation_sentence": "This is {{name}} speaking.",
     }
 
 
@@ -321,6 +506,14 @@ def _normalize_setting_value(key: str, value: Any, defaults: Dict[str, Any]) -> 
         return defaults[key]
     if key == "default_voice":
         if isinstance(value, str) and value in VOICES_INTERNAL:
+            return value
+        return defaults[key]
+    if key == "chunk_level":
+        if isinstance(value, str) and value in _CHUNK_LEVEL_VALUES:
+            return value
+        return defaults[key]
+    if key == "speaker_mode":
+        if isinstance(value, str) and value in _SPEAKER_MODE_VALUES:
             return value
         return defaults[key]
     return value if value is not None else defaults.get(key)
@@ -519,6 +712,12 @@ def settings_page() -> Response | str:
         )
         for key in sorted(BOOLEAN_SETTINGS):
             updated[key] = _coerce_bool(form.get(key), False)
+        updated["chunk_level"] = _normalize_setting_value(
+            "chunk_level", form.get("chunk_level"), defaults
+        )
+        updated["speaker_mode"] = _normalize_setting_value(
+            "speaker_mode", form.get("speaker_mode"), defaults
+        )
         updated["separate_chapters_format"] = _normalize_setting_value(
             "separate_chapters_format", form.get("separate_chapters_format"), defaults
         )
@@ -531,6 +730,16 @@ def settings_page() -> Response | str:
         updated["max_subtitle_words"] = _coerce_int(
             form.get("max_subtitle_words"), defaults["max_subtitle_words"]
         )
+        updated["speaker_analysis_threshold"] = _coerce_int(
+            form.get("speaker_analysis_threshold"),
+            defaults["speaker_analysis_threshold"],
+            minimum=1,
+            maximum=25,
+        )
+        sentence_value = (form.get("speaker_pronunciation_sentence") or "").strip()
+        if not sentence_value:
+            sentence_value = defaults["speaker_pronunciation_sentence"]
+        updated["speaker_pronunciation_sentence"] = sentence_value
 
         cfg = load_config() or {}
         cfg.update(updated)
@@ -800,6 +1009,102 @@ def api_preview_voice_mix() -> Response:
     return response
 
 
+@api_bp.post("/speaker-preview")
+def api_speaker_preview() -> Response:
+    payload = request.get_json(force=True, silent=False)
+    text = (payload.get("text") or "").strip()
+    voice_spec = (payload.get("voice") or "").strip()
+    language = (payload.get("language") or "a").strip() or "a"
+    speed_input = payload.get("speed", 1.0)
+    try:
+        speed = float(speed_input)
+    except (TypeError, ValueError):
+        speed = 1.0
+    max_seconds_input = payload.get("max_seconds", 8.0)
+    try:
+        max_seconds = max(1.0, min(15.0, float(max_seconds_input)))
+    except (TypeError, ValueError):
+        max_seconds = 8.0
+
+    if not text:
+        abort(400, "Preview text is required")
+    if not voice_spec:
+        abort(400, "Voice selection is required")
+
+    settings = _load_settings()
+    use_gpu_default = settings.get("use_gpu", True)
+    if "use_gpu" in payload:
+        use_gpu = _coerce_bool(payload.get("use_gpu"), use_gpu_default)
+    else:
+        use_gpu = use_gpu_default
+
+    device = "cpu"
+    if use_gpu:
+        try:
+            device = _select_device()
+        except Exception:  # pragma: no cover - fallback
+            device = "cpu"
+            use_gpu = False
+
+    try:
+        pipeline = _get_preview_pipeline(language, device)
+    except Exception as exc:  # pragma: no cover - defensive guard
+        abort(500, f"Failed to initialise preview pipeline: {exc}")
+    if pipeline is None:  # pragma: no cover - defensive double-check
+        abort(500, "Preview pipeline initialisation failed")
+
+    voice_choice: Any = voice_spec
+    if "*" in voice_spec:
+        try:
+            voice_choice = get_new_voice(pipeline, voice_spec, use_gpu)
+        except ValueError as exc:
+            abort(400, str(exc))
+
+    segments = pipeline(
+        text,
+        voice=voice_choice,
+        speed=speed,
+        split_pattern=SPLIT_PATTERN,
+    )
+
+    audio_chunks: List[np.ndarray] = []
+    accumulated = 0
+    max_samples = int(max_seconds * SAMPLE_RATE)
+
+    for segment in segments:
+        graphemes = getattr(segment, "graphemes", "").strip()
+        if not graphemes:
+            continue
+        audio = _to_float32(getattr(segment, "audio", None))
+        if audio.size == 0:
+            continue
+        remaining = max_samples - accumulated
+        if remaining <= 0:
+            break
+        if audio.shape[0] > remaining:
+            audio = audio[:remaining]
+        audio_chunks.append(audio)
+        accumulated += audio.shape[0]
+        if accumulated >= max_samples:
+            break
+
+    if not audio_chunks:
+        abort(500, "Preview could not be generated")
+
+    audio_data = np.concatenate(audio_chunks)
+    buffer = io.BytesIO()
+    sf.write(buffer, audio_data, SAMPLE_RATE, format="WAV")
+    buffer.seek(0)
+    response = send_file(
+        buffer,
+        mimetype="audio/wav",
+        as_attachment=False,
+        download_name="speaker_preview.wav",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @web_bp.post("/jobs")
 def enqueue_job() -> Response:
     service = _service()
@@ -921,6 +1226,41 @@ def enqueue_job() -> Response:
     chapter_intro_delay = settings["chapter_intro_delay"]
     max_subtitle_words = settings["max_subtitle_words"]
 
+    chunk_level_default = str(settings.get("chunk_level", "paragraph")).strip().lower()
+    raw_chunk_level = (request.form.get("chunk_level") or chunk_level_default).strip().lower()
+    if raw_chunk_level not in _CHUNK_LEVEL_VALUES:
+        raw_chunk_level = chunk_level_default if chunk_level_default in _CHUNK_LEVEL_VALUES else "paragraph"
+    chunk_level_value = raw_chunk_level
+    chunk_level_literal = cast(ChunkLevel, chunk_level_value)
+
+    speaker_mode_default = str(settings.get("speaker_mode", "single")).strip().lower()
+    raw_speaker_mode = (request.form.get("speaker_mode") or speaker_mode_default).strip().lower()
+    if raw_speaker_mode not in _SPEAKER_MODE_VALUES:
+        raw_speaker_mode = "single"
+    speaker_mode_value = raw_speaker_mode
+
+    generate_epub3_default = bool(settings.get("generate_epub3", False))
+    generate_epub3 = _coerce_bool(request.form.get("generate_epub3"), generate_epub3_default)
+
+    selected_chapter_sources = [entry for entry in chapters_payload if entry.get("enabled")]
+    raw_chunks = build_chunks_for_chapters(selected_chapter_sources, level=chunk_level_literal)
+
+    analysis_threshold = _coerce_int(
+        settings.get("speaker_analysis_threshold"),
+        _DEFAULT_ANALYSIS_THRESHOLD,
+        minimum=1,
+        maximum=25,
+    )
+
+    processed_chunks, speakers, analysis_payload = _prepare_speaker_metadata(
+        chapters=selected_chapter_sources,
+        chunks=raw_chunks,
+        speaker_mode=speaker_mode_value,
+        voice=voice,
+        voice_profile=selected_profile or None,
+        threshold=analysis_threshold,
+    )
+
     pending = PendingJob(
         id=uuid.uuid4().hex,
         original_filename=original_name,
@@ -941,7 +1281,7 @@ def enqueue_job() -> Response:
         separate_chapters_format=separate_chapters_format,
         silence_between_chapters=silence_between_chapters,
         save_as_project=save_as_project,
-        voice_profile=selected_profile,
+        voice_profile=selected_profile or None,
         max_subtitle_words=max_subtitle_words,
         metadata_tags=metadata_tags,
         chapters=chapters_payload,
@@ -949,6 +1289,13 @@ def enqueue_job() -> Response:
         cover_image_path=cover_path,
         cover_image_mime=cover_mime,
         chapter_intro_delay=chapter_intro_delay,
+        chunk_level=chunk_level_value,
+        speaker_mode=speaker_mode_value,
+        generate_epub3=generate_epub3,
+        chunks=processed_chunks,
+        speakers=speakers,
+        speaker_analysis=analysis_payload,
+        speaker_analysis_threshold=analysis_threshold,
     )
 
     service.store_pending_job(pending)
@@ -971,6 +1318,62 @@ def finalize_job(pending_id: str) -> Response:
     if not pending:
         abort(404)
     pending = cast(PendingJob, pending)
+
+    raw_chunk_level = (request.form.get("chunk_level") or pending.chunk_level or "paragraph").strip().lower()
+    if raw_chunk_level not in _CHUNK_LEVEL_VALUES:
+        raw_chunk_level = pending.chunk_level if pending.chunk_level in _CHUNK_LEVEL_VALUES else "paragraph"
+    pending.chunk_level = raw_chunk_level
+    chunk_level_literal = cast(ChunkLevel, pending.chunk_level)
+
+    raw_speaker_mode = (request.form.get("speaker_mode") or pending.speaker_mode or "single").strip().lower()
+    if raw_speaker_mode not in _SPEAKER_MODE_VALUES:
+        raw_speaker_mode = "single"
+    pending.speaker_mode = raw_speaker_mode
+
+    pending.generate_epub3 = _coerce_bool(request.form.get("generate_epub3"), False)
+
+    threshold_default = getattr(pending, "speaker_analysis_threshold", _DEFAULT_ANALYSIS_THRESHOLD)
+    raw_threshold = request.form.get("speaker_analysis_threshold")
+    if raw_threshold is not None:
+        pending.speaker_analysis_threshold = _coerce_int(
+            raw_threshold,
+            threshold_default,
+            minimum=1,
+            maximum=25,
+        )
+    else:
+        pending.speaker_analysis_threshold = threshold_default
+
+    if not pending.speakers:
+        narrator: Dict[str, Any] = {
+            "id": "narrator",
+            "label": "Narrator",
+            "voice": pending.voice,
+        }
+        if pending.voice_profile:
+            narrator["voice_profile"] = pending.voice_profile
+        pending.speakers = {"narrator": narrator}
+    else:
+        existing_narrator = pending.speakers.get("narrator")
+        if isinstance(existing_narrator, dict):
+            existing_narrator.setdefault("id", "narrator")
+            existing_narrator["label"] = existing_narrator.get("label", "Narrator")
+            existing_narrator["voice"] = pending.voice
+            if pending.voice_profile:
+                existing_narrator["voice_profile"] = pending.voice_profile
+            pending.speakers["narrator"] = existing_narrator
+
+    if isinstance(pending.speakers, dict):
+        for speaker_id, payload in list(pending.speakers.items()):
+            if not isinstance(payload, dict):
+                continue
+            field_key = f"speaker-{speaker_id}-pronunciation"
+            raw_value = request.form.get(field_key, "")
+            pronunciation = raw_value.strip()
+            if pronunciation:
+                payload["pronunciation"] = pronunciation
+            else:
+                payload.pop("pronunciation", None)
 
     profiles = serialize_profiles()
     delay_value = pending.chapter_intro_delay
@@ -1038,8 +1441,24 @@ def finalize_job(pending_id: str) -> Response:
         overrides.append(entry)
         pending.chapters[index] = dict(entry)
 
-    if not any(item.get("enabled") for item in overrides):
+    enabled_overrides = [entry for entry in overrides if entry.get("enabled")]
+    if not enabled_overrides:
+        pending.chunks = []
         return _render_prepare_page(pending, error="Select at least one chapter to convert.")
+
+    raw_chunks = build_chunks_for_chapters(enabled_overrides, level=chunk_level_literal)
+    processed_chunks, roster, analysis_payload = _prepare_speaker_metadata(
+        chapters=enabled_overrides,
+        chunks=raw_chunks,
+        speaker_mode=pending.speaker_mode,
+        voice=pending.voice,
+        voice_profile=pending.voice_profile,
+        threshold=pending.speaker_analysis_threshold,
+        existing_roster=pending.speakers,
+    )
+    pending.chunks = processed_chunks
+    pending.speakers = roster
+    pending.speaker_analysis = analysis_payload
 
     if errors:
         return _render_prepare_page(pending, error=" ".join(errors))
@@ -1074,6 +1493,13 @@ def finalize_job(pending_id: str) -> Response:
         cover_image_path=pending.cover_image_path,
         cover_image_mime=pending.cover_image_mime,
         chapter_intro_delay=pending.chapter_intro_delay,
+        chunk_level=pending.chunk_level,
+        chunks=processed_chunks,
+        speakers=roster,
+        speaker_mode=pending.speaker_mode,
+        speaker_analysis=analysis_payload,
+        speaker_analysis_threshold=pending.speaker_analysis_threshold,
+        generate_epub3=pending.generate_epub3,
     )
 
     return redirect(url_for("web.queue_page"))

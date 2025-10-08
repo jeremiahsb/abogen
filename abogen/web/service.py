@@ -20,7 +20,7 @@ def _create_set_event() -> threading.Event:
     return event
 
 
-STATE_VERSION = 3
+STATE_VERSION = 5
 
 
 class JobStatus(str, Enum):
@@ -44,6 +44,7 @@ class JobResult:
     audio_path: Optional[Path] = None
     subtitle_paths: List[Path] = field(default_factory=list)
     artifacts: Dict[str, Path] = field(default_factory=dict)
+    epub_path: Optional[Path] = None
 
 
 @dataclass
@@ -89,6 +90,13 @@ class Job:
     pause_event: threading.Event = field(default_factory=_create_set_event, repr=False, compare=False)
     cover_image_path: Optional[Path] = None
     cover_image_mime: Optional[str] = None
+    chunk_level: str = "paragraph"
+    chunks: List[Dict[str, Any]] = field(default_factory=list)
+    speakers: Dict[str, Any] = field(default_factory=dict)
+    speaker_mode: str = "single"
+    generate_epub3: bool = False
+    speaker_analysis: Dict[str, Any] = field(default_factory=dict)
+    speaker_analysis_threshold: int = 3
 
     def add_log(self, message: str, level: str = "info") -> None:
         self.logs.append(JobLog(timestamp=time.time(), message=message, level=level))
@@ -139,6 +147,13 @@ class Job:
                 }
                 for entry in self.chapters
             ],
+            "chunk_level": self.chunk_level,
+            "chunks": [dict(chunk) for chunk in self.chunks],
+            "speakers": dict(self.speakers),
+            "speaker_mode": self.speaker_mode,
+            "generate_epub3": self.generate_epub3,
+            "speaker_analysis": dict(self.speaker_analysis),
+            "speaker_analysis_threshold": self.speaker_analysis_threshold,
         }
 
 
@@ -171,6 +186,13 @@ class PendingJob:
     cover_image_path: Optional[Path] = None
     cover_image_mime: Optional[str] = None
     chapter_intro_delay: float = 0.5
+    chunk_level: str = "paragraph"
+    chunks: List[Dict[str, Any]] = field(default_factory=list)
+    speakers: Dict[str, Any] = field(default_factory=dict)
+    speaker_mode: str = "single"
+    generate_epub3: bool = False
+    speaker_analysis: Dict[str, Any] = field(default_factory=dict)
+    speaker_analysis_threshold: int = 3
 
 
 class ConversionService:
@@ -234,10 +256,18 @@ class ConversionService:
         cover_image_path: Optional[Path] = None,
         cover_image_mime: Optional[str] = None,
         chapter_intro_delay: float = 0.5,
+        chunk_level: str = "paragraph",
+        chunks: Optional[Iterable[Any]] = None,
+        speakers: Optional[Mapping[str, Any]] = None,
+        speaker_mode: str = "single",
+        generate_epub3: bool = False,
+        speaker_analysis: Optional[Mapping[str, Any]] = None,
+        speaker_analysis_threshold: int = 3,
     ) -> Job:
         job_id = uuid.uuid4().hex
         normalized_metadata = self._normalize_metadata_tags(metadata_tags)
         normalized_chapters = self._normalize_chapters(chapters)
+        normalized_chunks = self._normalize_chunks(chunks)
         if total_characters <= 0 and normalized_chapters:
             total_characters = sum(len(str(entry.get("text", ""))) for entry in normalized_chapters)
         job = Job(
@@ -268,6 +298,13 @@ class ConversionService:
             cover_image_path=cover_image_path,
             cover_image_mime=cover_image_mime,
             chapter_intro_delay=chapter_intro_delay,
+            chunk_level=chunk_level,
+            chunks=normalized_chunks,
+            speakers=dict(speakers or {}),
+            speaker_mode=speaker_mode,
+            generate_epub3=bool(generate_epub3),
+            speaker_analysis=dict(speaker_analysis or {}),
+            speaker_analysis_threshold=int(speaker_analysis_threshold or 3),
         )
         with self._lock:
             self._jobs[job_id] = job
@@ -490,6 +527,7 @@ class ConversionService:
         result_audio = str(job.result.audio_path) if job.result.audio_path else None
         result_subtitles = [str(path) for path in job.result.subtitle_paths]
         result_artifacts = {key: str(path) for key, path in job.result.artifacts.items()}
+        result_epub = str(job.result.epub_path) if job.result.epub_path else None
         return {
             "id": job.id,
             "original_filename": job.original_filename,
@@ -525,6 +563,7 @@ class ConversionService:
                 "audio_path": result_audio,
                 "subtitle_paths": result_subtitles,
                 "artifacts": result_artifacts,
+                "epub_path": result_epub,
             },
             "chapters": [dict(entry) for entry in job.chapters],
             "queue_position": job.queue_position,
@@ -535,6 +574,13 @@ class ConversionService:
             "cover_image_path": str(job.cover_image_path) if job.cover_image_path else None,
             "cover_image_mime": job.cover_image_mime,
             "chapter_intro_delay": job.chapter_intro_delay,
+            "chunk_level": job.chunk_level,
+            "chunks": [dict(entry) for entry in job.chunks],
+            "speakers": dict(job.speakers),
+            "speaker_mode": job.speaker_mode,
+            "generate_epub3": job.generate_epub3,
+            "speaker_analysis": dict(job.speaker_analysis),
+            "speaker_analysis_threshold": job.speaker_analysis_threshold,
         }
 
     def _persist_state(self) -> None:
@@ -631,6 +677,8 @@ class ConversionService:
         job.result.artifacts = {
             key: Path(value) for key, value in result_payload.get("artifacts", {}).items()
         }
+        epub_path_raw = result_payload.get("epub_path")
+        job.result.epub_path = Path(epub_path_raw) if epub_path_raw else None
         job.chapters = payload.get("chapters", [])
         job.queue_position = payload.get("queue_position")
         job.cancel_requested = bool(payload.get("cancel_requested", False))
@@ -640,6 +688,15 @@ class ConversionService:
         cover_path_raw = payload.get("cover_image_path")
         job.cover_image_path = Path(cover_path_raw) if cover_path_raw else None
         job.cover_image_mime = payload.get("cover_image_mime")
+        job.chunk_level = str(payload.get("chunk_level", job.chunk_level or "paragraph"))
+        job.chunks = self._normalize_chunks(payload.get("chunks"))
+        job.speakers = dict(payload.get("speakers", {}))
+        job.speaker_mode = str(payload.get("speaker_mode", job.speaker_mode or "single"))
+        job.generate_epub3 = bool(payload.get("generate_epub3", job.generate_epub3))
+        job.speaker_analysis = payload.get("speaker_analysis", {})
+        job.speaker_analysis_threshold = int(
+            payload.get("speaker_analysis_threshold", job.speaker_analysis_threshold or 3)
+        )
         job.pause_event.set()
         return job
 
@@ -835,6 +892,59 @@ class ConversionService:
 
             normalized.append(entry)
 
+        return normalized
+
+    @classmethod
+    def _normalize_chunks(cls, chunks: Optional[Iterable[Any]]) -> List[Dict[str, Any]]:
+        if not chunks:
+            return []
+
+        normalized: List[Dict[str, Any]] = []
+        for order, raw in enumerate(chunks):
+            if raw is None:
+                continue
+            if isinstance(raw, dict):
+                entry = dict(raw)
+            else:
+                continue
+
+            chunk: Dict[str, Any] = {}
+
+            identifier = entry.get("id") or entry.get("chunk_id")
+            if identifier is not None:
+                chunk["id"] = str(identifier)
+
+            try:
+                chunk_index = int(entry.get("chunk_index", order))
+            except (TypeError, ValueError):
+                chunk_index = order
+            chunk["chunk_index"] = chunk_index
+
+            try:
+                chapter_index = int(entry.get("chapter_index", 0))
+            except (TypeError, ValueError):
+                chapter_index = 0
+            chunk["chapter_index"] = chapter_index
+
+            level_raw = str(entry.get("level", "paragraph")).lower()
+            if level_raw not in {"paragraph", "sentence"}:
+                level_raw = "paragraph"
+            chunk["level"] = level_raw
+
+            text_value = entry.get("text")
+            if text_value is not None:
+                chunk["text"] = str(text_value)
+            else:
+                chunk["text"] = ""
+
+            speaker_value = entry.get("speaker_id", entry.get("speaker"))
+            chunk["speaker_id"] = str(speaker_value) if speaker_value else "narrator"
+
+            for key in ("voice", "voice_profile", "voice_formula", "audio_path", "start", "end"):
+                if key in entry and entry[key] is not None:
+                    chunk[key] = entry[key]
+
+            normalized.append(chunk)
         return normalized
 
 

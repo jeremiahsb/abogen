@@ -55,3 +55,7 @@ def test_service_processes_job(tmp_path):
     assert job.status is JobStatus.COMPLETED
     assert job.progress == 1.0
     assert job.result.audio_path == outputs / f"{job.id}.wav"
+    assert job.chunk_level == "paragraph"
+    assert job.speaker_mode == "single"
+    assert job.chunks == []
+    assert not job.generate_epub3

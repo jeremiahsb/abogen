@@ -1,3 +1,7 @@
+# Unreleased
+- Added an EPUB 3 packaging pipeline that builds media-overlay EPUBs from generated audio and chunk metadata.
+- Persisted chunk timing metadata in job artifacts and exercised the exporter with automated tests.
+
 # 1.1.9
 - Fixed the issue where spaces were deleted before punctuation marks while generating subtitles.
 - Fixed markdown TOC generation breaks when "Replace single newlines" is enabled.

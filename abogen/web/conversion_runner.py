@@ -7,15 +7,17 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections import defaultdict
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, cast
+from typing import Any, Callable, Dict, Iterable, List, Optional, cast
 
 import numpy as np
 import soundfile as sf
 import static_ffmpeg
 
+from abogen.epub3.exporter import build_epub3_package
 from abogen.kokoro_text_normalization import (
     ApostropheConfig,
     apply_phoneme_hints,
@@ -320,6 +322,62 @@ def _chapter_voice_spec(job: Job, override: Optional[Dict[str, Any]]) -> str:
     return job.voice or ""
 
 
+def _chunk_voice_spec(job: Any, chunk: Dict[str, Any], fallback: str) -> str:
+    for key in ("resolved_voice", "voice_formula", "voice"):
+        value = chunk.get(key)
+        if value:
+            return str(value)
+
+    speaker_id = chunk.get("speaker_id")
+    speakers = getattr(job, "speakers", None)
+    if isinstance(speakers, dict) and speaker_id in speakers:
+        speaker_entry = speakers.get(speaker_id) or {}
+        if isinstance(speaker_entry, dict):
+            for key in ("resolved_voice", "voice_formula", "voice"):
+                value = speaker_entry.get(key)
+                if value:
+                    return str(value)
+            profile_formula = speaker_entry.get("voice_formula")
+            if profile_formula:
+                return str(profile_formula)
+
+    profile_name = chunk.get("voice_profile")
+    if profile_name:
+        if isinstance(speakers, dict):
+            speaker_entry = speakers.get(profile_name)
+            if isinstance(speaker_entry, dict):
+                for key in ("resolved_voice", "voice_formula", "voice"):
+                    value = speaker_entry.get(key)
+                    if value:
+                        return str(value)
+
+    return fallback or getattr(job, "voice", "") or ""
+
+
+def _group_chunks_by_chapter(chunks: Iterable[Dict[str, Any]]) -> Dict[int, List[Dict[str, Any]]]:
+    grouped: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
+    for entry in chunks or []:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            chapter_index = int(entry.get("chapter_index", 0))
+        except (TypeError, ValueError):
+            chapter_index = 0
+        grouped[chapter_index].append(dict(entry))
+
+    for chapter_index, items in grouped.items():
+        items.sort(key=lambda payload: _safe_int(payload.get("chunk_index")))
+
+    return grouped
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _escape_ffmetadata_value(value: str) -> str:
     escaped = str(value).replace("\\", "\\\\").replace("\n", "\\n")
     escaped = escaped.replace("=", "\\=").replace(";", "\\;").replace("#", "\\#")
@@ -559,7 +617,8 @@ def run_conversion_job(job: Job) -> None:
     subtitle_writer: Optional[SubtitleWriter] = None
     chapter_paths: list[Path] = []
     chapter_markers: List[Dict[str, Any]] = []
-    metadata_payload: Dict[str, Any] = {"metadata": {}, "chapters": []}
+    chunk_markers: List[Dict[str, Any]] = []
+    metadata_payload: Dict[str, Any] = {}
     audio_output_path: Optional[Path] = None
     try:
         pipeline = _load_pipeline(job)
@@ -598,6 +657,7 @@ def run_conversion_job(job: Job) -> None:
 
         metadata_overrides: Dict[str, Any] = dict(job.metadata_tags or {})
         active_chapter_configs: List[Dict[str, Any]] = []
+        chunk_groups: Dict[int, List[Dict[str, Any]]] = {}
         if job.chapters:
             selected_chapters, chapter_metadata, diagnostics = _apply_chapter_overrides(
                 extraction.chapters,
@@ -615,8 +675,12 @@ def run_conversion_job(job: Job) -> None:
                 active_chapter_configs = [
                     entry for entry in job.chapters if _coerce_truthy(entry.get("enabled", True))
                 ][: len(selected_chapters)]
+                if job.chunks:
+                    chunk_groups = _group_chunks_by_chapter(job.chunks)
             else:
                 raise ValueError("No chapters were enabled in the requested job.")
+        elif job.chunks:
+            chunk_groups = _group_chunks_by_chapter(job.chunks)
 
         job.metadata_tags = _merge_metadata(extraction.metadata, metadata_overrides)
 
@@ -661,6 +725,10 @@ def run_conversion_job(job: Job) -> None:
         subtitle_index = 1
         current_time = 0.0
         total_chapters = len(extraction.chapters)
+        if chunk_groups:
+            chunk_groups = {
+                idx: items for idx, items in chunk_groups.items() if 0 <= idx < total_chapters
+            }
         job.add_log(f"Detected {total_chapters} chapter{'s' if total_chapters != 1 else ''}")
 
         def emit_text(
@@ -800,11 +868,93 @@ def run_conversion_job(job: Job) -> None:
                             chapter_sink=chapter_sink,
                         )
 
-                segments_emitted += emit_text(
-                    chapter.text,
-                    voice_choice=voice_choice,
-                    chapter_sink=chapter_sink,
-                )
+                chunks_for_chapter = chunk_groups.get(idx - 1, []) if chunk_groups else []
+                body_segments = 0
+                if chunks_for_chapter:
+                    job.add_log(
+                        f"Emitting {len(chunks_for_chapter)} {job.chunk_level} chunks for chapter {idx}.",
+                        level="debug",
+                    )
+                for chunk_entry in chunks_for_chapter:
+                    chunk_text = str(chunk_entry.get("text") or "").strip()
+                    if not chunk_text:
+                        continue
+
+                    chunk_voice_spec = _chunk_voice_spec(
+                        job,
+                        chunk_entry,
+                        chapter_voice_spec or base_voice_spec,
+                    )
+                    if not chunk_voice_spec:
+                        chunk_voice_spec = chapter_voice_spec or base_voice_spec
+
+                    if chunk_voice_spec == chapter_voice_spec:
+                        chunk_voice_choice = voice_choice
+                    else:
+                        chunk_voice_choice = voice_cache.get(chunk_voice_spec)
+                        if chunk_voice_choice is None:
+                            chunk_voice_choice = _resolve_voice(
+                                pipeline,
+                                chunk_voice_spec,
+                                job.use_gpu,
+                            )
+                            voice_cache[chunk_voice_spec] = chunk_voice_choice
+
+                    chunk_start = current_time
+                    emitted = emit_text(
+                        chunk_text,
+                        voice_choice=chunk_voice_choice,
+                        chapter_sink=chapter_sink,
+                        preview_prefix=f"Chunk {chunk_entry.get('id') or chunk_entry.get('chunk_index')}",
+                    )
+                    if emitted <= 0:
+                        continue
+
+                    body_segments += emitted
+                    segments_emitted += emitted
+                    chunk_markers.append(
+                        {
+                            "id": chunk_entry.get("id"),
+                            "chapter_index": idx - 1,
+                            "chunk_index": _safe_int(
+                                chunk_entry.get("chunk_index"), len(chunk_markers)
+                            ),
+                            "start": chunk_start,
+                            "end": current_time,
+                            "speaker_id": chunk_entry.get("speaker_id", "narrator"),
+                            "voice": chunk_voice_spec,
+                            "level": chunk_entry.get("level", job.chunk_level),
+                            "characters": len(chunk_text),
+                        }
+                    )
+
+                if body_segments == 0:
+                    chapter_body_start = current_time
+                    emitted = emit_text(
+                        chapter.text,
+                        voice_choice=voice_choice,
+                        chapter_sink=chapter_sink,
+                    )
+                    if emitted > 0:
+                        segments_emitted += emitted
+                        chunk_markers.append(
+                            {
+                                "id": None,
+                                "chapter_index": idx - 1,
+                                "chunk_index": 0,
+                                "start": chapter_body_start,
+                                "end": current_time,
+                                "speaker_id": "narrator",
+                                "voice": chapter_voice_spec,
+                                "level": job.chunk_level,
+                                "characters": len(chapter.text or ""),
+                            }
+                        )
+                    elif chunks_for_chapter:
+                        job.add_log(
+                            "No audio generated for supplied chunks; chapter text also empty.",
+                            level="warning",
+                        )
 
             chapter_end_time = current_time
 
@@ -849,6 +999,11 @@ def run_conversion_job(job: Job) -> None:
         metadata_payload = {
             "metadata": dict(job.metadata_tags or {}),
             "chapters": chapter_markers,
+            "chunks": chunk_markers,
+            "chunk_level": job.chunk_level,
+            "speaker_mode": job.speaker_mode,
+            "speakers": dict(getattr(job, "speakers", {}) or {}),
+            "generate_epub3": job.generate_epub3,
         }
 
         if metadata_dir:
@@ -856,6 +1011,37 @@ def run_conversion_job(job: Job) -> None:
             metadata_file = metadata_dir / "metadata.json"
             metadata_file.write_text(json.dumps(metadata_payload, indent=2), encoding="utf-8")
             job.result.artifacts["metadata"] = metadata_file
+
+        if job.generate_epub3:
+            audio_asset = job.result.audio_path
+            if not audio_asset and chapter_paths:
+                audio_asset = chapter_paths[0]
+
+            if audio_asset:
+                try:
+                    epub_root = project_root if job.save_as_project else base_output_dir
+                    epub_output_path = _build_output_path(epub_root, job.original_filename, "epub")
+                    job.add_log("Generating EPUB 3 package with synchronized narration…")
+                    epub_path = build_epub3_package(
+                        output_path=epub_output_path,
+                        book_id=job.id,
+                        extraction=extraction,
+                        metadata_tags=metadata_payload.get("metadata") or {},
+                        chapter_markers=chapter_markers,
+                        chunk_markers=chunk_markers,
+                        chunks=job.chunks,
+                        audio_path=audio_asset,
+                        speaker_mode=job.speaker_mode,
+                        cover_image_path=job.cover_image_path,
+                        cover_image_mime=job.cover_image_mime,
+                    )
+                    job.result.epub_path = epub_path
+                    job.result.artifacts["epub3"] = epub_path
+                    job.add_log(f"EPUB 3 package created at {epub_path}")
+                except Exception as exc:
+                    job.add_log(f"Failed to generate EPUB 3 package: {exc}", level="error")
+            else:
+                job.add_log("Skipped EPUB 3 generation: audio output unavailable.", level="warning")
 
         if job.save_as_project:
             job.result.artifacts["project_root"] = project_root

@@ -73,6 +73,10 @@
           <input type="checkbox" name="save_as_project" value="true" {% if settings.save_as_project %}checked{% endif %}>
           <span>Save as Project With Metadata</span>
         </label>
+        <label class="toggle-pill">
+          <input type="checkbox" name="generate_epub3" value="true" {% if settings.generate_epub3 %}checked{% endif %}>
+          <span>Generate EPUB 3 (experimental)</span>
+        </label>
       </div>
       <div class="field">
   <label for="separate_chapters_format">Separate Chapter Format</label>
@@ -81,6 +85,32 @@
           <option value="{{ fmt }}" {% if settings.separate_chapters_format == fmt %}selected{% endif %}>{{ fmt|upper }}</option>
           {% endfor %}
         </select>
+      </div>
+      <div class="field">
+        <label for="chunk_level_default">Chunk Granularity</label>
+        <select id="chunk_level_default" name="chunk_level">
+          {% for option in options.chunk_levels %}
+            <option value="{{ option.value }}" {% if settings.chunk_level == option.value %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="speaker_mode_default">Speaker Mode</label>
+        <select id="speaker_mode_default" name="speaker_mode">
+          {% for option in options.speaker_modes %}
+            <option value="{{ option.value }}" {% if settings.speaker_mode == option.value %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="speaker_analysis_threshold">Speaker Analysis Minimum Mentions</label>
+        <input type="number" min="1" max="25" id="speaker_analysis_threshold" name="speaker_analysis_threshold" value="{{ settings.speaker_analysis_threshold }}">
+        <p class="hint">Speakers detected fewer times than this fallback to the narrator voice.</p>
+      </div>
+      <div class="field">
+        <label for="speaker_pronunciation_sentence">Speaker Pronunciation Preview</label>
+        <input type="text" id="speaker_pronunciation_sentence" name="speaker_pronunciation_sentence" value="{{ settings.speaker_pronunciation_sentence }}" placeholder="This is {{ '{{name}}' }} speaking.">
+        <p class="hint">Sentence template used when previewing name pronunciation. Include <code>{{ '{{name}}' }}</code> where the speaker name should be inserted.</p>
       </div>
       <div class="field">
   <label for="silence_between_chapters">Silence Between Chapters (Seconds)</label>

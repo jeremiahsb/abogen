@@ -33,7 +33,88 @@
         <dt>Chapter intro delay</dt>
         <dd>{{ '%.1f'|format(pending.chapter_intro_delay) }} seconds</dd>
       </div>
+      <div>
+        <dt>Chunk granularity</dt>
+        <dd>{{ pending.chunk_level|replace('_', ' ')|title }}</dd>
+      </div>
+      <div>
+        <dt>Speaker mode</dt>
+        <dd>{{ pending.speaker_mode|replace('_', ' ')|title }}</dd>
+      </div>
+      <div>
+        <dt>Speaker analysis threshold</dt>
+        <dd>{{ pending.speaker_analysis_threshold }} {{ 'mention' if pending.speaker_analysis_threshold == 1 else 'mentions' }}</dd>
+      </div>
+      <div>
+        <dt>EPUB 3 package</dt>
+        <dd>{% if pending.generate_epub3 %}Enabled{% else %}Disabled{% endif %}</dd>
+      </div>
     </dl>
+    {% set analysis = pending.speaker_analysis or {} %}
+    {% set analysis_speakers = analysis.get('speakers', {}) %}
+    {% if analysis_speakers %}
+    {% set active = namespace(items=[]) %}
+    {% for sid, payload in analysis_speakers.items() %}
+      {% if sid != 'narrator' and not payload.get('suppressed') %}
+        {% set _ = active.items.append(payload) %}
+      {% endif %}
+    {% endfor %}
+    <div class="prepare-analysis">
+      <h2>Detected speakers</h2>
+      {% if active.items %}
+      <ul>
+        {% for speaker in active.items|sort(attribute='label') %}
+          <li><strong>{{ speaker.label }}</strong> · {{ speaker.count }} lines · confidence {{ speaker.confidence|title }}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p>No additional speakers met the threshold yet. All dialogue will use the narrator voice.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% set roster = pending.speakers or {} %}
+    {% if roster %}
+    {% set preview_template = options.speaker_pronunciation_sentence or "This is {{name}} speaking." %}
+    <div class="prepare-speakers">
+      <h2>Speaker pronunciation guide</h2>
+      <p class="hint">Add a phonetic spelling (IPA or plain text) so pronunciations sound right. Leave blank to use the written label.</p>
+      <ul class="speaker-list">
+        {% for speaker_id, speaker in roster.items() %}
+        {% set spoken_name = speaker.pronunciation or speaker.label %}
+        {% set preview_text = preview_template | replace("{{name}}", spoken_name) %}
+        <li class="speaker-list__item">
+          <div class="speaker-list__header">
+            <span class="speaker-list__name">{{ speaker.label }}</span>
+            <button type="button"
+                    class="icon-button speaker-list__preview"
+                    data-role="speaker-preview"
+                    data-speaker-id="{{ speaker_id }}"
+                    data-preview-text="{{ preview_text|e }}"
+                    data-language="{{ pending.language }}"
+                    data-voice="{{ speaker.resolved_voice or speaker.voice_formula or speaker.voice or pending.voice }}"
+                    data-speed="{{ '%.2f'|format(pending.speed) }}"
+                    data-use-gpu="{{ 'true' if pending.use_gpu else 'false' }}"
+                    aria-label="Preview pronunciation for {{ speaker.label }}"
+                    title="Preview pronunciation">
+              🔊
+            </button>
+          </div>
+          <label class="speaker-list__field" for="speaker-{{ speaker_id }}-pronunciation">
+            <span>Pronunciation</span>
+            <input type="text"
+                   id="speaker-{{ speaker_id }}-pronunciation"
+                   name="speaker-{{ speaker_id }}-pronunciation"
+                   value="{{ speaker.pronunciation or '' }}"
+                   placeholder="{{ speaker.label }}">
+          </label>
+          {% if speaker.get('analysis_count') %}
+          <p class="hint speaker-list__stats">{{ speaker.analysis_count }} detected lines · confidence {{ speaker.analysis_confidence|default('low')|title }}</p>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
     {% if pending.metadata_tags %}
     <div class="prepare-metadata">
       <h2>Metadata</h2>
@@ -111,9 +192,37 @@
     </div>
     <div class="prepare-options">
       <div class="field">
+        <label for="chunk_level">Chunk granularity</label>
+        <select id="chunk_level" name="chunk_level">
+          {% for option in options.chunk_levels %}
+            <option value="{{ option.value }}" {% if pending.chunk_level == option.value %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+        <p class="hint">Paragraphs work well for long-form narration; sentences give finer subtitle sync.</p>
+      </div>
+      <div class="field">
+        <label for="speaker_mode">Speaker mode</label>
+        <select id="speaker_mode" name="speaker_mode">
+          {% for option in options.speaker_modes %}
+            <option value="{{ option.value }}" {% if pending.speaker_mode == option.value %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="speaker_analysis_threshold">Speaker analysis minimum mentions</label>
+        <input type="number" min="1" max="25" id="speaker_analysis_threshold" name="speaker_analysis_threshold" value="{{ pending.speaker_analysis_threshold }}">
+        <p class="hint">Only speakers that appear at least this many times will keep unique voices in multi-speaker mode.</p>
+      </div>
+      <div class="field">
         <label for="chapter_intro_delay">Pause after chapter titles (seconds)</label>
         <input type="number" step="0.1" min="0" id="chapter_intro_delay" name="chapter_intro_delay" value="{{ '%.2f'|format(pending.chapter_intro_delay) }}">
         <p class="hint">Set to 0 to disable the pause after speaking each chapter title.</p>
+      </div>
+      <div class="field field--choices">
+        <label class="toggle-pill">
+          <input type="checkbox" name="generate_epub3" value="true" {% if pending.generate_epub3 %}checked{% endif %}>
+          <span>Generate EPUB 3 (experimental)</span>
+        </label>
       </div>
     </div>
     <div class="prepare-actions">
@@ -127,5 +236,6 @@
 
 {% block scripts %}
   {{ super() }}
+  <script type="module" src="{{ url_for('static', filename='speakers.js') }}"></script>
   <script type="module" src="{{ url_for('static', filename='prepare.js') }}"></script>
 {% endblock %}

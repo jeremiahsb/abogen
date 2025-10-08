@@ -61,6 +61,30 @@
           {% endfor %}
         </select>
       </div>
+      <div class="field">
+        <label for="chunk_level">Chunk granularity</label>
+        <select id="chunk_level" name="chunk_level">
+          {% for option in options.chunk_levels %}
+          <option value="{{ option.value }}" {% if settings.chunk_level == option.value %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+        <p class="hint">Controls how chapters are split into TTS-ready chunks.</p>
+      </div>
+      <div class="field">
+        <label for="speaker_mode">Speaker mode</label>
+        <select id="speaker_mode" name="speaker_mode">
+          {% for option in options.speaker_modes %}
+          <option value="{{ option.value }}" {% if settings.speaker_mode == option.value %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label class="toggle-pill">
+          <input type="checkbox" name="generate_epub3" value="true" {% if settings.generate_epub3 %}checked{% endif %}>
+          <span>Generate EPUB 3 (experimental)</span>
+        </label>
+        <p class="hint">Creates a synchronized EPUB alongside audio output.</p>
+      </div>
     </div>
     <div class="grid">
       <div class="field field--full">
