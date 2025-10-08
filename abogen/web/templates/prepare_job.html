@@ -3,17 +3,20 @@
 {% block title %}Prepare · {{ pending.original_filename }}{% endblock %}
 
 {% block content %}
-<section class="card" data-role="prepare-wizard">
+{% set wizard_step = (active_step or 'chapters') %}
+{% set is_chapters = wizard_step == 'chapters' %}
+{% set is_speakers = wizard_step == 'speakers' %}
+<section class="card" data-role="prepare-wizard" data-initial-step="{{ wizard_step }}">
   <div class="step-indicator" aria-label="Audiobook workflow" data-role="wizard-indicator">
     <span class="step-indicator__item is-complete" data-role="wizard-step" data-step-key="setup">
       <span class="step-indicator__index">1</span>
       <span class="step-indicator__label">Upload &amp; settings</span>
     </span>
-    <span class="step-indicator__item is-active" data-role="wizard-step" data-step-key="chapters">
+    <span class="step-indicator__item{% if is_chapters %} is-active{% elif is_speakers %} is-complete{% endif %}" data-role="wizard-step" data-step-key="chapters">
       <span class="step-indicator__index">2</span>
       <span class="step-indicator__label">Chapters</span>
     </span>
-    <span class="step-indicator__item" data-role="wizard-step" data-step-key="speakers">
+    <span class="step-indicator__item{% if is_speakers %} is-active{% endif %}" data-role="wizard-step" data-step-key="speakers">
       <span class="step-indicator__index">3</span>
       <span class="step-indicator__label">Speakers</span>
     </span>
@@ -30,92 +33,8 @@
   {% set applied_languages = pending.speaker_voice_languages or analysis.get('config_languages', []) or [] %}
   {% set recommended_template = options.speaker_pronunciation_sentence or "This is {{name}} speaking." %}
 
-  <form method="post" action="{{ url_for('web.finalize_job', pending_id=pending.id) }}" class="prepare-form" id="prepare-form">
-    <div class="prepare-summary">
-      <div class="prepare-summary__stats">
-        <dl>
-          <div>
-            <dt>Source</dt>
-            <dd>{{ pending.original_filename }}</dd>
-          </div>
-          <div>
-            <dt>Language</dt>
-            <dd>{{ options.languages.get(pending.language, pending.language|upper) }}</dd>
-          </div>
-          <div>
-            <dt>Default voice</dt>
-            <dd>{% if pending.voice_profile %}Profile · {{ pending.voice_profile }}{% else %}{{ pending.voice }}{% endif %}</dd>
-          </div>
-          <div>
-            <dt>Total chapters</dt>
-            <dd>{{ pending.chapters|length }}</dd>
-          </div>
-          <div>
-            <dt>Characters</dt>
-            <dd>{{ '{:,}'.format(pending.total_characters|default(0)) }}</dd>
-          </div>
-          <div>
-            <dt>Chapter intro delay</dt>
-            <dd>{{ '%.1f'|format(pending.chapter_intro_delay) }} seconds</dd>
-          </div>
-          <div>
-            <dt>Chunk granularity</dt>
-            <dd>{{ pending.chunk_level|replace('_', ' ')|title }}</dd>
-          </div>
-          <div>
-            <dt>Speaker mode</dt>
-            <dd>{{ pending.speaker_mode|replace('_', ' ')|title }}</dd>
-          </div>
-          <div>
-            <dt>Speaker analysis threshold</dt>
-            <dd>{{ pending.speaker_analysis_threshold }} {{ 'mention' if pending.speaker_analysis_threshold == 1 else 'mentions' }}</dd>
-          </div>
-          <div>
-            <dt>EPUB 3 package</dt>
-            <dd>{% if pending.generate_epub3 %}Enabled{% else %}Disabled{% endif %}</dd>
-          </div>
-          {% if applied_languages %}
-          <div>
-            <dt>Config languages</dt>
-            <dd>{{ applied_languages | map('upper') | join(', ') }}</dd>
-          </div>
-          {% endif %}
-        </dl>
-      </div>
-      {% if analysis_speakers or show_analysis_prompt or has_metadata %}
-      <div class="prepare-summary__insights">
-        {% if analysis_speakers %}
-        {% set ordered_ids = analysis.get('ordered_speakers', []) %}
-        <div class="prepare-analysis">
-          <h2>Detected speakers</h2>
-          {% if ordered_ids %}
-          <ul>
-            {% for sid in ordered_ids %}
-              {% set speaker = analysis_speakers.get(sid) %}
-              {% if speaker %}
-                <li>
-                  <strong>{{ speaker.label }}</strong>
-                  {% if speaker.gender and speaker.gender != 'unknown' %}
-                    · {{ speaker.gender|title }}
-                  {% endif %}
-                  · {{ speaker.count }} lines · confidence {{ speaker.confidence|title }}
-                </li>
-              {% endif %}
-            {% endfor %}
-          </ul>
-          {% else %}
-          <p>No additional speakers met the threshold yet. All dialogue will use the narrator voice.</p>
-          {% endif %}
-        </div>
-        {% elif show_analysis_prompt %}
-        <div class="prepare-analysis">
-          <h2>Detected speakers</h2>
-          <p>Press <strong>Analyze speakers</strong> after selecting chapters to discover recurring voices.</p>
-        </div>
-        {% endif %}
-      </div>
-      {% endif %}
-    </div>
+  <form method="post" action="{{ url_for('web.finalize_job', pending_id=pending.id) }}" class="prepare-form" id="prepare-form" data-analyze-url="{{ url_for('web.analyze_pending_job', pending_id=pending.id) }}">
+    <input type="hidden" name="active_step" value="{{ wizard_step }}" data-role="active-step-input">
 
     {% if error %}
       <div class="alert alert--error">{{ error }}</div>
@@ -125,15 +44,20 @@
     {% endif %}
 
     <div class="prepare-step-nav" data-role="prepare-step-nav">
-      <button type="button" class="button button--ghost is-active" data-step-target="chapters">Step 2 · Chapters</button>
-      <button type="button" class="button button--ghost" data-step-target="speakers" disabled aria-disabled="true" data-state="locked">Step 3 · Speakers</button>
+      <button type="button" class="button button--ghost{% if is_chapters %} is-active{% endif %}" data-step-target="chapters">Step 2 · Chapters</button>
+      <button type="button"
+              class="button button--ghost{% if is_speakers %} is-active{% endif %}"
+              data-step-target="speakers"
+              {% if not is_speakers %}disabled aria-disabled="true" data-state="locked"{% else %}data-state="unlocked"{% endif %}>
+        Step 3 · Speakers
+      </button>
     </div>
 
     <div class="prepare-steps" data-role="prepare-step-panels">
       <section class="prepare-step" data-step-panel="chapters">
         <header class="prepare-step__header">
           <h2>Step 2 · Select chapters</h2>
-          <p class="hint">Choose which chapters to convert and tweak conversion options.</p>
+          <p class="hint">Choose which chapters to convert and tweak conversion options. We'll analyse speakers automatically when you continue.</p>
         </header>
 
         <div class="chapter-grid">
@@ -190,6 +114,9 @@
                 </select>
                 <input type="text" name="chapter-{{ loop.index0 }}-formula" class="chapter-card__formula" data-role="formula-input" placeholder="af_nova*0.4+am_liam*0.6" value="{{ chapter.voice_formula or '' }}" {% if selected_option != 'formula' %}hidden aria-hidden="true"{% else %}aria-hidden="false"{% endif %}>
               </div>
+              <p class="chapter-card__notice" data-role="chapter-warning" hidden>
+                If this chapter mentions newsletter sign-ups or marketing content, double-check any references so listeners aren't sent to an outdated link.
+              </p>
             </div>
           </article>
           {% endfor %}
@@ -300,6 +227,10 @@
             {% set selected_voice = speaker.resolved_voice or speaker.voice %}
             {% set seen = namespace(values=[]) %}
             {% set sample_quotes = speaker.sample_quotes or [] %}
+            {% set detected_gender = speaker.detected_gender or speaker.gender or 'unknown' %}
+            {% set current_gender = speaker.gender or detected_gender %}
+            {% set gender_label = 'Either' if current_gender == 'either' else (current_gender|title if current_gender != 'unknown' else 'Unknown') %}
+            {% set detected_label = 'Either' if detected_gender == 'either' else (detected_gender|title if detected_gender != 'unknown' else 'Unknown') %}
             <li class="speaker-list__item" data-speaker-id="{{ speaker_id }}">
               <div class="speaker-line speaker-list__header">
                 <span class="speaker-list__name">{{ speaker.label }}</span>
@@ -319,11 +250,27 @@
               </div>
               <template data-role="speaker-samples">{{ sample_quotes | tojson }}</template>
               <div class="speaker-list__meta">
-                {% if speaker.gender and speaker.gender != 'unknown' %}
-                <span class="badge badge--info">{{ speaker.gender|title }}</span>
-                {% else %}
-                <span class="badge badge--muted">Gender unknown</span>
-                {% endif %}
+                <div class="speaker-gender" data-role="speaker-gender" data-speaker-id="{{ speaker_id }}">
+                  <button type="button"
+                          class="chip speaker-gender__pill"
+                          data-role="gender-pill"
+                          data-current="{{ current_gender }}">
+                    {{ gender_label }} voice
+                  </button>
+                  <div class="speaker-gender__menu" data-role="gender-menu" hidden>
+                    <p class="hint">Detected: {{ detected_label }}</p>
+                    <div class="speaker-gender__options">
+                      <button type="button" class="chip" data-role="gender-option" data-value="female">Female</button>
+                      <button type="button" class="chip" data-role="gender-option" data-value="male">Male</button>
+                      <button type="button" class="chip" data-role="gender-option" data-value="either">Either</button>
+                      <button type="button" class="chip" data-role="gender-option" data-value="{{ detected_gender }}" {% if detected_gender == current_gender %}data-state="active"{% endif %}>
+                        Use detected ({{ detected_label }})
+                      </button>
+                    </div>
+                  </div>
+                  <input type="hidden" name="speaker-{{ speaker_id }}-gender" value="{{ current_gender }}" data-role="gender-input">
+                  <input type="hidden" name="speaker-{{ speaker_id }}-detected-gender" value="{{ detected_gender }}">
+                </div>
                 {% if speaker.get('analysis_count') %}
                 <span class="badge badge--muted">{{ speaker.analysis_count }} lines · {{ speaker.analysis_confidence|default('low')|title }} confidence</span>
                 {% endif %}
@@ -380,6 +327,12 @@
                           data-speaker-id="{{ speaker_id }}">
                     Browse voices
                   </button>
+                  <button type="button"
+                          class="button button--ghost button--small"
+                          data-role="generate-voice"
+                          data-speaker-id="{{ speaker_id }}">
+                    Generate voice
+                  </button>
                 </div>
                 <div class="speaker-list__inline">
                   <label class="toggle-pill">
@@ -391,13 +344,24 @@
                     <span>Randomize compatible voice on analyze</span>
                   </label>
                 </div>
+                <div class="speaker-list__mix" data-role="speaker-mix" {% if not speaker.voice_formula %}hidden{% endif %}>
+                  <span class="tag">Custom mix</span>
+                  <span data-role="speaker-mix-label">{{ speaker.voice_formula or '' }}</span>
+                  <button type="button" class="button button--ghost button--small" data-role="clear-mix">Clear</button>
+                </div>
+                <input type="hidden" name="speaker-{{ speaker_id }}-formula" value="{{ speaker.voice_formula or '' }}" data-role="speaker-formula">
               </div>
               <details class="speaker-list__samples" {% if not sample_quotes %}data-state="empty"{% endif %}>
                 <summary>Sample paragraphs</summary>
                 {% if sample_quotes %}
                   {% for quote in sample_quotes %}
+                  {% set excerpt = quote.excerpt if quote is mapping else quote %}
+                  {% set gender_hint = quote.gender_hint if quote is mapping else '' %}
                   <article class="speaker-sample" data-sample-index="{{ loop.index0 }}">
-                    <p>{{ quote }}</p>
+                    <p>{{ excerpt }}</p>
+                    {% if gender_hint %}
+                    <p class="hint">{{ gender_hint }}</p>
+                    {% endif %}
                     <div class="speaker-sample__actions">
                       <button type="button"
                               class="button button--ghost button--small"
@@ -421,7 +385,7 @@
                   </article>
                   {% endfor %}
                 {% else %}
-                  <p class="hint">No paragraphs captured yet. Analyze speakers to collect dialogue samples.</p>
+                  <p class="hint">No paragraphs captured yet. Continue from Step 2 to gather dialogue samples automatically.</p>
                 {% endif %}
               </details>
               {% if speaker.recommended_voices %}
@@ -449,15 +413,6 @@
 
         <div class="prepare-actions">
           <button type="button" class="button button--ghost" data-role="step-prev" data-step-target="chapters">Back to chapters</button>
-          <button type="submit"
-                  class="button button--ghost"
-                  data-role="analyze-button"
-                  formaction="{{ url_for('web.analyze_pending_job', pending_id=pending.id) }}"
-                  formmethod="post"
-                  formnovalidate
-                  {% if pending.speaker_mode != 'multi' %}hidden aria-hidden="true"{% else %}aria-hidden="false"{% endif %}>
-            Analyze speakers
-          </button>
           <button type="submit" class="button">Queue conversion</button>
           <button type="submit" class="button button--ghost" form="cancel-form">Cancel</button>
         </div>
@@ -492,17 +447,26 @@
             <button type="button" class="button button--ghost button--small" data-role="voice-modal-gender" data-value="f">Female</button>
             <button type="button" class="button button--ghost button--small" data-role="voice-modal-gender" data-value="m">Male</button>
           </div>
+          <button type="button" class="button button--ghost" data-role="voice-modal-random">Random blend</button>
+          <button type="button" class="button button--ghost" data-role="voice-modal-clear">Clear selection</button>
         </aside>
         <section class="voice-browser__catalog" aria-label="Voice catalog">
           <ul class="voice-browser__list" data-role="voice-modal-list"></ul>
         </section>
-        <section class="voice-browser__preview" data-role="voice-modal-preview">
-          <h3 data-role="voice-modal-selected-name">Select a voice to preview</h3>
-          <p class="tag" data-role="voice-modal-selected-meta"></p>
-          <div class="voice-browser__samples" data-role="voice-modal-samples"></div>
-          <div class="voice-browser__actions">
-            <button type="button" class="button" data-role="voice-modal-apply" disabled>Use this voice</button>
-          </div>
+        <section class="voice-browser__mix" data-role="voice-modal-mix">
+          <header class="voice-browser__mix-header">
+            <h3>Selected voices</h3>
+            <p class="tag" data-role="voice-modal-mix-total">Total weight: 0.00</p>
+          </header>
+          <div class="voice-browser__mix-list" data-role="voice-modal-mix-list"></div>
+          <section class="voice-browser__preview" data-role="voice-modal-preview">
+            <h3 data-role="voice-modal-selected-name">Select a voice to preview</h3>
+            <p class="tag" data-role="voice-modal-selected-meta"></p>
+            <div class="voice-browser__samples" data-role="voice-modal-samples"></div>
+            <div class="voice-browser__actions">
+              <button type="button" class="button" data-role="voice-modal-apply" disabled>Apply mix</button>
+            </div>
+          </section>
         </section>
       </div>
     </div>

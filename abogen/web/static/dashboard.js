@@ -1,16 +1,69 @@
 const initDashboard = () => {
-  const profileSelect = document.querySelector('[data-role="voice-profile"]');
-  const voiceField = document.querySelector('[data-role="voice-field"]');
-  const voiceSelect = document.querySelector('[data-role="voice-select"]');
-  const formulaField = document.querySelector('[data-role="formula-field"]');
-  const formulaInput = document.querySelector('[data-role="voice-formula"]');
-  const languageSelect = document.getElementById("language");
+  const uploadModal = document.querySelector('[data-role="upload-modal"]');
+  const openModalButtons = document.querySelectorAll('[data-role="open-upload-modal"]');
+  const scope = uploadModal || document;
 
-  const sourceText = document.querySelector('[data-role="source-text"]');
-  const previewEl = document.querySelector('[data-role="text-preview"]');
-  const previewBody = document.querySelector('[data-role="preview-body"]');
-  const charCountEl = document.querySelector('[data-role="char-count"]');
-  const wordCountEl = document.querySelector('[data-role="word-count"]');
+  const profileSelect = scope.querySelector('[data-role="voice-profile"]');
+  const voiceField = scope.querySelector('[data-role="voice-field"]');
+  const voiceSelect = scope.querySelector('[data-role="voice-select"]');
+  const formulaField = scope.querySelector('[data-role="formula-field"]');
+  const formulaInput = scope.querySelector('[data-role="voice-formula"]');
+  const languageSelect = uploadModal?.querySelector("#language") || document.getElementById("language");
+
+  const sourceText = scope.querySelector('[data-role="source-text"]');
+  const previewEl = scope.querySelector('[data-role="text-preview"]');
+  const previewBody = scope.querySelector('[data-role="preview-body"]');
+  const charCountEl = scope.querySelector('[data-role="char-count"]');
+  const wordCountEl = scope.querySelector('[data-role="word-count"]');
+
+  let lastTrigger = null;
+
+  const openUploadModal = (trigger) => {
+    if (!uploadModal) return;
+    lastTrigger = trigger || null;
+    uploadModal.hidden = false;
+    uploadModal.dataset.open = "true";
+    document.body.classList.add("modal-open");
+    const focusTarget = uploadModal.querySelector("#source_file") || uploadModal.querySelector("#source_text") || uploadModal;
+    if (focusTarget instanceof HTMLElement) {
+      focusTarget.focus({ preventScroll: true });
+    }
+  };
+
+  const closeUploadModal = () => {
+    if (!uploadModal || uploadModal.hidden) {
+      return;
+    }
+    uploadModal.hidden = true;
+    delete uploadModal.dataset.open;
+    document.body.classList.remove("modal-open");
+    if (lastTrigger && lastTrigger instanceof HTMLElement) {
+      lastTrigger.focus({ preventScroll: true });
+    }
+  };
+
+  openModalButtons.forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      openUploadModal(button);
+    });
+  });
+
+  if (uploadModal) {
+    uploadModal.addEventListener("click", (event) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest('[data-role="upload-modal-close"]')) {
+        event.preventDefault();
+        closeUploadModal();
+      }
+    });
+  }
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && uploadModal && !uploadModal.hidden) {
+      closeUploadModal();
+    }
+  });
 
   const hydrateDefaultVoice = () => {
     if (!voiceSelect) return;

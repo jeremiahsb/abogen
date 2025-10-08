@@ -1965,7 +1965,7 @@ def prepare_job(pending_id: str) -> str:
     if not pending:
         abort(404)
     pending = cast(PendingJob, pending)
-    return _render_prepare_page(pending)
+    return _render_prepare_page(pending, active_step="chapters")
 
 
 @web_bp.post("/jobs/prepare/<pending_id>/analyze")
@@ -1989,7 +1989,7 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
     ) = _apply_prepare_form(pending, request.form)
 
     if errors:
-        return _render_prepare_page(pending, error=" ".join(errors))
+        return _render_prepare_page(pending, error=" ".join(errors), active_step="chapters")
 
     if pending.speaker_mode != "multi":
         setattr(pending, "analysis_requested", False)
@@ -1998,13 +1998,18 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
         return _render_prepare_page(
             pending,
             error="Switch to multi-speaker mode to analyze speakers.",
+            active_step="chapters",
         )
 
     if not enabled_overrides:
         setattr(pending, "analysis_requested", False)
         pending.chunks = []
         pending.speaker_analysis = {}
-        return _render_prepare_page(pending, error="Select at least one chapter to analyze.")
+        return _render_prepare_page(
+            pending,
+            error="Select at least one chapter to analyze.",
+            active_step="chapters",
+        )
 
     raw_chunks = build_chunks_for_chapters(enabled_overrides, level=chunk_level_literal)
     analysis_chunks = build_chunks_for_chapters(enabled_overrides, level="sentence")
@@ -2054,7 +2059,7 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
     notice_message = "Speaker analysis updated."
     if persist_config_requested and config_name:
         notice_message = "Speaker analysis updated and configuration saved."
-    return _render_prepare_page(pending, notice=notice_message)
+    return _render_prepare_page(pending, notice=notice_message, active_step="speakers")
 
 
 @web_bp.post("/jobs/prepare/<pending_id>")
@@ -2078,14 +2083,22 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
     ) = _apply_prepare_form(pending, request.form)
 
     if errors:
-        return _render_prepare_page(pending, error=" ".join(errors))
+        return _render_prepare_page(
+            pending,
+            error=" ".join(errors),
+            active_step=request.form.get("active_step") or "speakers",
+        )
 
     if pending.speaker_mode != "multi":
         setattr(pending, "analysis_requested", False)
 
     if not enabled_overrides:
         pending.chunks = []
-        return _render_prepare_page(pending, error="Select at least one chapter to convert.")
+        return _render_prepare_page(
+            pending,
+            error="Select at least one chapter to convert.",
+            active_step="chapters",
+        )
 
     raw_chunks = build_chunks_for_chapters(enabled_overrides, level=chunk_level_literal)
     analysis_chunks = build_chunks_for_chapters(enabled_overrides, level="sentence")
@@ -2217,7 +2230,14 @@ def _render_prepare_page(
     *,
     error: Optional[str] = None,
     notice: Optional[str] = None,
+    active_step: Optional[str] = None,
 ) -> str:
+    if not active_step:
+        active_step = (
+            request.form.get("active_step")
+            if request.method == "POST"
+            else request.args.get("step")
+        ) or "chapters"
     return render_template(
         "prepare_job.html",
         pending=pending,
@@ -2225,6 +2245,7 @@ def _render_prepare_page(
         settings=_load_settings(),
         error=error,
         notice=notice,
+        active_step=active_step,
     )
 
 

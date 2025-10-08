@@ -78,29 +78,41 @@ class SpeakerGuess:
     label: str
     count: int = 0
     confidence: str = "low"
-    sample_quotes: List[str] = field(default_factory=list)
+    sample_quotes: List[Dict[str, str]] = field(default_factory=list)
     suppressed: bool = False
     gender: str = "unknown"
+    detected_gender: str = "unknown"
     male_votes: int = 0
     female_votes: int = 0
 
-    def register_occurrence(self, confidence: str, quote: Optional[str]) -> None:
+    def register_occurrence(
+        self,
+        confidence: str,
+        text: str,
+        quote: Optional[str],
+        male_votes: int,
+        female_votes: int,
+    ) -> None:
         self.count += 1
         if _CONFIDENCE_RANK.get(confidence, 0) > _CONFIDENCE_RANK.get(self.confidence, 0):
             self.confidence = confidence
-        if quote:
-            normalized = quote.strip()
-            if normalized and normalized not in self.sample_quotes:
-                self.sample_quotes.append(normalized[:240])
+
+        excerpt = _build_excerpt(text, quote)
+        gender_hint = _format_gender_hint(male_votes, female_votes)
+        if excerpt:
+            payload = {"excerpt": excerpt, "gender_hint": gender_hint}
+            if payload not in self.sample_quotes:
+                self.sample_quotes.append(payload)
                 if len(self.sample_quotes) > 3:
                     self.sample_quotes = self.sample_quotes[:3]
 
-    def register_gender(self, male_votes: int, female_votes: int) -> None:
         if male_votes:
             self.male_votes += male_votes
         if female_votes:
             self.female_votes += female_votes
-        self.gender = _derive_gender(self.male_votes, self.female_votes, self.gender)
+        self.detected_gender = _derive_gender(self.male_votes, self.female_votes, self.detected_gender)
+        if self.gender in {"unknown", "male", "female"}:
+            self.gender = _derive_gender(self.male_votes, self.female_votes, self.gender)
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -108,9 +120,10 @@ class SpeakerGuess:
             "label": self.label,
             "count": self.count,
             "confidence": self.confidence,
-            "sample_quotes": list(self.sample_quotes),
+            "sample_quotes": [dict(sample) for sample in self.sample_quotes],
             "suppressed": self.suppressed,
             "gender": self.gender,
+            "detected_gender": self.detected_gender,
         }
 
 
@@ -188,9 +201,7 @@ def analyze_speakers(
                 label_index[label] = record_id
                 speaker_guesses[record_id] = SpeakerGuess(speaker_id=record_id, label=label)
             guess = speaker_guesses[record_id]
-        guess.register_occurrence(confidence, quote)
-        if record_id != narrator_id and (male_votes or female_votes):
-            guess.register_gender(male_votes, female_votes)
+        guess.register_occurrence(confidence, text, quote, male_votes, female_votes)
         if record_id != speaker_id:
             # Maintain mapping to canonical ID in assignments.
             assignments[chunk_id] = record_id
@@ -398,6 +409,40 @@ def _derive_gender(male_votes: int, female_votes: int, current: str) -> str:
     if current in {"male", "female"}:
         return current
     return "unknown"
+
+
+def _build_excerpt(text: str, quote: Optional[str]) -> str:
+    normalized = (text or "").strip()
+    if not normalized:
+        return ""
+    if quote:
+        location = normalized.find(quote)
+        if location != -1:
+            start = max(0, location - 120)
+            end = min(len(normalized), location + len(quote) + 120)
+            snippet = normalized[start:end].strip()
+            if start > 0:
+                snippet = "…" + snippet
+            if end < len(normalized):
+                snippet = snippet + "…"
+            return snippet
+    if len(normalized) > 240:
+        return normalized[:240].rstrip() + "…"
+    return normalized
+
+
+def _format_gender_hint(male_votes: int, female_votes: int) -> str:
+    if male_votes and female_votes:
+        return "Context mentions both male and female pronouns."
+    if male_votes:
+        if male_votes >= 3:
+            return "Multiple male pronouns detected nearby."
+        return "Some male pronouns detected in the surrounding text."
+    if female_votes:
+        if female_votes >= 3:
+            return "Multiple female pronouns detected nearby."
+        return "Some female pronouns detected in the surrounding text."
+    return "No clear pronoun signal detected."
 
 
 def _normalize_candidate_name(raw: str) -> Optional[str]:
