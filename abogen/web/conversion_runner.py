@@ -21,6 +21,8 @@ from abogen.epub3.exporter import build_epub3_package
 from abogen.kokoro_text_normalization import (
     ApostropheConfig,
     apply_phoneme_hints,
+    expand_titles_and_suffixes,
+    ensure_terminal_punctuation,
     normalize_apostrophes,
 )
 from abogen.text_extractor import ExtractedChapter, extract_from_path
@@ -298,6 +300,8 @@ _APOSTROPHE_CONFIG = ApostropheConfig()
 
 def _normalize_for_pipeline(text: str) -> str:
     normalized, _details = normalize_apostrophes(text, _APOSTROPHE_CONFIG)
+    normalized = expand_titles_and_suffixes(normalized)
+    normalized = ensure_terminal_punctuation(normalized)
     if _APOSTROPHE_CONFIG.add_phoneme_hints:
         return apply_phoneme_hints(normalized, iz_marker=_APOSTROPHE_CONFIG.sibilant_iz_marker)
     return normalized

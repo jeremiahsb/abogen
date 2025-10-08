@@ -61,4 +61,19 @@ document.addEventListener("DOMContentLoaded", () => {
       toggleFormula(select);
     }
   });
+
+  const analyzeButton = form.querySelector('[data-role="analyze-button"]');
+  const speakerModeSelect = form.querySelector("#speaker_mode");
+  const updateAnalyzeVisibility = () => {
+    if (!analyzeButton || !speakerModeSelect) return;
+    const isMulti = speakerModeSelect.value === "multi";
+    analyzeButton.hidden = !isMulti;
+    analyzeButton.setAttribute("aria-hidden", isMulti ? "false" : "true");
+    analyzeButton.disabled = !isMulti;
+  };
+
+  if (analyzeButton && speakerModeSelect) {
+    speakerModeSelect.addEventListener("change", updateAnalyzeVisibility);
+    updateAnalyzeVisibility();
+  }
 });

@@ -71,6 +71,11 @@
       <p>No additional speakers met the threshold yet. All dialogue will use the narrator voice.</p>
       {% endif %}
     </div>
+    {% elif pending.speaker_mode == 'multi' and not pending.analysis_requested %}
+    <div class="prepare-analysis">
+      <h2>Detected speakers</h2>
+      <p>Press <strong>Analyze speakers</strong> after selecting chapters to discover recurring voices.</p>
+    </div>
     {% endif %}
     {% set roster = pending.speakers or {} %}
     {% if roster %}
@@ -129,6 +134,9 @@
 
   {% if error %}
     <div class="alert alert--error">{{ error }}</div>
+  {% endif %}
+  {% if notice %}
+    <div class="alert alert--info">{{ notice }}</div>
   {% endif %}
 
   <form method="post" action="{{ url_for('web.finalize_job', pending_id=pending.id) }}" class="prepare-form" id="prepare-form">
@@ -226,6 +234,15 @@
       </div>
     </div>
     <div class="prepare-actions">
+      <button type="submit"
+              class="button button--ghost"
+              data-role="analyze-button"
+              formaction="{{ url_for('web.analyze_pending_job', pending_id=pending.id) }}"
+              formmethod="post"
+              formnovalidate
+              {% if pending.speaker_mode != 'multi' %}hidden aria-hidden="true"{% else %}aria-hidden="false"{% endif %}>
+        Analyze speakers
+      </button>
       <button type="submit" class="button">Queue conversion</button>
       <button type="submit" class="button button--ghost" form="cancel-form">Cancel</button>
     </div>

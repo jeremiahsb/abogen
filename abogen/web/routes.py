@@ -13,7 +13,6 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, cast
 
 from flask import (
     Blueprint,
-    Response,
     abort,
     current_app,
     jsonify,
@@ -23,6 +22,7 @@ from flask import (
     send_file,
     url_for,
 )
+from flask.typing import ResponseReturnValue
 from werkzeug.utils import secure_filename
 
 import numpy as np
@@ -154,11 +154,13 @@ def _prepare_speaker_metadata(
     voice_profile: Optional[str],
     threshold: int,
     existing_roster: Optional[Mapping[str, Any]] = None,
+    run_analysis: bool = True,
 ) -> tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
     chunk_list = [dict(chunk) for chunk in chunks]
     threshold_value = max(1, int(threshold))
+    analysis_enabled = speaker_mode == "multi" and run_analysis
 
-    if speaker_mode != "multi":
+    if not analysis_enabled:
         for chunk in chunk_list:
             chunk["speaker_id"] = "narrator"
             chunk["speaker_label"] = "Narrator"
@@ -239,6 +241,132 @@ def _prepare_speaker_metadata(
     return chunk_list, roster, analysis_payload
 
 
+def _apply_prepare_form(
+    pending: PendingJob, form: Mapping[str, Any]
+) -> tuple[ChunkLevel, List[Dict[str, Any]], List[Dict[str, Any]], List[str], int]:
+    raw_chunk_level = (form.get("chunk_level") or pending.chunk_level or "paragraph").strip().lower()
+    if raw_chunk_level not in _CHUNK_LEVEL_VALUES:
+        raw_chunk_level = pending.chunk_level if pending.chunk_level in _CHUNK_LEVEL_VALUES else "paragraph"
+    pending.chunk_level = raw_chunk_level
+    chunk_level_literal = cast(ChunkLevel, pending.chunk_level)
+
+    raw_speaker_mode = (form.get("speaker_mode") or pending.speaker_mode or "single").strip().lower()
+    if raw_speaker_mode not in _SPEAKER_MODE_VALUES:
+        raw_speaker_mode = "single"
+    pending.speaker_mode = raw_speaker_mode
+
+    pending.generate_epub3 = _coerce_bool(form.get("generate_epub3"), False)
+
+    threshold_default = getattr(pending, "speaker_analysis_threshold", _DEFAULT_ANALYSIS_THRESHOLD)
+    raw_threshold = form.get("speaker_analysis_threshold")
+    if raw_threshold is not None:
+        pending.speaker_analysis_threshold = _coerce_int(
+            raw_threshold,
+            threshold_default,
+            minimum=1,
+            maximum=25,
+        )
+    else:
+        pending.speaker_analysis_threshold = threshold_default
+
+    if not pending.speakers:
+        narrator: Dict[str, Any] = {
+            "id": "narrator",
+            "label": "Narrator",
+            "voice": pending.voice,
+        }
+        if pending.voice_profile:
+            narrator["voice_profile"] = pending.voice_profile
+        pending.speakers = {"narrator": narrator}
+    else:
+        existing_narrator = pending.speakers.get("narrator")
+        if isinstance(existing_narrator, dict):
+            existing_narrator.setdefault("id", "narrator")
+            existing_narrator["label"] = existing_narrator.get("label", "Narrator")
+            existing_narrator["voice"] = pending.voice
+            if pending.voice_profile:
+                existing_narrator["voice_profile"] = pending.voice_profile
+            pending.speakers["narrator"] = existing_narrator
+
+    if isinstance(pending.speakers, dict):
+        for speaker_id, payload in list(pending.speakers.items()):
+            if not isinstance(payload, dict):
+                continue
+            field_key = f"speaker-{speaker_id}-pronunciation"
+            raw_value = form.get(field_key, "")
+            pronunciation = raw_value.strip()
+            if pronunciation:
+                payload["pronunciation"] = pronunciation
+            else:
+                payload.pop("pronunciation", None)
+
+    profiles = serialize_profiles()
+    errors: List[str] = []
+    raw_delay = form.get("chapter_intro_delay")
+    if raw_delay is not None:
+        raw_normalized = raw_delay.strip()
+        if raw_normalized:
+            try:
+                pending.chapter_intro_delay = max(0.0, float(raw_normalized))
+            except ValueError:
+                errors.append("Enter a valid number for the chapter intro delay.")
+        else:
+            pending.chapter_intro_delay = 0.0
+
+    overrides: List[Dict[str, Any]] = []
+    selected_total = 0
+
+    for index, chapter in enumerate(pending.chapters):
+        enabled = form.get(f"chapter-{index}-enabled") == "on"
+        title_input = (form.get(f"chapter-{index}-title") or "").strip()
+        title = title_input or chapter.get("title") or f"Chapter {index + 1}"
+        voice_selection = form.get(f"chapter-{index}-voice", "__default")
+        formula_input = (form.get(f"chapter-{index}-formula") or "").strip()
+
+        entry: Dict[str, Any] = {
+            "id": chapter.get("id") or f"{index:04d}",
+            "index": index,
+            "order": index,
+            "source_title": chapter.get("title") or title,
+            "title": title,
+            "text": chapter.get("text", ""),
+            "enabled": enabled,
+        }
+        entry["characters"] = len(entry["text"])
+
+        if enabled:
+            if voice_selection.startswith("voice:"):
+                entry["voice"] = voice_selection.split(":", 1)[1]
+                entry["resolved_voice"] = entry["voice"]
+            elif voice_selection.startswith("profile:"):
+                profile_name = voice_selection.split(":", 1)[1]
+                entry["voice_profile"] = profile_name
+                profile_entry = profiles.get(profile_name) or {}
+                formula_value = _formula_from_profile(profile_entry)
+                if formula_value:
+                    entry["voice_formula"] = formula_value
+                    entry["resolved_voice"] = formula_value
+                else:
+                    errors.append(f"Profile '{profile_name}' has no configured voices.")
+            elif voice_selection == "formula":
+                if not formula_input:
+                    errors.append(f"Provide a custom formula for chapter {index + 1}.")
+                else:
+                    try:
+                        _parse_voice_formula(formula_input)
+                    except ValueError as exc:
+                        errors.append(str(exc))
+                    else:
+                        entry["voice_formula"] = formula_input
+                        entry["resolved_voice"] = formula_input
+            selected_total += len(entry["text"] or "")
+
+        overrides.append(entry)
+        pending.chapters[index] = dict(entry)
+
+    enabled_overrides = [entry for entry in overrides if entry.get("enabled")]
+
+    return chunk_level_literal, overrides, enabled_overrides, errors, selected_total
 _SUPPLEMENT_TITLE_PATTERNS: List[tuple[re.Pattern[str], float]] = [
     (re.compile(r"\btitle\s+page\b"), 3.0),
     (re.compile(r"\bcopyright\b"), 2.4),
@@ -689,7 +817,7 @@ def queue_page() -> str:
 
 
 @web_bp.route("/settings", methods=["GET", "POST"])
-def settings_page() -> Response | str:
+def settings_page() -> ResponseReturnValue:
     options = _template_options()
     current_settings = _load_settings()
 
@@ -766,7 +894,7 @@ def voice_profiles_page() -> str:
 
 
 @web_bp.post("/voices")
-def save_voice_profile_route() -> Response:
+def save_voice_profile_route() -> ResponseReturnValue:
     name = request.form.get("name", "").strip()
     language = request.form.get("language", "a").strip() or "a"
     formula = request.form.get("formula", "").strip()
@@ -780,18 +908,18 @@ def save_voice_profile_route() -> Response:
 
 
 @web_bp.post("/voices/<name>/delete")
-def delete_voice_profile_route(name: str) -> Response:
+def delete_voice_profile_route(name: str) -> ResponseReturnValue:
     delete_profile(name)
     return redirect(url_for("web.voice_profiles_page"))
 
 
 @api_bp.get("/voice-profiles")
-def api_list_voice_profiles() -> Response:
+def api_list_voice_profiles() -> ResponseReturnValue:
     return jsonify(_profiles_payload())
 
 
 @api_bp.post("/voice-profiles")
-def api_save_voice_profile() -> Response:
+def api_save_voice_profile() -> ResponseReturnValue:
     payload = request.get_json(force=True, silent=False)
     name = (payload.get("name") or "").strip()
     if not name:
@@ -819,13 +947,13 @@ def api_save_voice_profile() -> Response:
 
 
 @api_bp.delete("/voice-profiles/<name>")
-def api_delete_voice_profile(name: str) -> Response:
+def api_delete_voice_profile(name: str) -> ResponseReturnValue:
     remove_profile(name)
     return jsonify({"ok": True, **_profiles_payload()})
 
 
 @api_bp.post("/voice-profiles/<name>/duplicate")
-def api_duplicate_voice_profile(name: str) -> Response:
+def api_duplicate_voice_profile(name: str) -> ResponseReturnValue:
     payload = request.get_json(silent=True) or {}
     new_name = (payload.get("name") or payload.get("new_name") or "").strip()
     if not new_name:
@@ -835,13 +963,18 @@ def api_duplicate_voice_profile(name: str) -> Response:
 
 
 @api_bp.post("/voice-profiles/import")
-def api_import_voice_profiles() -> Response:
+def api_import_voice_profiles() -> ResponseReturnValue:
     replace = False
     data: Optional[Dict[str, Any]] = None
     if "file" in request.files:
         file_storage = request.files["file"]
         try:
-            data = json.load(file_storage)
+            file_storage.stream.seek(0)
+            raw_bytes = file_storage.read()
+            text_payload = raw_bytes.decode("utf-8")
+            data = json.loads(text_payload)
+        except UnicodeDecodeError as exc:
+            abort(400, f"JSON file must be UTF-8 encoded: {exc}")
         except Exception as exc:  # pragma: no cover - defensive
             abort(400, f"Invalid JSON file: {exc}")
         replace = request.form.get("replace_existing") in {"true", "1", "on"}
@@ -863,7 +996,7 @@ def api_import_voice_profiles() -> Response:
 
 
 @api_bp.get("/voice-profiles/export")
-def api_export_voice_profiles() -> Response:
+def api_export_voice_profiles() -> ResponseReturnValue:
     names_param = request.args.get("names")
     names = None
     if names_param:
@@ -882,7 +1015,7 @@ def api_export_voice_profiles() -> Response:
 
 
 @api_bp.post("/voice-profiles/preview")
-def api_preview_voice_mix() -> Response:
+def api_preview_voice_mix() -> ResponseReturnValue:
     payload = request.get_json(force=True, silent=False)
     language = (payload.get("language") or "a").strip() or "a"
     text = (payload.get("text") or "").strip()
@@ -1010,7 +1143,7 @@ def api_preview_voice_mix() -> Response:
 
 
 @api_bp.post("/speaker-preview")
-def api_speaker_preview() -> Response:
+def api_speaker_preview() -> ResponseReturnValue:
     payload = request.get_json(force=True, silent=False)
     text = (payload.get("text") or "").strip()
     voice_spec = (payload.get("voice") or "").strip()
@@ -1106,7 +1239,7 @@ def api_speaker_preview() -> Response:
 
 
 @web_bp.post("/jobs")
-def enqueue_job() -> Response:
+def enqueue_job() -> ResponseReturnValue:
     service = _service()
     uploads_dir = Path(current_app.config["UPLOAD_FOLDER"])
     uploads_dir.mkdir(parents=True, exist_ok=True)
@@ -1252,6 +1385,7 @@ def enqueue_job() -> Response:
         maximum=25,
     )
 
+    initial_analysis = speaker_mode_value != "multi"
     processed_chunks, speakers, analysis_payload = _prepare_speaker_metadata(
         chapters=selected_chapter_sources,
         chunks=raw_chunks,
@@ -1259,6 +1393,7 @@ def enqueue_job() -> Response:
         voice=voice,
         voice_profile=selected_profile or None,
         threshold=analysis_threshold,
+        run_analysis=initial_analysis,
     )
 
     pending = PendingJob(
@@ -1296,6 +1431,7 @@ def enqueue_job() -> Response:
         speakers=speakers,
         speaker_analysis=analysis_payload,
         speaker_analysis_threshold=analysis_threshold,
+        analysis_requested=False,
     )
 
     service.store_pending_job(pending)
@@ -1311,142 +1447,44 @@ def prepare_job(pending_id: str) -> str:
     return _render_prepare_page(pending)
 
 
-@web_bp.post("/jobs/prepare/<pending_id>")
-def finalize_job(pending_id: str) -> Response:
+@web_bp.post("/jobs/prepare/<pending_id>/analyze")
+def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
     service = _service()
     pending = service.get_pending_job(pending_id)
     if not pending:
         abort(404)
     pending = cast(PendingJob, pending)
 
-    raw_chunk_level = (request.form.get("chunk_level") or pending.chunk_level or "paragraph").strip().lower()
-    if raw_chunk_level not in _CHUNK_LEVEL_VALUES:
-        raw_chunk_level = pending.chunk_level if pending.chunk_level in _CHUNK_LEVEL_VALUES else "paragraph"
-    pending.chunk_level = raw_chunk_level
-    chunk_level_literal = cast(ChunkLevel, pending.chunk_level)
+    chunk_level_literal, overrides, enabled_overrides, errors, selected_total = _apply_prepare_form(
+        pending, request.form
+    )
 
-    raw_speaker_mode = (request.form.get("speaker_mode") or pending.speaker_mode or "single").strip().lower()
-    if raw_speaker_mode not in _SPEAKER_MODE_VALUES:
-        raw_speaker_mode = "single"
-    pending.speaker_mode = raw_speaker_mode
+    if errors:
+        return _render_prepare_page(pending, error=" ".join(errors))
 
-    pending.generate_epub3 = _coerce_bool(request.form.get("generate_epub3"), False)
-
-    threshold_default = getattr(pending, "speaker_analysis_threshold", _DEFAULT_ANALYSIS_THRESHOLD)
-    raw_threshold = request.form.get("speaker_analysis_threshold")
-    if raw_threshold is not None:
-        pending.speaker_analysis_threshold = _coerce_int(
-            raw_threshold,
-            threshold_default,
-            minimum=1,
-            maximum=25,
-        )
-    else:
-        pending.speaker_analysis_threshold = threshold_default
-
-    if not pending.speakers:
-        narrator: Dict[str, Any] = {
-            "id": "narrator",
-            "label": "Narrator",
-            "voice": pending.voice,
-        }
-        if pending.voice_profile:
-            narrator["voice_profile"] = pending.voice_profile
-        pending.speakers = {"narrator": narrator}
-    else:
-        existing_narrator = pending.speakers.get("narrator")
-        if isinstance(existing_narrator, dict):
-            existing_narrator.setdefault("id", "narrator")
-            existing_narrator["label"] = existing_narrator.get("label", "Narrator")
-            existing_narrator["voice"] = pending.voice
-            if pending.voice_profile:
-                existing_narrator["voice_profile"] = pending.voice_profile
-            pending.speakers["narrator"] = existing_narrator
-
-    if isinstance(pending.speakers, dict):
-        for speaker_id, payload in list(pending.speakers.items()):
-            if not isinstance(payload, dict):
-                continue
-            field_key = f"speaker-{speaker_id}-pronunciation"
-            raw_value = request.form.get(field_key, "")
-            pronunciation = raw_value.strip()
-            if pronunciation:
-                payload["pronunciation"] = pronunciation
-            else:
-                payload.pop("pronunciation", None)
-
-    profiles = serialize_profiles()
-    delay_value = pending.chapter_intro_delay
-    raw_delay = request.form.get("chapter_intro_delay")
-    if raw_delay is not None:
-        raw_normalized = raw_delay.strip()
-        if raw_normalized:
-            try:
-                delay_value = max(0.0, float(raw_normalized))
-            except ValueError:
-                return _render_prepare_page(pending, error="Enter a valid number for the chapter intro delay.")
-        else:
-            delay_value = 0.0
-    pending.chapter_intro_delay = delay_value
-
-    overrides: List[Dict[str, Any]] = []
-    selected_total = 0
-    errors: List[str] = []
-
-    for index, chapter in enumerate(pending.chapters):
-        enabled = request.form.get(f"chapter-{index}-enabled") == "on"
-        title_input = (request.form.get(f"chapter-{index}-title") or "").strip()
-        title = title_input or chapter.get("title") or f"Chapter {index + 1}"
-        voice_selection = request.form.get(f"chapter-{index}-voice", "__default")
-        formula_input = (request.form.get(f"chapter-{index}-formula") or "").strip()
-
-        entry: Dict[str, Any] = {
-            "id": chapter.get("id") or f"{index:04d}",
-            "index": index,
-            "order": index,
-            "source_title": chapter.get("title") or title,
-            "title": title,
-            "text": chapter.get("text", ""),
-            "enabled": enabled,
-        }
-        entry["characters"] = len(entry["text"])
-
-        if enabled:
-            if voice_selection.startswith("voice:"):
-                entry["voice"] = voice_selection.split(":", 1)[1]
-                entry["resolved_voice"] = entry["voice"]
-            elif voice_selection.startswith("profile:"):
-                profile_name = voice_selection.split(":", 1)[1]
-                entry["voice_profile"] = profile_name
-                profile_entry = profiles.get(profile_name) or {}
-                formula_value = _formula_from_profile(profile_entry)
-                if formula_value:
-                    entry["voice_formula"] = formula_value
-                    entry["resolved_voice"] = formula_value
-                else:
-                    errors.append(f"Profile '{profile_name}' has no configured voices.")
-            elif voice_selection == "formula":
-                if not formula_input:
-                    errors.append(f"Provide a custom formula for chapter {index + 1}.")
-                else:
-                    try:
-                        _parse_voice_formula(formula_input)
-                    except ValueError as exc:
-                        errors.append(str(exc))
-                    else:
-                        entry["voice_formula"] = formula_input
-                        entry["resolved_voice"] = formula_input
-            selected_total += len(entry["text"] or "")
-
-        overrides.append(entry)
-        pending.chapters[index] = dict(entry)
-
-    enabled_overrides = [entry for entry in overrides if entry.get("enabled")]
-    if not enabled_overrides:
+    if pending.speaker_mode != "multi":
+        setattr(pending, "analysis_requested", False)
         pending.chunks = []
-        return _render_prepare_page(pending, error="Select at least one chapter to convert.")
+        pending.speaker_analysis = {}
+        return _render_prepare_page(
+            pending,
+            error="Switch to multi-speaker mode to analyze speakers.",
+        )
+
+    if not enabled_overrides:
+        setattr(pending, "analysis_requested", False)
+        pending.chunks = []
+        pending.speaker_analysis = {}
+        return _render_prepare_page(pending, error="Select at least one chapter to analyze.")
 
     raw_chunks = build_chunks_for_chapters(enabled_overrides, level=chunk_level_literal)
+
+    existing_roster: Optional[Mapping[str, Any]]
+    if getattr(pending, "analysis_requested", False):
+        existing_roster = pending.speakers
+    else:
+        existing_roster = None
+
     processed_chunks, roster, analysis_payload = _prepare_speaker_metadata(
         chapters=enabled_overrides,
         chunks=raw_chunks,
@@ -1454,14 +1492,68 @@ def finalize_job(pending_id: str) -> Response:
         voice=pending.voice,
         voice_profile=pending.voice_profile,
         threshold=pending.speaker_analysis_threshold,
-        existing_roster=pending.speakers,
+        existing_roster=existing_roster,
+        run_analysis=True,
+    )
+
+    pending.chunks = processed_chunks
+    pending.speakers = roster
+    pending.speaker_analysis = analysis_payload
+    setattr(pending, "analysis_requested", True)
+    if selected_total:
+        pending.total_characters = selected_total
+
+    service.store_pending_job(pending)
+
+    return _render_prepare_page(pending, notice="Speaker analysis updated.")
+
+
+@web_bp.post("/jobs/prepare/<pending_id>")
+def finalize_job(pending_id: str) -> ResponseReturnValue:
+    service = _service()
+    pending = service.get_pending_job(pending_id)
+    if not pending:
+        abort(404)
+    pending = cast(PendingJob, pending)
+
+    chunk_level_literal, overrides, enabled_overrides, errors, selected_total = _apply_prepare_form(
+        pending, request.form
+    )
+
+    if errors:
+        return _render_prepare_page(pending, error=" ".join(errors))
+
+    if pending.speaker_mode != "multi":
+        setattr(pending, "analysis_requested", False)
+
+    if not enabled_overrides:
+        pending.chunks = []
+        return _render_prepare_page(pending, error="Select at least one chapter to convert.")
+
+    raw_chunks = build_chunks_for_chapters(enabled_overrides, level=chunk_level_literal)
+    analysis_active = pending.speaker_mode == "multi" and getattr(pending, "analysis_requested", False)
+    if analysis_active:
+        existing_roster: Optional[Mapping[str, Any]] = pending.speakers
+    else:
+        narrator_only: Dict[str, Any] = {}
+        if isinstance(pending.speakers, dict):
+            narrator_payload = pending.speakers.get("narrator")
+            if isinstance(narrator_payload, Mapping):
+                narrator_only["narrator"] = dict(narrator_payload)
+        existing_roster = narrator_only or None
+    processed_chunks, roster, analysis_payload = _prepare_speaker_metadata(
+        chapters=enabled_overrides,
+        chunks=raw_chunks,
+        speaker_mode=pending.speaker_mode,
+        voice=pending.voice,
+        voice_profile=pending.voice_profile,
+        threshold=pending.speaker_analysis_threshold,
+        existing_roster=existing_roster,
+        run_analysis=analysis_active,
     )
     pending.chunks = processed_chunks
     pending.speakers = roster
     pending.speaker_analysis = analysis_payload
-
-    if errors:
-        return _render_prepare_page(pending, error=" ".join(errors))
 
     total_characters = selected_total or pending.total_characters
 
@@ -1500,13 +1592,14 @@ def finalize_job(pending_id: str) -> Response:
         speaker_analysis=analysis_payload,
         speaker_analysis_threshold=pending.speaker_analysis_threshold,
         generate_epub3=pending.generate_epub3,
+        analysis_requested=getattr(pending, "analysis_requested", False),
     )
 
     return redirect(url_for("web.queue_page"))
 
 
 @web_bp.post("/jobs/prepare/<pending_id>/cancel")
-def cancel_pending_job(pending_id: str) -> Response:
+def cancel_pending_job(pending_id: str) -> ResponseReturnValue:
     pending = _service().pop_pending_job(pending_id)
     if pending and pending.stored_path.exists():
         try:
@@ -1536,13 +1629,19 @@ def _render_jobs_panel() -> str:
     )
 
 
-def _render_prepare_page(pending: PendingJob, *, error: Optional[str] = None) -> str:
+def _render_prepare_page(
+    pending: PendingJob,
+    *,
+    error: Optional[str] = None,
+    notice: Optional[str] = None,
+) -> str:
     return render_template(
         "prepare_job.html",
         pending=pending,
         options=_template_options(),
         settings=_load_settings(),
         error=error,
+        notice=notice,
     )
 
 
@@ -1559,7 +1658,7 @@ def job_detail(job_id: str) -> str:
 
 
 @web_bp.post("/jobs/<job_id>/pause")
-def pause_job(job_id: str) -> Response:
+def pause_job(job_id: str) -> ResponseReturnValue:
     _service().pause(job_id)
     if request.headers.get("HX-Request"):
         return _render_jobs_panel()
@@ -1567,7 +1666,7 @@ def pause_job(job_id: str) -> Response:
 
 
 @web_bp.post("/jobs/<job_id>/resume")
-def resume_job(job_id: str) -> Response:
+def resume_job(job_id: str) -> ResponseReturnValue:
     _service().resume(job_id)
     if request.headers.get("HX-Request"):
         return _render_jobs_panel()
@@ -1575,7 +1674,7 @@ def resume_job(job_id: str) -> Response:
 
 
 @web_bp.post("/jobs/<job_id>/cancel")
-def cancel_job(job_id: str) -> Response:
+def cancel_job(job_id: str) -> ResponseReturnValue:
     _service().cancel(job_id)
     if request.headers.get("HX-Request"):
         return _render_jobs_panel()
@@ -1583,7 +1682,7 @@ def cancel_job(job_id: str) -> Response:
 
 
 @web_bp.post("/jobs/<job_id>/delete")
-def delete_job(job_id: str) -> Response:
+def delete_job(job_id: str) -> ResponseReturnValue:
     _service().delete(job_id)
     if request.headers.get("HX-Request"):
         return _render_jobs_panel()
@@ -1591,7 +1690,7 @@ def delete_job(job_id: str) -> Response:
 
 
 @web_bp.post("/jobs/clear-finished")
-def clear_finished_jobs() -> Response:
+def clear_finished_jobs() -> ResponseReturnValue:
     _service().clear_finished()
     if request.headers.get("HX-Request"):
         return _render_jobs_panel()
@@ -1599,7 +1698,7 @@ def clear_finished_jobs() -> Response:
 
 
 @web_bp.get("/jobs/<job_id>/download")
-def download_job(job_id: str) -> Response:
+def download_job(job_id: str) -> ResponseReturnValue:
     job = _service().get_job(job_id)
     if job is None or job.status != JobStatus.COMPLETED:
         abort(404)
@@ -1634,7 +1733,7 @@ def job_logs_partial(job_id: str) -> str:
 
 
 @api_bp.get("/jobs/<job_id>")
-def job_json(job_id: str) -> Response:
+def job_json(job_id: str) -> ResponseReturnValue:
     job = _service().get_job(job_id)
     if job is None:
         abort(404)

@@ -97,6 +97,7 @@ class Job:
     generate_epub3: bool = False
     speaker_analysis: Dict[str, Any] = field(default_factory=dict)
     speaker_analysis_threshold: int = 3
+    analysis_requested: bool = False
 
     def add_log(self, message: str, level: str = "info") -> None:
         self.logs.append(JobLog(timestamp=time.time(), message=message, level=level))
@@ -154,6 +155,7 @@ class Job:
             "generate_epub3": self.generate_epub3,
             "speaker_analysis": dict(self.speaker_analysis),
             "speaker_analysis_threshold": self.speaker_analysis_threshold,
+            "analysis_requested": self.analysis_requested,
         }
 
 
@@ -193,6 +195,7 @@ class PendingJob:
     generate_epub3: bool = False
     speaker_analysis: Dict[str, Any] = field(default_factory=dict)
     speaker_analysis_threshold: int = 3
+    analysis_requested: bool = False
 
 
 class ConversionService:
@@ -263,6 +266,7 @@ class ConversionService:
         generate_epub3: bool = False,
         speaker_analysis: Optional[Mapping[str, Any]] = None,
         speaker_analysis_threshold: int = 3,
+        analysis_requested: bool = False,
     ) -> Job:
         job_id = uuid.uuid4().hex
         normalized_metadata = self._normalize_metadata_tags(metadata_tags)
@@ -305,6 +309,7 @@ class ConversionService:
             generate_epub3=bool(generate_epub3),
             speaker_analysis=dict(speaker_analysis or {}),
             speaker_analysis_threshold=int(speaker_analysis_threshold or 3),
+            analysis_requested=bool(analysis_requested),
         )
         with self._lock:
             self._jobs[job_id] = job
@@ -581,6 +586,7 @@ class ConversionService:
             "generate_epub3": job.generate_epub3,
             "speaker_analysis": dict(job.speaker_analysis),
             "speaker_analysis_threshold": job.speaker_analysis_threshold,
+            "analysis_requested": job.analysis_requested,
         }
 
     def _persist_state(self) -> None:
@@ -697,6 +703,7 @@ class ConversionService:
         job.speaker_analysis_threshold = int(
             payload.get("speaker_analysis_threshold", job.speaker_analysis_threshold or 3)
         )
+        job.analysis_requested = bool(payload.get("analysis_requested", job.analysis_requested))
         job.pause_event.set()
         return job
 

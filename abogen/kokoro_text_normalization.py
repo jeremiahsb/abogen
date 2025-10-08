@@ -120,6 +120,34 @@ WORD_TOKEN_RE = re.compile(r"[A-Za-z0-9'’]+|[^A-Za-z0-9\s]")
 
 APOSTROPHE_CHARS = "’`´ꞌʼ"
 
+TERMINAL_PUNCTUATION = {".", "?", "!", "…", ";", ":"}
+CLOSING_PUNCTUATION = '"\'”’)]}»›'
+ELLIPSIS_SUFFIXES = ("...", "…")
+_LINE_SPLIT_RE = re.compile(r"(\n+)")
+
+TITLE_ABBREVIATIONS = {
+    "mr": "mister",
+    "mrs": "missus",
+    "ms": "miz",
+    "dr": "doctor",
+    "prof": "professor",
+    "rev": "reverend",
+}
+
+SUFFIX_ABBREVIATIONS = {
+    "jr": "junior",
+    "sr": "senior",
+}
+
+_TITLE_PATTERN = re.compile(
+    r"\b(?P<abbr>" + "|".join(sorted(TITLE_ABBREVIATIONS.keys(), key=len, reverse=True)) + r")\.",
+    re.IGNORECASE,
+)
+_SUFFIX_PATTERN = re.compile(
+    r"\b(?P<abbr>" + "|".join(sorted(SUFFIX_ABBREVIATIONS.keys(), key=len, reverse=True)) + r")\.",
+    re.IGNORECASE,
+)
+
 # ---------- Utility Functions ----------
 
 def normalize_unicode_apostrophes(text: str) -> str:
@@ -131,6 +159,73 @@ def normalize_unicode_apostrophes(text: str) -> str:
 def tokenize(text: str) -> List[str]:
     # Simple tokenization preserving punctuation tokens
     return WORD_TOKEN_RE.findall(text)
+
+
+def _match_casing(template: str, replacement: str) -> str:
+    if template.isupper():
+        return replacement.upper()
+    if template[:1].isupper() and template[1:].islower():
+        return replacement.capitalize()
+    if template[:1].isupper():
+        # Mixed case (e.g., Mc), fall back to title case
+        return replacement.capitalize()
+    return replacement
+
+
+def expand_titles_and_suffixes(text: str) -> str:
+    def _replace(match: re.Match[str], mapping: dict[str, str]) -> str:
+        abbr = match.group("abbr")
+        lookup = mapping.get(abbr.lower())
+        if not lookup:
+            return match.group(0)
+        return _match_casing(abbr, lookup)
+
+    text = _TITLE_PATTERN.sub(lambda m: _replace(m, TITLE_ABBREVIATIONS), text)
+    text = _SUFFIX_PATTERN.sub(lambda m: _replace(m, SUFFIX_ABBREVIATIONS), text)
+    return text
+
+
+def ensure_terminal_punctuation(text: str) -> str:
+    def _amend(segment: str) -> str:
+        if not segment or not segment.strip():
+            return segment
+
+        stripped = segment.rstrip()
+        trailing_ws = segment[len(stripped) :]
+
+        match = re.match(rf"^(.*?)([{re.escape(CLOSING_PUNCTUATION)}]*)$", stripped)
+        if not match:
+            return segment
+
+        body, closers = match.groups()
+        if not body:
+            return segment
+
+        normalized_body = body.rstrip()
+        trailing_body_ws = body[len(normalized_body) :]
+
+        if normalized_body.endswith(ELLIPSIS_SUFFIXES):
+            return normalized_body + trailing_body_ws + closers + trailing_ws
+
+        last_char = normalized_body[-1]
+        if last_char in TERMINAL_PUNCTUATION:
+            return normalized_body + trailing_body_ws + closers + trailing_ws
+
+        return normalized_body + "." + trailing_body_ws + closers + trailing_ws
+
+    parts = _LINE_SPLIT_RE.split(text)
+    amended: List[str] = []
+    for part in parts:
+        if not part:
+            continue
+        if part.startswith("\n"):
+            amended.append(part)
+        else:
+            amended.append(_amend(part))
+    if not parts:
+        return _amend(text)
+    return "".join(amended)
+
 
 def is_cultural_name(token: str, cfg: ApostropheConfig) -> bool:
     if not cfg.protect_cultural_names:
