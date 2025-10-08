@@ -3,7 +3,27 @@
 {% block title %}abogen · Queue{% endblock %}
 
 {% block content %}
-<section class="card" id="jobs-panel" hx-get="{{ url_for('web.jobs_partial') }}" hx-trigger="load, every 3s" hx-target="#jobs-panel" hx-swap="innerHTML">
-  {{ jobs_panel|safe }}
+<section class="card">
+  <div class="step-indicator" aria-label="Audiobook workflow">
+    <span class="step-indicator__item is-complete">
+      <span class="step-indicator__index">1</span>
+      <span class="step-indicator__label">Upload</span>
+    </span>
+    <span class="step-indicator__item is-complete">
+      <span class="step-indicator__index">2</span>
+      <span class="step-indicator__label">Speakers</span>
+    </span>
+    <span class="step-indicator__item is-active">
+      <span class="step-indicator__index">3</span>
+      <span class="step-indicator__label">Queue</span>
+    </span>
+  </div>
+  <div id="jobs-panel"
+       hx-get="{{ url_for('web.jobs_partial') }}"
+       hx-trigger="load, every 3s"
+       hx-target="#jobs-panel"
+       hx-swap="innerHTML">
+    {{ jobs_panel|safe }}
+  </div>
 </section>
 {% endblock %}

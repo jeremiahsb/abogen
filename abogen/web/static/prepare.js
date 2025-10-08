@@ -76,4 +76,78 @@ document.addEventListener("DOMContentLoaded", () => {
     speakerModeSelect.addEventListener("change", updateAnalyzeVisibility);
     updateAnalyzeVisibility();
   }
+
+  const updatePreviewVoice = (select) => {
+    const container = select.closest(".speaker-list__item");
+    if (!container) return;
+    const previewButton = container.querySelector('[data-role="speaker-preview"]');
+    if (!previewButton) return;
+    const defaultVoice = select.dataset.defaultVoice || previewButton.dataset.voice || "";
+    const currentVoice = select.disabled ? defaultVoice : (select.value || defaultVoice);
+    previewButton.dataset.voice = currentVoice || defaultVoice;
+  };
+
+  const handleRandomizeToggle = (checkbox) => {
+    const container = checkbox.closest(".speaker-list__item");
+    if (!container) return;
+    const select = container.querySelector('[data-role="speaker-voice"]');
+    if (!select) return;
+    if (checkbox.checked) {
+      if (!select.dataset.prevManual) {
+        select.dataset.prevManual = select.value;
+      }
+      select.dataset.suppressRandomize = "1";
+      select.disabled = true;
+      select.value = "";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      delete select.dataset.suppressRandomize;
+    } else {
+      const previous = select.dataset.prevManual || "";
+      select.disabled = false;
+      select.dataset.suppressRandomize = "1";
+      select.value = previous;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      delete select.dataset.suppressRandomize;
+    }
+  };
+
+  const voiceSelects = Array.from(form.querySelectorAll('[data-role="speaker-voice"]'));
+  voiceSelects.forEach((select) => {
+    select.addEventListener("change", (event) => {
+      const target = event.target;
+      const container = target.closest(".speaker-list__item");
+      if (container && !target.dataset.suppressRandomize) {
+        const randomToggle = container.querySelector('[data-role="randomize-toggle"]');
+        if (randomToggle && randomToggle.checked && target.value) {
+          randomToggle.checked = false;
+          handleRandomizeToggle(randomToggle);
+        }
+      }
+      updatePreviewVoice(target);
+    });
+    updatePreviewVoice(select);
+  });
+
+  const randomizeToggles = Array.from(form.querySelectorAll('[data-role="randomize-toggle"]'));
+  randomizeToggles.forEach((checkbox) => {
+    handleRandomizeToggle(checkbox);
+    checkbox.addEventListener("change", () => handleRandomizeToggle(checkbox));
+  });
+
+  form.addEventListener("click", (event) => {
+    const chip = event.target.closest('[data-role="recommended-voice"]');
+    if (!chip) return;
+    event.preventDefault();
+    const container = chip.closest(".speaker-list__item");
+    if (!container) return;
+    const select = container.querySelector('[data-role="speaker-voice"]');
+    if (!select) return;
+    const randomToggle = container.querySelector('[data-role="randomize-toggle"]');
+    if (randomToggle && randomToggle.checked) {
+      randomToggle.checked = false;
+      handleRandomizeToggle(randomToggle);
+    }
+    select.value = chip.dataset.voice || "";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
 });

@@ -98,6 +98,10 @@ class Job:
     speaker_analysis: Dict[str, Any] = field(default_factory=dict)
     speaker_analysis_threshold: int = 3
     analysis_requested: bool = False
+    speaker_voice_languages: List[str] = field(default_factory=list)
+    applied_speaker_config: Optional[str] = None
+    speaker_voice_languages: List[str] = field(default_factory=list)
+    applied_speaker_config: Optional[str] = None
 
     def add_log(self, message: str, level: str = "info") -> None:
         self.logs.append(JobLog(timestamp=time.time(), message=message, level=level))
@@ -156,6 +160,8 @@ class Job:
             "speaker_analysis": dict(self.speaker_analysis),
             "speaker_analysis_threshold": self.speaker_analysis_threshold,
             "analysis_requested": self.analysis_requested,
+            "speaker_voice_languages": list(self.speaker_voice_languages),
+            "applied_speaker_config": self.applied_speaker_config,
         }
 
 
@@ -196,6 +202,8 @@ class PendingJob:
     speaker_analysis: Dict[str, Any] = field(default_factory=dict)
     speaker_analysis_threshold: int = 3
     analysis_requested: bool = False
+    speaker_voice_languages: List[str] = field(default_factory=list)
+    applied_speaker_config: Optional[str] = None
 
 
 class ConversionService:

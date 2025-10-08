@@ -4,6 +4,20 @@
 
 {% block content %}
 <section class="card">
+  <div class="step-indicator" aria-label="Audiobook workflow">
+    <span class="step-indicator__item is-active">
+      <span class="step-indicator__index">1</span>
+      <span class="step-indicator__label">Upload</span>
+    </span>
+    <span class="step-indicator__item">
+      <span class="step-indicator__index">2</span>
+      <span class="step-indicator__label">Speakers</span>
+    </span>
+    <span class="step-indicator__item">
+      <span class="step-indicator__index">3</span>
+      <span class="step-indicator__label">Queue</span>
+    </span>
+  </div>
   <h1 class="card__title">Create a New Audiobook</h1>
   <form action="{{ url_for('web.enqueue_job') }}" method="post" enctype="multipart/form-data" class="grid grid--two form-grid">
     <div class="grid">
@@ -44,6 +58,16 @@
   <div class="field" data-conditional="formula" data-role="formula-field" hidden aria-hidden="true">
   <label for="voice_formula">Custom Voice Formula</label>
         <input type="text" id="voice_formula" name="voice_formula" placeholder="af_nova*0.4+am_liam*0.6" data-role="voice-formula">
+      </div>
+      <div class="field">
+        <label for="speaker_config">Speaker preset</label>
+        <select id="speaker_config" name="speaker_config">
+          <option value="">None</option>
+          {% for config in options.speaker_configs %}
+          <option value="{{ config.name }}">{{ config.name }} · {{ config.speakers|length }} speaker{% if config.speakers|length != 1 %}s{% endif %}</option>
+          {% endfor %}
+        </select>
+        <p class="hint">Optional: reuse a saved roster to keep character voices consistent.</p>
       </div>
       <div class="field">
         <label for="speed">Speed <span class="tag" id="speed_value">1.00×</span></label>

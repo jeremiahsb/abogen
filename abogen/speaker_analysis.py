@@ -38,6 +38,36 @@ _PRONOUN_PATTERN = re.compile(r"\b(?:he|she|they)\b", re.IGNORECASE)
 _QUOTE_PATTERN = re.compile(r'["“”]([^"“”\\]*(?:\\.[^"“”\\]*)*)["”]')
 _MALE_PRONOUN_PATTERN = re.compile(r"\b(?:he|him|his|himself)\b", re.IGNORECASE)
 _FEMALE_PRONOUN_PATTERN = re.compile(r"\b(?:she|her|hers|herself)\b", re.IGNORECASE)
+_PRONOUN_LABELS = {
+    "he",
+    "she",
+    "they",
+    "them",
+    "theirs",
+    "their",
+    "themselves",
+    "him",
+    "his",
+    "himself",
+    "her",
+    "hers",
+    "herself",
+    "we",
+    "us",
+    "our",
+    "ours",
+    "ourselves",
+    "i",
+    "me",
+    "my",
+    "mine",
+    "myself",
+    "you",
+    "your",
+    "yours",
+    "yourself",
+    "yourselves",
+}
 
 _CONFIDENCE_RANK = {"low": 1, "medium": 2, "high": 3}
 
@@ -216,8 +246,11 @@ def _infer_chunk_speaker(text: str, last_explicit: Optional[str]) -> Tuple[Optio
     colon_match = _COLON_PATTERN.match(normalized)
     if colon_match:
         raw_label = colon_match.group(1)
+        cleaned = _normalize_candidate_name(raw_label)
+        if cleaned is None:
+            return None, "low", colon_match.group(2).strip()
         quote = colon_match.group(2).strip()
-        return raw_label, "high", quote
+        return cleaned, "high", quote
 
     quote = _extract_quote(normalized)
     if not quote:
@@ -227,7 +260,9 @@ def _infer_chunk_speaker(text: str, last_explicit: Optional[str]) -> Tuple[Optio
 
     candidate = _match_name_near_quote(before, after)
     if candidate:
-        return candidate, "high", quote
+        cleaned = _normalize_candidate_name(candidate)
+        if cleaned:
+            return cleaned, "high", quote
 
     if last_explicit:
         pronoun_after = _PRONOUN_PATTERN.search(after)
@@ -273,10 +308,13 @@ def _match_name_near_quote(before: str, after: str) -> Optional[str]:
 
 
 def _looks_like_name(value: str) -> bool:
-    parts = value.strip().split()
+    normalized = _normalize_candidate_name(value)
+    if not normalized:
+        return False
+    parts = normalized.split()
     if not parts:
         return False
-    return all(part[0].isupper() for part in parts)
+    return all(part and part[0].isupper() for part in parts)
 
 
 def _extract_quote(text: str) -> Optional[str]:
@@ -341,3 +379,16 @@ def _derive_gender(male_votes: int, female_votes: int, current: str) -> str:
     if current in {"male", "female"}:
         return current
     return "unknown"
+
+
+def _normalize_candidate_name(raw: str) -> Optional[str]:
+    if not raw:
+        return None
+    cleaned = raw.strip().strip('"“”\'’.,:;!')
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if not cleaned:
+        return None
+    lowered = cleaned.lower()
+    if lowered in _PRONOUN_LABELS:
+        return None
+    return cleaned

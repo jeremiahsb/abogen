@@ -59,6 +59,16 @@ from abogen.voice_profiles import (
 
 from abogen.voice_formulas import get_new_voice
 from abogen.speaker_analysis import analyze_speakers
+from abogen.speaker_configs import (
+    delete_config,
+    get_config,
+    list_configs,
+    load_configs,
+    random_voice,
+    save_configs,
+    upsert_config,
+    slugify_label,
+)
 from abogen.text_extractor import extract_from_path
 from .conversion_runner import SPLIT_PATTERN, SAMPLE_RATE, _select_device, _to_float32
 from .service import ConversionService, Job, JobStatus, PendingJob
@@ -86,9 +96,6 @@ _SPEAKER_MODE_VALUES = {option["value"] for option in _SPEAKER_MODE_OPTIONS}
 
 
 _DEFAULT_ANALYSIS_THRESHOLD = 3
-_MAX_ANALYSIS_SPEAKERS = 6
-
-
 def _build_narrator_roster(
     voice: str,
     voice_profile: Optional[str],
@@ -120,11 +127,19 @@ def _build_speaker_roster(
     base_voice: str,
     voice_profile: Optional[str],
     existing: Optional[Mapping[str, Any]] = None,
+    order: Optional[Iterable[str]] = None,
 ) -> Dict[str, Any]:
     roster = _build_narrator_roster(base_voice, voice_profile, existing)
     existing_map: Dict[str, Any] = dict(existing) if isinstance(existing, Mapping) else {}
     speakers = analysis.get("speakers", {}) if isinstance(analysis, dict) else {}
-    for speaker_id, payload in speakers.items():
+    ordered_ids: Iterable[str]
+    if order is not None:
+        ordered_ids = [sid for sid in order if sid in speakers]
+    else:
+        ordered_ids = speakers.keys()
+
+    for speaker_id in ordered_ids:
+        payload = speakers.get(speaker_id, {})
         if speaker_id == "narrator":
             continue
         if payload.get("suppressed"):
@@ -136,6 +151,7 @@ def _build_speaker_roster(
             "voice": base_voice,
             "analysis_confidence": payload.get("confidence"),
             "analysis_count": payload.get("count"),
+            "gender": payload.get("gender", "unknown"),
         }
         if isinstance(previous, Mapping):
             for key in ("voice", "voice_profile", "voice_formula", "resolved_voice", "pronunciation"):
@@ -145,18 +161,286 @@ def _build_speaker_roster(
     return roster
 
 
+def _match_configured_speaker(
+    config_speakers: Mapping[str, Any],
+    roster_id: str,
+    roster_label: str,
+) -> Optional[Mapping[str, Any]]:
+    if not config_speakers:
+        return None
+    entry = config_speakers.get(roster_id)
+    if entry:
+        return cast(Mapping[str, Any], entry)
+    slug = slugify_label(roster_label)
+    if slug != roster_id and slug in config_speakers:
+        return cast(Mapping[str, Any], config_speakers[slug])
+    lower_label = roster_label.strip().lower()
+    for record in config_speakers.values():
+        if not isinstance(record, Mapping):
+            continue
+        if str(record.get("label", "")).strip().lower() == lower_label:
+            return record
+    return None
+
+
+def _apply_speaker_config_to_roster(
+    roster: Mapping[str, Any],
+    config: Optional[Mapping[str, Any]],
+    *,
+    allow_randomize: bool = False,
+    persist_changes: bool = False,
+) -> Tuple[Dict[str, Any], List[str], Optional[Dict[str, Any]]]:
+    if not isinstance(roster, Mapping):
+        return {}, [], None
+    updated_roster: Dict[str, Any] = {key: dict(value) for key, value in roster.items() if isinstance(value, Mapping)}
+    if not config:
+        return updated_roster, [], None
+
+    speakers_map = config.get("speakers")
+    if not isinstance(speakers_map, Mapping):
+        return updated_roster, [], None
+
+    config_languages = config.get("languages")
+    if isinstance(config_languages, list):
+        allowed_languages = [code for code in config_languages if isinstance(code, str) and code]
+    else:
+        allowed_languages = []
+
+    default_voice = config.get("default_voice") if isinstance(config.get("default_voice"), str) else ""
+    used_voices = {entry.get("resolved_voice") or entry.get("voice") for entry in updated_roster.values()} - {None}
+
+    config_changed = False
+    new_config_payload: Dict[str, Any] = {
+        "language": config.get("language", "a"),
+        "languages": allowed_languages,
+        "default_voice": default_voice,
+        "speakers": dict(speakers_map),
+        "version": config.get("version", 1),
+        "notes": config.get("notes", ""),
+    }
+
+    speakers_payload = new_config_payload["speakers"]
+
+    for speaker_id, roster_entry in updated_roster.items():
+        if speaker_id == "narrator":
+            continue
+        label = str(roster_entry.get("label") or speaker_id)
+        config_entry = _match_configured_speaker(speakers_map, speaker_id, label)
+        if config_entry is None:
+            continue
+        voice_id = str(config_entry.get("voice") or "").strip()
+        voice_profile = str(config_entry.get("voice_profile") or "").strip()
+        voice_formula = str(config_entry.get("voice_formula") or "").strip()
+        resolved_voice = str(config_entry.get("resolved_voice") or "").strip()
+        languages = config_entry.get("languages") if isinstance(config_entry.get("languages"), list) else []
+        randomize_flag = bool(config_entry.get("randomize"))
+
+        chosen_voice = resolved_voice or voice_formula or voice_id or roster_entry.get("voice")
+        if allow_randomize and randomize_flag:
+            exclusion = used_voices | {voice_id, resolved_voice}
+            randomized = random_voice(
+                gender=config_entry.get("gender", "unknown"),
+                allowed_languages=languages or allowed_languages,
+                fallback_voice=default_voice or roster_entry.get("voice"),
+                exclude=exclusion,
+            )
+            if randomized:
+                chosen_voice = randomized
+                voice_id = randomized
+                resolved_voice = randomized
+                config_changed = True
+
+        if chosen_voice:
+            roster_entry["resolved_voice"] = chosen_voice
+            roster_entry["voice"] = chosen_voice if not voice_profile and not voice_formula else roster_entry.get("voice", chosen_voice)
+        if voice_profile:
+            roster_entry["voice_profile"] = voice_profile
+        if voice_formula:
+            roster_entry["voice_formula"] = voice_formula
+            roster_entry["resolved_voice"] = voice_formula
+        if not voice_formula and not voice_profile and resolved_voice:
+            roster_entry["resolved_voice"] = resolved_voice
+        roster_entry["config_languages"] = languages or allowed_languages
+
+        # persist updates back to config payload if required
+        if persist_changes:
+            slug = config_entry.get("id") or slugify_label(label)
+            speakers_payload[slug] = {
+                "id": slug,
+                "label": label,
+                "gender": config_entry.get("gender", "unknown"),
+                "voice": voice_id,
+                "voice_profile": voice_profile,
+                "voice_formula": voice_formula,
+                "resolved_voice": roster_entry.get("resolved_voice", resolved_voice or voice_id),
+                "languages": languages,
+                "randomize": randomize_flag,
+            }
+
+    new_config = new_config_payload if (persist_changes and config_changed) else None
+    return updated_roster, allowed_languages, new_config
+
+
+def _filter_voice_catalog(
+    catalog: Iterable[Mapping[str, Any]],
+    *,
+    gender: str,
+    allowed_languages: Optional[Iterable[str]] = None,
+) -> List[str]:
+    allowed_set = {code.lower() for code in (allowed_languages or []) if isinstance(code, str) and code}
+    gender_normalized = (gender or "unknown").lower()
+    gender_code = ""
+    if gender_normalized == "male":
+        gender_code = "m"
+    elif gender_normalized == "female":
+        gender_code = "f"
+
+    matches: List[str] = []
+    seen: set[str] = set()
+
+    def _consider(entry: Mapping[str, Any]) -> None:
+        voice_id = entry.get("id")
+        if not isinstance(voice_id, str) or not voice_id:
+            return
+        if voice_id in seen:
+            return
+        seen.add(voice_id)
+        matches.append(voice_id)
+
+    primary: List[Mapping[str, Any]] = []
+    fallback: List[Mapping[str, Any]] = []
+    for entry in catalog:
+        if not isinstance(entry, Mapping):
+            continue
+        voice_lang = str(entry.get("language", "")).lower()
+        voice_gender_code = str(entry.get("gender_code", "")).lower()
+        if allowed_set and voice_lang not in allowed_set:
+            continue
+        if gender_code and voice_gender_code != gender_code:
+            fallback.append(entry)
+            continue
+        primary.append(entry)
+
+    for entry in primary:
+        _consider(entry)
+
+    if not matches:
+        for entry in fallback:
+            _consider(entry)
+
+    if not matches:
+        for entry in catalog:
+            if isinstance(entry, Mapping):
+                _consider(entry)
+
+    return matches
+
+
+def _inject_recommended_voices(
+    roster: Mapping[str, Any],
+    *,
+    fallback_languages: Optional[Iterable[str]] = None,
+) -> None:
+    voice_catalog = _build_voice_catalog()
+    fallback_list = [code for code in (fallback_languages or []) if isinstance(code, str) and code]
+    for speaker_id, payload in roster.items():
+        if not isinstance(payload, dict):
+            continue
+        languages = payload.get("config_languages")
+        if isinstance(languages, list) and languages:
+            language_list = languages
+        else:
+            language_list = fallback_list
+        gender = str(payload.get("gender", "unknown"))
+        payload["recommended_voices"] = _filter_voice_catalog(
+            voice_catalog,
+            gender=gender,
+            allowed_languages=language_list,
+        )
+
+
+def _extract_speaker_config_form(form: Mapping[str, Any]) -> Tuple[str, Dict[str, Any], List[str]]:
+    getter = getattr(form, "getlist", None)
+
+    def _get_list(name: str) -> List[str]:
+        if callable(getter):
+            values = cast(Iterable[Any], getter(name))
+            return [str(value).strip() for value in values if value]
+        raw_value = form.get(name)
+        if isinstance(raw_value, str):
+            return [item.strip() for item in raw_value.split(",") if item.strip()]
+        return []
+
+    name = (form.get("config_name") or "").strip()
+    language = str(form.get("config_language") or "a").strip() or "a"
+    allowed_languages = [code.lower() for code in _get_list("config_languages")]
+    default_voice = (form.get("config_default_voice") or "").strip()
+    notes = (form.get("config_notes") or "").strip()
+    version = _coerce_int(form.get("config_version"), 1, minimum=1, maximum=9999)
+
+    speaker_rows = _get_list("speaker_rows")
+    speakers: Dict[str, Dict[str, Any]] = {}
+    for row_key in speaker_rows:
+        prefix = f"speaker-{row_key}-"
+        label = (form.get(prefix + "label") or "").strip()
+        if not label:
+            continue
+        raw_gender = (form.get(prefix + "gender") or "unknown").strip().lower()
+        gender = raw_gender if raw_gender in {"male", "female", "unknown"} else "unknown"
+        voice = (form.get(prefix + "voice") or "").strip()
+        voice_profile = (form.get(prefix + "profile") or "").strip()
+        voice_formula = (form.get(prefix + "formula") or "").strip()
+        randomize_flag = form.get(prefix + "randomize") in {"on", "1", "true"}
+        languages = [code.lower() for code in _get_list(prefix + "languages")]
+        speaker_id = (form.get(prefix + "id") or "").strip() or slugify_label(label)
+        speakers[speaker_id] = {
+            "id": speaker_id,
+            "label": label,
+            "gender": gender,
+            "voice": voice,
+            "voice_profile": voice_profile,
+            "voice_formula": voice_formula,
+            "resolved_voice": voice_formula or voice,
+            "languages": languages,
+            "randomize": randomize_flag,
+        }
+
+    payload = {
+        "language": language,
+        "languages": allowed_languages,
+        "default_voice": default_voice,
+        "speakers": speakers,
+        "notes": notes,
+        "version": version,
+    }
+
+    errors: List[str] = []
+    if not name:
+        errors.append("Configuration name is required.")
+    if not speakers:
+        errors.append("Add at least one speaker to the configuration.")
+
+    return name, payload, errors
+
+
 def _prepare_speaker_metadata(
     *,
     chapters: List[Dict[str, Any]],
     chunks: List[Dict[str, Any]],
+    analysis_chunks: Optional[List[Dict[str, Any]]] = None,
     speaker_mode: str,
     voice: str,
     voice_profile: Optional[str],
     threshold: int,
     existing_roster: Optional[Mapping[str, Any]] = None,
     run_analysis: bool = True,
-) -> tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
+    speaker_config: Optional[Mapping[str, Any]] = None,
+    apply_config: bool = False,
+    allow_randomize: bool = False,
+    persist_config: bool = False,
+) -> tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any], List[str], Optional[Dict[str, Any]]]:
     chunk_list = [dict(chunk) for chunk in chunks]
+    analysis_source = [dict(chunk) for chunk in (analysis_chunks or chunks)]
     threshold_value = max(1, int(threshold))
     analysis_enabled = speaker_mode == "multi" and run_analysis
 
@@ -191,12 +475,25 @@ def _prepare_speaker_metadata(
         narrator_pron = roster["narrator"].get("pronunciation")
         if narrator_pron:
             analysis_payload["speakers"]["narrator"]["pronunciation"] = narrator_pron
-        return chunk_list, roster, analysis_payload
+        return chunk_list, roster, analysis_payload, [], None
 
     analysis_result = analyze_speakers(
-        chapters, chunk_list, threshold=threshold_value, max_speakers=_MAX_ANALYSIS_SPEAKERS
+        chapters,
+        analysis_source,
+        threshold=threshold_value,
+        max_speakers=0,
     )
     analysis_payload = analysis_result.to_dict()
+    speakers_payload = analysis_payload.get("speakers", {})
+    ordered_ids = [
+        sid
+        for sid, meta in sorted(
+            ((sid, meta) for sid, meta in speakers_payload.items() if sid != "narrator"),
+            key=lambda item: item[1].get("count", 0),
+            reverse=True,
+        )
+    ]
+    analysis_payload["ordered_speakers"] = ordered_ids
     assignments = analysis_payload.get("assignments", {})
     suppressed_ids = analysis_payload.get("suppressed", [])
     suppressed_details: List[Dict[str, Any]] = []
@@ -222,7 +519,33 @@ def _prepare_speaker_metadata(
                     }
                 )
     analysis_payload["suppressed_details"] = suppressed_details
-    roster = _build_speaker_roster(analysis_payload, voice, voice_profile, existing=existing_roster)
+    roster = _build_speaker_roster(
+        analysis_payload,
+        voice,
+        voice_profile,
+        existing=existing_roster,
+        order=analysis_payload.get("ordered_speakers"),
+    )
+    applied_languages: List[str] = []
+    updated_config: Optional[Dict[str, Any]] = None
+    if apply_config and speaker_config:
+        roster, applied_languages, updated_config = _apply_speaker_config_to_roster(
+            roster,
+            speaker_config,
+            allow_randomize=allow_randomize,
+            persist_changes=persist_config,
+        )
+        speakers_payload = analysis_payload.get("speakers")
+        if isinstance(speakers_payload, dict):
+            for roster_id, roster_payload in roster.items():
+                speaker_meta = speakers_payload.get(roster_id)
+                if isinstance(speaker_meta, dict):
+                    for key in ("voice", "voice_profile", "voice_formula", "resolved_voice"):
+                        value = roster_payload.get(key)
+                        if value:
+                            speaker_meta[key] = value
+    if applied_languages:
+        analysis_payload["config_languages"] = applied_languages
     speakers_payload = analysis_payload.get("speakers")
     if isinstance(speakers_payload, dict):
         for roster_id, roster_payload in roster.items():
@@ -231,6 +554,13 @@ def _prepare_speaker_metadata(
                 if pronunciation_value:
                     speakers_payload[roster_id]["pronunciation"] = pronunciation_value
 
+    fallback_languages = applied_languages or []
+    if not fallback_languages:
+        config_langs = analysis_payload.get("config_languages")
+        if isinstance(config_langs, list):
+            fallback_languages = [code for code in config_langs if isinstance(code, str)]
+    _inject_recommended_voices(roster, fallback_languages=fallback_languages)
+
     for chunk in chunk_list:
         chunk_id = str(chunk.get("id"))
         speaker_id = assignments.get(chunk_id, "narrator")
@@ -238,12 +568,22 @@ def _prepare_speaker_metadata(
         speaker_meta = roster.get(speaker_id)
         chunk["speaker_label"] = speaker_meta.get("label") if isinstance(speaker_meta, dict) else speaker_id
 
-    return chunk_list, roster, analysis_payload
+    return chunk_list, roster, analysis_payload, applied_languages, updated_config
 
 
 def _apply_prepare_form(
     pending: PendingJob, form: Mapping[str, Any]
-) -> tuple[ChunkLevel, List[Dict[str, Any]], List[Dict[str, Any]], List[str], int]:
+) -> tuple[
+    ChunkLevel,
+    List[Dict[str, Any]],
+    List[Dict[str, Any]],
+    List[str],
+    int,
+    str,
+    bool,
+    bool,
+    bool,
+]:
     raw_chunk_level = (form.get("chunk_level") or pending.chunk_level or "paragraph").strip().lower()
     if raw_chunk_level not in _CHUNK_LEVEL_VALUES:
         raw_chunk_level = pending.chunk_level if pending.chunk_level in _CHUNK_LEVEL_VALUES else "paragraph"
@@ -288,6 +628,16 @@ def _apply_prepare_form(
                 existing_narrator["voice_profile"] = pending.voice_profile
             pending.speakers["narrator"] = existing_narrator
 
+    selected_config = (form.get("applied_speaker_config") or "").strip()
+    randomize_requested = str(form.get("randomize_speaker_config", "")).strip() in {"1", "true", "on"}
+    apply_config_requested = (
+        str(form.get("apply_speaker_config", "")).strip() in {"1", "true", "on"}
+        or randomize_requested
+    )
+    persist_config_requested = str(form.get("save_speaker_config", "")).strip() in {"1", "true", "on"}
+
+    pending.applied_speaker_config = selected_config or None
+
     if isinstance(pending.speakers, dict):
         for speaker_id, payload in list(pending.speakers.items()):
             if not isinstance(payload, dict):
@@ -299,6 +649,29 @@ def _apply_prepare_form(
                 payload["pronunciation"] = pronunciation
             else:
                 payload.pop("pronunciation", None)
+
+            voice_value = (form.get(f"speaker-{speaker_id}-voice") or "").strip()
+            if voice_value:
+                payload["voice"] = voice_value
+                payload["resolved_voice"] = voice_value
+            else:
+                payload.pop("voice", None)
+                payload.pop("resolved_voice", None)
+
+            randomize_flag = form.get(f"speaker-{speaker_id}-randomize") in {"on", "1", "true"}
+            payload["randomize"] = randomize_flag
+
+            lang_key = f"speaker-{speaker_id}-languages"
+            languages: List[str] = []
+            getter = getattr(form, "getlist", None)
+            if callable(getter):
+                values = cast(Iterable[str], getter(lang_key))
+                languages = [code.strip() for code in values if code]
+            else:
+                raw_langs = form.get(lang_key)
+                if isinstance(raw_langs, str):
+                    languages = [item.strip() for item in raw_langs.split(",") if item.strip()]
+            payload["config_languages"] = languages
 
     profiles = serialize_profiles()
     errors: List[str] = []
@@ -366,7 +739,17 @@ def _apply_prepare_form(
 
     enabled_overrides = [entry for entry in overrides if entry.get("enabled")]
 
-    return chunk_level_literal, overrides, enabled_overrides, errors, selected_total
+    return (
+        chunk_level_literal,
+        overrides,
+        enabled_overrides,
+        errors,
+        selected_total,
+        selected_config,
+        randomize_requested,
+        apply_config_requested,
+        persist_config_requested,
+    )
 _SUPPLEMENT_TITLE_PATTERNS: List[tuple[re.Pattern[str], float]] = [
     (re.compile(r"\btitle\s+page\b"), 3.0),
     (re.compile(r"\bcopyright\b"), 2.4),
@@ -487,6 +870,7 @@ def _build_voice_catalog() -> List[Dict[str, str]]:
                 "language": language_code,
                 "language_label": LANGUAGE_DESCRIPTIONS.get(language_code, language_code.upper()),
                 "gender": gender_map.get(gender_code, "Unknown"),
+                "gender_code": gender_code,
                 "display_name": rest.replace("_", " ").title() if rest else voice_id,
             }
         )
@@ -506,6 +890,7 @@ def _template_options() -> Dict[str, Any]:
                 "formula": _formula_from_profile(entry or {}) or "",
             }
         )
+    voice_catalog = _build_voice_catalog()
     return {
         "languages": LANGUAGE_DESCRIPTIONS,
         "voices": VOICES_INTERNAL,
@@ -515,9 +900,11 @@ def _template_options() -> Dict[str, Any]:
         "voice_profiles": ordered_profiles,
         "voice_profile_options": profile_options,
         "separate_formats": ["wav", "flac", "mp3", "opus"],
-        "voice_catalog": _build_voice_catalog(),
+    "voice_catalog": voice_catalog,
+    "voice_catalog_map": {entry["id"]: entry for entry in voice_catalog},
         "sample_voice_texts": SAMPLE_VOICE_TEXTS,
         "voice_profiles_data": profiles,
+        "speaker_configs": list_configs(),
         "chunk_levels": _CHUNK_LEVEL_OPTIONS,
         "speaker_modes": _SPEAKER_MODE_OPTIONS,
         "speaker_analysis_threshold": current_settings.get(
@@ -891,6 +1278,66 @@ def settings_page() -> ResponseReturnValue:
 def voice_profiles_page() -> str:
     options = _template_options()
     return render_template("voices.html", options=options)
+
+
+@web_bp.route("/speakers", methods=["GET", "POST"])
+def speaker_configs_page() -> ResponseReturnValue:
+    options = _template_options()
+    configs = list_configs()
+    message = None
+    error = None
+
+    if request.method == "POST":
+        name, config_payload, errors = _extract_speaker_config_form(request.form)
+        editing_payload = config_payload
+        editing_name = name
+        if errors:
+            error = " ".join(errors)
+            context = {
+                "options": options,
+                "configs": configs,
+                "editing_name": editing_name,
+                "editing": editing_payload,
+                "message": message,
+                "error": error,
+            }
+            return render_template("speakers.html", **context)
+        upsert_config(name, config_payload)
+        return redirect(url_for("web.speaker_configs_page", config=name, saved="1"))
+
+    editing_name = request.args.get("config") or ""
+    editing_payload = get_config(editing_name) if editing_name else None
+    if editing_payload is None and configs:
+        editing_name = configs[0]["name"]
+        editing_payload = get_config(editing_name)
+    if editing_payload is None:
+        editing_payload = {
+            "language": "a",
+            "languages": [],
+            "default_voice": "",
+            "speakers": {},
+            "notes": "",
+            "version": 1,
+        }
+
+    if request.args.get("saved") == "1":
+        message = "Speaker configuration saved."
+
+    context = {
+        "options": options,
+        "configs": configs,
+        "editing_name": editing_name,
+        "editing": editing_payload,
+        "message": message,
+        "error": error,
+    }
+    return render_template("speakers.html", **context)
+
+
+@web_bp.post("/speakers/<name>/delete")
+def delete_speaker_config_route(name: str) -> ResponseReturnValue:
+    delete_config(name)
+    return redirect(url_for("web.speaker_configs_page"))
 
 
 @web_bp.post("/voices")
@@ -1325,6 +1772,16 @@ def enqueue_job() -> ResponseReturnValue:
     base_voice = request.form.get("voice", "af_alloy")
     profile_selection = (request.form.get("voice_profile") or "__standard").strip()
     custom_formula_raw = request.form.get("voice_formula", "").strip()
+    selected_speaker_config = (request.form.get("speaker_config") or "").strip()
+    speaker_config_payload = get_config(selected_speaker_config) if selected_speaker_config else None
+    config_randomize_default = False
+    if isinstance(speaker_config_payload, Mapping):
+        speakers_map = speaker_config_payload.get("speakers")
+        if isinstance(speakers_map, Mapping):
+            for config_entry in speakers_map.values():
+                if isinstance(config_entry, Mapping) and config_entry.get("randomize"):
+                    config_randomize_default = True
+                    break
 
     if profile_selection in {"__standard", ""}:
         profile_name = ""
@@ -1377,6 +1834,7 @@ def enqueue_job() -> ResponseReturnValue:
 
     selected_chapter_sources = [entry for entry in chapters_payload if entry.get("enabled")]
     raw_chunks = build_chunks_for_chapters(selected_chapter_sources, level=chunk_level_literal)
+    analysis_chunks = build_chunks_for_chapters(selected_chapter_sources, level="sentence")
 
     analysis_threshold = _coerce_int(
         settings.get("speaker_analysis_threshold"),
@@ -1385,15 +1843,19 @@ def enqueue_job() -> ResponseReturnValue:
         maximum=25,
     )
 
-    initial_analysis = speaker_mode_value != "multi"
-    processed_chunks, speakers, analysis_payload = _prepare_speaker_metadata(
+    initial_analysis = speaker_mode_value == "multi"
+    processed_chunks, speakers, analysis_payload, config_languages, _ = _prepare_speaker_metadata(
         chapters=selected_chapter_sources,
         chunks=raw_chunks,
+        analysis_chunks=analysis_chunks,
         speaker_mode=speaker_mode_value,
         voice=voice,
         voice_profile=selected_profile or None,
         threshold=analysis_threshold,
         run_analysis=initial_analysis,
+        speaker_config=speaker_config_payload,
+        apply_config=bool(speaker_config_payload),
+        allow_randomize=config_randomize_default,
     )
 
     pending = PendingJob(
@@ -1431,10 +1893,17 @@ def enqueue_job() -> ResponseReturnValue:
         speakers=speakers,
         speaker_analysis=analysis_payload,
         speaker_analysis_threshold=analysis_threshold,
-        analysis_requested=False,
+        analysis_requested=initial_analysis,
     )
 
     service.store_pending_job(pending)
+    pending.applied_speaker_config = selected_speaker_config or None
+    if config_languages:
+        pending.speaker_voice_languages = list(config_languages)
+    elif isinstance(speaker_config_payload, Mapping):
+        languages = speaker_config_payload.get("languages")
+        if isinstance(languages, list):
+            pending.speaker_voice_languages = [code for code in languages if isinstance(code, str)]
     return redirect(url_for("web.prepare_job", pending_id=pending.id))
 
 
@@ -1455,9 +1924,17 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
         abort(404)
     pending = cast(PendingJob, pending)
 
-    chunk_level_literal, overrides, enabled_overrides, errors, selected_total = _apply_prepare_form(
-        pending, request.form
-    )
+    (
+        chunk_level_literal,
+        overrides,
+        enabled_overrides,
+        errors,
+        selected_total,
+        selected_config,
+        randomize_requested,
+        apply_config_requested,
+        persist_config_requested,
+    ) = _apply_prepare_form(pending, request.form)
 
     if errors:
         return _render_prepare_page(pending, error=" ".join(errors))
@@ -1478,6 +1955,9 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
         return _render_prepare_page(pending, error="Select at least one chapter to analyze.")
 
     raw_chunks = build_chunks_for_chapters(enabled_overrides, level=chunk_level_literal)
+    analysis_chunks = build_chunks_for_chapters(enabled_overrides, level="sentence")
+    analysis_chunks = build_chunks_for_chapters(enabled_overrides, level="sentence")
+    analysis_chunks = build_chunks_for_chapters(enabled_overrides, level="sentence")
 
     existing_roster: Optional[Mapping[str, Any]]
     if getattr(pending, "analysis_requested", False):
@@ -1485,27 +1965,44 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
     else:
         existing_roster = None
 
-    processed_chunks, roster, analysis_payload = _prepare_speaker_metadata(
+    config_name = pending.applied_speaker_config or selected_config
+    speaker_config_payload = get_config(config_name) if config_name else None
+    processed_chunks, roster, analysis_payload, config_languages, updated_config = _prepare_speaker_metadata(
         chapters=enabled_overrides,
         chunks=raw_chunks,
+        analysis_chunks=analysis_chunks,
         speaker_mode=pending.speaker_mode,
         voice=pending.voice,
         voice_profile=pending.voice_profile,
         threshold=pending.speaker_analysis_threshold,
         existing_roster=existing_roster,
         run_analysis=True,
+        speaker_config=speaker_config_payload,
+        apply_config=apply_config_requested or bool(speaker_config_payload),
+        allow_randomize=randomize_requested,
+        persist_config=persist_config_requested,
     )
 
     pending.chunks = processed_chunks
     pending.speakers = roster
     pending.speaker_analysis = analysis_payload
+    if config_languages:
+        pending.speaker_voice_languages = list(config_languages)
+    config_name = getattr(pending, "applied_speaker_config", None)
+    if updated_config and isinstance(config_name, str) and config_name:
+        configs = load_configs()
+        configs[config_name] = updated_config
+        save_configs(configs)
     setattr(pending, "analysis_requested", True)
     if selected_total:
         pending.total_characters = selected_total
 
     service.store_pending_job(pending)
 
-    return _render_prepare_page(pending, notice="Speaker analysis updated.")
+    notice_message = "Speaker analysis updated."
+    if persist_config_requested and config_name:
+        notice_message = "Speaker analysis updated and configuration saved."
+    return _render_prepare_page(pending, notice=notice_message)
 
 
 @web_bp.post("/jobs/prepare/<pending_id>")
@@ -1516,9 +2013,17 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
         abort(404)
     pending = cast(PendingJob, pending)
 
-    chunk_level_literal, overrides, enabled_overrides, errors, selected_total = _apply_prepare_form(
-        pending, request.form
-    )
+    (
+        chunk_level_literal,
+        overrides,
+        enabled_overrides,
+        errors,
+        selected_total,
+        selected_config,
+        randomize_requested,
+        apply_config_requested,
+        persist_config_requested,
+    ) = _apply_prepare_form(pending, request.form)
 
     if errors:
         return _render_prepare_page(pending, error=" ".join(errors))
@@ -1531,6 +2036,7 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
         return _render_prepare_page(pending, error="Select at least one chapter to convert.")
 
     raw_chunks = build_chunks_for_chapters(enabled_overrides, level=chunk_level_literal)
+    analysis_chunks = build_chunks_for_chapters(enabled_overrides, level="sentence")
     analysis_active = pending.speaker_mode == "multi" and getattr(pending, "analysis_requested", False)
     if analysis_active:
         existing_roster: Optional[Mapping[str, Any]] = pending.speakers
@@ -1541,19 +2047,33 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
             if isinstance(narrator_payload, Mapping):
                 narrator_only["narrator"] = dict(narrator_payload)
         existing_roster = narrator_only or None
-    processed_chunks, roster, analysis_payload = _prepare_speaker_metadata(
+    config_name = pending.applied_speaker_config or selected_config
+    speaker_config_payload = get_config(config_name) if config_name else None
+    processed_chunks, roster, analysis_payload, config_languages, updated_config = _prepare_speaker_metadata(
         chapters=enabled_overrides,
         chunks=raw_chunks,
+        analysis_chunks=analysis_chunks,
         speaker_mode=pending.speaker_mode,
         voice=pending.voice,
         voice_profile=pending.voice_profile,
         threshold=pending.speaker_analysis_threshold,
         existing_roster=existing_roster,
         run_analysis=analysis_active,
+        speaker_config=speaker_config_payload,
+        apply_config=apply_config_requested or bool(speaker_config_payload),
+        allow_randomize=randomize_requested,
+        persist_config=persist_config_requested,
     )
     pending.chunks = processed_chunks
     pending.speakers = roster
     pending.speaker_analysis = analysis_payload
+    if config_languages:
+        pending.speaker_voice_languages = list(config_languages)
+    config_name = getattr(pending, "applied_speaker_config", None)
+    if updated_config and isinstance(config_name, str) and config_name:
+        configs = load_configs()
+        configs[config_name] = updated_config
+        save_configs(configs)
 
     total_characters = selected_total or pending.total_characters
 
@@ -1594,6 +2114,17 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
         generate_epub3=pending.generate_epub3,
         analysis_requested=getattr(pending, "analysis_requested", False),
     )
+    if config_languages:
+        job.speaker_voice_languages = list(config_languages)
+    config_name = getattr(pending, "applied_speaker_config", None)
+    if updated_config and isinstance(config_name, str) and config_name:
+        job.applied_speaker_config = config_name
+        configs = load_configs()
+        configs[config_name] = updated_config
+        save_configs(configs)
+    elif isinstance(config_name, str) and config_name:
+        job.applied_speaker_config = config_name
+        job.speaker_voice_languages = job.speaker_voice_languages or list(pending.speaker_voice_languages)
 
     return redirect(url_for("web.queue_page"))
 
