@@ -294,4 +294,3 @@ def _reassign(assignments: Dict[str, str], old: str, new: str) -> None:
     for key, value in list(assignments.items()):
         if value == old:
             assignments[key] = new
-```},
