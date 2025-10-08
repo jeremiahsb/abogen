@@ -103,6 +103,16 @@
         </select>
       </div>
       <div class="field">
+        <label for="speaker_random_languages">Randomizer Languages</label>
+        {% set selected_languages = settings.speaker_random_languages or [] %}
+        <select id="speaker_random_languages" name="speaker_random_languages" multiple size="6">
+          {% for code, label in options.languages.items() %}
+          <option value="{{ code }}" {% if code in selected_languages %}selected{% endif %}>{{ label }} ({{ code|upper }})</option>
+          {% endfor %}
+        </select>
+        <p class="hint">Limits random voice selection for speakers marked as random. Leave unused to allow any language.</p>
+      </div>
+      <div class="field">
         <label for="speaker_analysis_threshold">Speaker Analysis Minimum Mentions</label>
         <input type="number" min="1" max="25" id="speaker_analysis_threshold" name="speaker_analysis_threshold" value="{{ settings.speaker_analysis_threshold }}">
         <p class="hint">Speakers detected fewer times than this fallback to the narrator voice.</p>

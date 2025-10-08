@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 
 {% macro speaker_row(row_key, speaker, options) %}
-  {% set languages = speaker.languages or speaker.config_languages or [] %}
   {% set gender = (speaker.gender or 'unknown') %}
   {% set randomize = speaker.randomize %}
   <div class="speaker-config-row" data-role="speaker-row" data-row-id="{{ row_key }}">
@@ -28,15 +27,6 @@
           <option value="{{ voice.id }}" {% if speaker.voice == voice.id %}selected{% endif %}>{{ voice.display_name }} · {{ voice.language_label }} · {{ voice.gender }}</option>
           {% endfor %}
         </select>
-      </label>
-      <label class="field" for="speaker-{{ row_key }}-languages">
-        <span>Allowed languages</span>
-        <select id="speaker-{{ row_key }}-languages" name="speaker-{{ row_key }}-languages" multiple size="4">
-          {% for code, label in options.languages.items() %}
-          <option value="{{ code }}" {% if code in languages %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-        <p class="hint">Limit randomization to specific TTS language families.</p>
       </label>
     </div>
     <div class="speaker-config-row__footer">
@@ -115,16 +105,6 @@
               {% endfor %}
             </select>
           </label>
-          <label class="field" for="config_languages">
-            <span>Allowed languages</span>
-            {% set allowed_languages = editing.languages or [] %}
-            <select id="config_languages" name="config_languages" multiple size="5">
-              {% for code, label in options.languages.items() %}
-              <option value="{{ code }}" {% if code in allowed_languages %}selected{% endif %}>{{ label }}</option>
-              {% endfor %}
-            </select>
-            <p class="hint">Optional: restrict auto-randomized voices to these languages.</p>
-          </label>
           <label class="field" for="config_default_voice">
             <span>Fallback voice</span>
             <select id="config_default_voice" name="config_default_voice">
@@ -167,7 +147,7 @@
   </div>
 
   <template id="speaker-row-template">
-    {{ speaker_row('__ROW__', {'id': '', 'label': '', 'gender': 'unknown', 'languages': [], 'voice': '', 'randomize': True}, options) | safe }}
+    {{ speaker_row('__ROW__', {'id': '', 'label': '', 'gender': 'unknown', 'voice': '', 'randomize': True}, options) | safe }}
   </template>
 </section>
 {% endblock %}

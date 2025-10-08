@@ -359,9 +359,28 @@ def _reassign(assignments: Dict[str, str], old: str, new: str) -> None:
 def _count_gender_votes(text: str) -> Tuple[int, int]:
     if not text:
         return 0, 0
-    male = len(_MALE_PRONOUN_PATTERN.findall(text))
-    female = len(_FEMALE_PRONOUN_PATTERN.findall(text))
-    return male, female
+
+    male_votes = 0.0
+    for token in _MALE_PRONOUN_PATTERN.findall(text):
+        lowered = token.lower()
+        if lowered in {"he", "himself"}:
+            male_votes += 1.0
+        elif lowered == "his":
+            male_votes += 0.75
+        else:  # him
+            male_votes += 0.6
+
+    female_votes = 0.0
+    for token in _FEMALE_PRONOUN_PATTERN.findall(text):
+        lowered = token.lower()
+        if lowered in {"she", "herself"}:
+            female_votes += 1.0
+        elif lowered == "hers":
+            female_votes += 0.75
+        else:  # her
+            female_votes += 0.4
+
+    return int(round(male_votes)), int(round(female_votes))
 
 
 def _derive_gender(male_votes: int, female_votes: int, current: str) -> str:

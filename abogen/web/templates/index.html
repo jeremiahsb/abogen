@@ -7,15 +7,15 @@
   <div class="step-indicator" aria-label="Audiobook workflow">
     <span class="step-indicator__item is-active">
       <span class="step-indicator__index">1</span>
-      <span class="step-indicator__label">Upload</span>
+      <span class="step-indicator__label">Upload &amp; settings</span>
     </span>
     <span class="step-indicator__item">
       <span class="step-indicator__index">2</span>
-      <span class="step-indicator__label">Speakers</span>
+      <span class="step-indicator__label">Chapters</span>
     </span>
     <span class="step-indicator__item">
       <span class="step-indicator__index">3</span>
-      <span class="step-indicator__label">Queue</span>
+      <span class="step-indicator__label">Speakers</span>
     </span>
   </div>
   <h1 class="card__title">Create a New Audiobook</h1>
@@ -131,6 +131,16 @@
       </div>
     </div>
   </form>
+</section>
+
+<section class="card" id="queue">
+  <div id="jobs-panel"
+       hx-get="{{ url_for('web.jobs_partial') }}"
+       hx-trigger="load, every 3s"
+       hx-target="#jobs-panel"
+       hx-swap="innerHTML">
+    {{ jobs_panel|safe }}
+  </div>
 </section>
 {% endblock %}
 
