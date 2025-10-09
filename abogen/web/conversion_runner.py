@@ -12,12 +12,13 @@ from collections import defaultdict
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, cast
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set, cast
 
 import numpy as np
 import soundfile as sf
 import static_ffmpeg
 
+from abogen.constants import VOICES_INTERNAL
 from abogen.epub3.exporter import build_epub3_package
 from abogen.kokoro_text_normalization import (
     ApostropheConfig,
@@ -36,7 +37,8 @@ from abogen.utils import (
     load_config,
     load_numpy_kpipeline,
 )
-from abogen.voice_formulas import get_new_voice
+from abogen.voice_cache import ensure_voice_assets
+from abogen.voice_formulas import extract_voice_ids, get_new_voice
 
 from .service import Job, JobStatus
 
@@ -67,6 +69,69 @@ def _coerce_truthy(value: Any, default: bool = True) -> bool:
     if value is None:
         return default
     return bool(value)
+
+
+def _spec_to_voice_ids(spec: Any) -> Set[str]:
+    text = str(spec or "").strip()
+    if not text:
+        return set()
+    if "*" in text:
+        try:
+            return set(extract_voice_ids(text))
+        except ValueError:
+            return set()
+    if text in VOICES_INTERNAL:
+        return {text}
+    return set()
+
+
+def _collect_required_voice_ids(job: Job) -> Set[str]:
+    voices: Set[str] = set()
+    voices.update(_spec_to_voice_ids(job.voice))
+
+    for chapter in getattr(job, "chapters", []) or []:
+        if not isinstance(chapter, dict):
+            continue
+        for key in ("resolved_voice", "voice_formula", "voice"):
+            voices.update(_spec_to_voice_ids(chapter.get(key)))
+
+    for chunk in getattr(job, "chunks", []) or []:
+        if not isinstance(chunk, dict):
+            continue
+        for key in ("resolved_voice", "voice_formula", "voice"):
+            voices.update(_spec_to_voice_ids(chunk.get(key)))
+
+    speakers = getattr(job, "speakers", {})
+    if isinstance(speakers, dict):
+        for payload in speakers.values() or []:
+            if not isinstance(payload, dict):
+                continue
+            for key in ("resolved_voice", "voice_formula", "voice"):
+                voices.update(_spec_to_voice_ids(payload.get(key)))
+
+    voices.update(VOICES_INTERNAL)
+    return voices
+
+
+def _initialize_voice_cache(job: Job) -> None:
+    try:
+        targets = _collect_required_voice_ids(job)
+        downloaded, errors = ensure_voice_assets(
+            targets,
+            on_progress=lambda message: job.add_log(message, level="debug"),
+        )
+    except RuntimeError as exc:
+        job.add_log(f"Voice cache unavailable: {exc}", level="warning")
+        return
+
+    if downloaded:
+        job.add_log(
+            f"Cached {len(downloaded)} voice asset{'s' if len(downloaded) != 1 else ''} locally.",
+            level="info",
+        )
+
+    for voice_id, error in errors.items():
+        job.add_log(f"Failed to cache voice '{voice_id}': {error}", level="warning")
 
 
 _SIGNIFICANT_LENGTH_THRESHOLDS: Dict[str, int] = {"epub": 1000, "markdown": 500}
@@ -631,6 +696,7 @@ def run_conversion_job(job: Job) -> None:
     active_chapter_configs: List[Dict[str, Any]] = []
     try:
         pipeline = _load_pipeline(job)
+        _initialize_voice_cache(job)
         extraction = extract_from_path(job.stored_path)
         file_type = _infer_file_type(job.stored_path)
 

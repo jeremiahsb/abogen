@@ -58,7 +58,7 @@ from abogen.voice_profiles import (
     serialize_profiles,
 )
 
-from abogen.voice_formulas import get_new_voice
+from abogen.voice_formulas import get_new_voice, parse_formula_terms
 from abogen.speaker_analysis import analyze_speakers
 from abogen.speaker_configs import (
     delete_config,
@@ -656,6 +656,8 @@ def _apply_prepare_form(
 
     pending.applied_speaker_config = selected_config or None
 
+    errors: List[str] = []
+
     if isinstance(pending.speakers, dict):
         for speaker_id, payload in list(pending.speakers.items()):
             if not isinstance(payload, dict):
@@ -669,12 +671,34 @@ def _apply_prepare_form(
                 payload.pop("pronunciation", None)
 
             voice_value = (form.get(f"speaker-{speaker_id}-voice") or "").strip()
+            formula_key = f"speaker-{speaker_id}-formula"
+            formula_value = (form.get(formula_key) or "").strip()
+            has_formula = False
+            if formula_value:
+                try:
+                    _parse_voice_formula(formula_value)
+                except ValueError as exc:
+                    label = payload.get("label") or speaker_id.replace("_", " ").title()
+                    errors.append(f"Invalid custom mix for {label}: {exc}")
+                else:
+                    payload["voice_formula"] = formula_value
+                    payload["resolved_voice"] = formula_value
+                    payload.pop("voice_profile", None)
+                    has_formula = True
+            else:
+                payload.pop("voice_formula", None)
+
+            if voice_value == "__custom_mix":
+                voice_value = ""
+
             if voice_value:
                 payload["voice"] = voice_value
-                payload["resolved_voice"] = voice_value
+                if not has_formula:
+                    payload["resolved_voice"] = voice_value
             else:
                 payload.pop("voice", None)
-                payload.pop("resolved_voice", None)
+                if not has_formula:
+                    payload.pop("resolved_voice", None)
 
             lang_key = f"speaker-{speaker_id}-languages"
             languages: List[str] = []
@@ -689,7 +713,6 @@ def _apply_prepare_form(
             payload["config_languages"] = languages
 
     profiles = serialize_profiles()
-    errors: List[str] = []
     raw_delay = form.get("chapter_intro_delay")
     if raw_delay is not None:
         raw_normalized = raw_delay.strip()
@@ -1135,22 +1158,7 @@ def _persist_cover_image(extraction_result: Any, stored_path: Path) -> tuple[Opt
 
 
 def _parse_voice_formula(formula: str) -> List[tuple[str, float]]:
-    parts = [segment.strip() for segment in formula.split("+") if segment.strip()]
-    voices: List[tuple[str, float]] = []
-    for part in parts:
-        if "*" not in part:
-            raise ValueError("Each component must be in the form voice*weight")
-        name, weight_str = part.split("*", 1)
-        name = name.strip()
-        if name not in VOICES_INTERNAL:
-            raise ValueError(f"Unknown voice '{name}'")
-        try:
-            weight = float(weight_str.strip())
-        except ValueError as exc:  # pragma: no cover - validated via form
-            raise ValueError(f"Invalid weight for {name}") from exc
-        if weight <= 0:
-            raise ValueError(f"Weight for {name} must be positive")
-        voices.append((name, weight))
+    voices = parse_formula_terms(formula)
     total = sum(weight for _, weight in voices)
     if total <= 0:
         raise ValueError("Voice weights must sum to a positive value")
