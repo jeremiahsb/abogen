@@ -29,7 +29,7 @@ def test_ensure_voice_assets_downloads_missing(monkeypatch):
 
     assert downloaded == {"af_nova", "am_liam"}
     assert errors == {}
-    assert recorded == ["voices/af_nova.pt", "voices/am_liam.pt"]
+    assert set(recorded) == {"voices/af_nova.pt", "voices/am_liam.pt"}
 
     recorded.clear()
     downloaded_again, errors_again = ensure_voice_assets(["af_nova"])

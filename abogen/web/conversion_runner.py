@@ -75,6 +75,8 @@ def _spec_to_voice_ids(spec: Any) -> Set[str]:
     text = str(spec or "").strip()
     if not text:
         return set()
+    if text == "__custom_mix":
+        return set()
     if "*" in text:
         try:
             return set(extract_voice_ids(text))
@@ -85,9 +87,44 @@ def _spec_to_voice_ids(spec: Any) -> Set[str]:
     return set()
 
 
+def _job_voice_fallback(job: Any) -> str:
+    base = str(getattr(job, "voice", "") or "").strip()
+    if base and base != "__custom_mix":
+        return base
+
+    speakers = getattr(job, "speakers", None)
+    if isinstance(speakers, dict):
+        narrator = speakers.get("narrator")
+        if isinstance(narrator, dict):
+            for key in ("resolved_voice", "voice_formula", "voice"):
+                value = narrator.get(key)
+                candidate = str(value or "").strip()
+                if candidate and candidate != "__custom_mix":
+                    return candidate
+        for payload in speakers.values() or []:
+            if not isinstance(payload, dict):
+                continue
+            for key in ("resolved_voice", "voice_formula", "voice"):
+                value = payload.get(key)
+                candidate = str(value or "").strip()
+                if candidate and candidate != "__custom_mix":
+                    return candidate
+
+    for chapter in getattr(job, "chapters", []) or []:
+        if not isinstance(chapter, dict):
+            continue
+        for key in ("resolved_voice", "voice_formula", "voice"):
+            candidate = str(chapter.get(key) or "").strip()
+            if candidate and candidate != "__custom_mix":
+                return candidate
+
+    return ""
+
+
 def _collect_required_voice_ids(job: Job) -> Set[str]:
     voices: Set[str] = set()
     voices.update(_spec_to_voice_ids(job.voice))
+    voices.update(_spec_to_voice_ids(_job_voice_fallback(job)))
 
     for chapter in getattr(job, "chapters", []) or []:
         if not isinstance(chapter, dict):
@@ -375,7 +412,7 @@ def _normalize_for_pipeline(text: str) -> str:
 
 def _chapter_voice_spec(job: Job, override: Optional[Dict[str, Any]]) -> str:
     if not override:
-        return job.voice or ""
+        return _job_voice_fallback(job)
 
     resolved = str(override.get("resolved_voice", "")).strip()
     if resolved:
@@ -389,7 +426,7 @@ def _chapter_voice_spec(job: Job, override: Optional[Dict[str, Any]]) -> str:
     if voice:
         return voice
 
-    return job.voice or ""
+    return _job_voice_fallback(job)
 
 
 def _chunk_voice_spec(job: Any, chunk: Dict[str, Any], fallback: str) -> str:
@@ -421,7 +458,9 @@ def _chunk_voice_spec(job: Any, chunk: Dict[str, Any], fallback: str) -> str:
                     if value:
                         return str(value)
 
-    return fallback or getattr(job, "voice", "") or ""
+    if fallback:
+        return fallback
+    return _job_voice_fallback(job)
 
 
 def _group_chunks_by_chapter(chunks: Iterable[Dict[str, Any]]) -> Dict[int, List[Dict[str, Any]]]:
@@ -790,7 +829,7 @@ def run_conversion_job(job: Job) -> None:
             chapter_dir = audio_dir / "chapters"
             chapter_dir.mkdir(parents=True, exist_ok=True)
 
-        base_voice_spec = (job.voice or "").strip()
+        base_voice_spec = _job_voice_fallback(job)
         voice_cache: Dict[str, Any] = {}
         if base_voice_spec and "*" not in base_voice_spec:
             voice_cache[base_voice_spec] = _resolve_voice(pipeline, base_voice_spec, job.use_gpu)
