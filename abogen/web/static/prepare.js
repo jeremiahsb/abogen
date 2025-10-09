@@ -243,6 +243,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const prevButtons = Array.from(wizard.querySelectorAll('[data-role="step-prev"]'));
     const panels = new Map();
     const initialStep = wizard.dataset.initialStep || "chapters";
+    const speakerModeSelect = form.querySelector("#speaker_mode");
     stepOrder.forEach((step) => {
       const panel = wizard.querySelector(`[data-step-panel="${step}"]`);
       if (panel) {
@@ -258,6 +259,27 @@ document.addEventListener("DOMContentLoaded", () => {
       unlockedSteps.add("speakers");
     }
     let currentStep = initialStep;
+
+    const shouldSkipSpeakersStep = () => {
+      const modeValue = (speakerModeSelect?.value || "").toLowerCase();
+      if (!modeValue) {
+        return true;
+      }
+      return modeValue !== "multi";
+    };
+
+    const submitFinalize = () => {
+      if (!form.reportValidity()) {
+        return;
+      }
+      if (activeStepInput) {
+        activeStepInput.value = currentStep;
+      }
+      if (finalizeAction) {
+        form.action = finalizeAction;
+      }
+      form.submit();
+    };
 
     const updateIndicator = (activeStep) => {
       const activeIndex = indicatorOrder.indexOf(activeStep);
@@ -358,6 +380,10 @@ document.addEventListener("DOMContentLoaded", () => {
       button.addEventListener("click", () => {
         const target = button.dataset.stepTarget || "speakers";
         if (target === "speakers") {
+          if (shouldSkipSpeakersStep()) {
+            submitFinalize();
+            return;
+          }
           submitForAnalysis();
           return;
         }
