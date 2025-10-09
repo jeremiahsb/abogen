@@ -150,6 +150,7 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 300;
+  overflow-y: auto;
 }
 
 .modal[data-open="true"] {
@@ -211,6 +212,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  flex: 1 1 auto;
 }
 
 .modal__footer {
@@ -246,6 +248,7 @@ body {
   padding: 1.5rem 1.75rem 1.75rem;
   overflow-y: auto;
   max-height: calc(90vh - 150px);
+  flex: 1 1 auto;
 }
 
 .voice-browser__filters,

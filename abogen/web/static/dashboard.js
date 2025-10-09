@@ -10,12 +10,6 @@ const initDashboard = () => {
   const formulaInput = scope.querySelector('[data-role="voice-formula"]');
   const languageSelect = uploadModal?.querySelector("#language") || document.getElementById("language");
 
-  const sourceText = scope.querySelector('[data-role="source-text"]');
-  const previewEl = scope.querySelector('[data-role="text-preview"]');
-  const previewBody = scope.querySelector('[data-role="preview-body"]');
-  const charCountEl = scope.querySelector('[data-role="char-count"]');
-  const wordCountEl = scope.querySelector('[data-role="word-count"]');
-
   let lastTrigger = null;
 
   const openUploadModal = (trigger) => {
@@ -156,36 +150,6 @@ const initDashboard = () => {
     }
   };
 
-  const updatePreview = () => {
-    if (!sourceText || !previewBody || !charCountEl || !wordCountEl) {
-      return;
-    }
-    const raw = sourceText.value || "";
-    const trimmed = raw.trim();
-    const charCount = raw.length;
-    const wordCount = trimmed ? trimmed.split(/\s+/).length : 0;
-
-    const charLabel = `${charCount.toLocaleString()} ${charCount === 1 ? "character" : "characters"}`;
-    const wordLabel = `${wordCount.toLocaleString()} ${wordCount === 1 ? "word" : "words"}`;
-
-    charCountEl.textContent = charLabel;
-    wordCountEl.textContent = wordLabel;
-
-    if (!trimmed) {
-      previewBody.textContent = "Paste text to see a live preview and character count.";
-      if (previewEl) {
-        previewEl.setAttribute("data-state", "empty");
-      }
-      return;
-    }
-
-    const snippet = trimmed.length > 1200 ? `${trimmed.slice(0, 1200)}…` : trimmed;
-    previewBody.textContent = snippet;
-    if (previewEl) {
-      previewEl.setAttribute("data-state", "ready");
-    }
-  };
-
   if (profileSelect) {
     const hasSaved = selectFirstProfileIfAvailable();
     profileSelect.addEventListener("change", updateVoiceControls);
@@ -195,11 +159,6 @@ const initDashboard = () => {
     }
   } else {
     hydrateDefaultVoice();
-  }
-
-  if (sourceText) {
-    sourceText.addEventListener("input", updatePreview);
-    updatePreview();
   }
 };
 

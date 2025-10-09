@@ -39,112 +39,93 @@
     <form action="{{ url_for('web.enqueue_job') }}" method="post" enctype="multipart/form-data" class="upload-form">
       <div class="modal__body">
         <div class="grid grid--two form-grid">
-          <div class="grid">
-            <div class="field field--file">
-              <label for="source_file">Source File</label>
-              <input type="file" id="source_file" name="source_file" accept=".txt,.pdf,.epub,.md,.markdown">
-            </div>
-            <div class="field">
-              <label for="language">Language</label>
-              <select id="language" name="language">
-                {% for key, label in options.languages.items() %}
-                <option value="{{ key }}">{{ label }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="field">
-              <label for="voice_profile">Voice Profile</label>
-              <select id="voice_profile" name="voice_profile" data-role="voice-profile">
-                <option value="__standard" {% if not options.voice_profile_options %}selected{% endif %}>Standard Voice</option>
-                <option value="__formula">Custom Voice Formula</option>
-                {% if options.voice_profile_options %}
-                <optgroup label="Saved mixes">
-                  {% for profile in options.voice_profile_options %}
-                  <option value="{{ profile.name }}" data-language="{{ profile.language }}" data-formula="{{ profile.formula|e }}" {% if loop.first %}selected{% endif %}>{{ profile.name }}{% if profile.language %} ({{ profile.language|upper }}){% endif %}</option>
-                  {% endfor %}
-                </optgroup>
-                {% endif %}
-              </select>
-            </div>
-            <div class="field" data-role="voice-field" {% if options.voice_profile_options %}hidden aria-hidden="true"{% endif %}>
-              <label for="voice">Voice</label>
-              <select id="voice" name="voice" data-role="voice-select" data-default="{{ settings.default_voice }}">
-                {% for voice in options.voices %}
-                <option value="{{ voice }}" {% if settings.default_voice == voice %}selected{% endif %}>{{ voice }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="field" data-conditional="formula" data-role="formula-field" hidden aria-hidden="true">
-              <label for="voice_formula">Custom Voice Formula</label>
-              <input type="text" id="voice_formula" name="voice_formula" placeholder="af_nova*0.4+am_liam*0.6" data-role="voice-formula">
-            </div>
-            <div class="field">
-              <label for="speaker_config">Speaker preset</label>
-              <select id="speaker_config" name="speaker_config">
-                <option value="">None</option>
-                {% for config in options.speaker_configs %}
-                <option value="{{ config.name }}">{{ config.name }} · {{ config.speakers|length }} speaker{% if config.speakers|length != 1 %}s{% endif %}</option>
-                {% endfor %}
-              </select>
-              <p class="hint">Optional: reuse a saved roster to keep character voices consistent.</p>
-            </div>
-            <div class="field">
-              <label for="speed">Speed <span class="tag" id="speed_value">1.00×</span></label>
-              <input type="range" id="speed" name="speed" min="0.6" max="1.4" step="0.05" value="1.0" oninput="document.getElementById('speed_value').textContent = Number.parseFloat(this.value).toFixed(2) + '×';">
-            </div>
-            <div class="field">
-              <label for="subtitle_mode">Subtitle mode</label>
-              <select id="subtitle_mode" name="subtitle_mode">
-                <option value="Disabled">Disabled</option>
-                <option value="Sentence">Sentence</option>
-                <option value="Sentence + Comma">Sentence + Comma</option>
-                <option value="Sentence + Highlighting">Sentence + Highlighting</option>
-                {% for i in range(1, 11) %}
-                <option value="{{ i }} {% if i == 1 %}word{% else %}words{% endif %}">{{ i }} {% if i == 1 %}word{% else %}words{% endif %}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="field">
-              <label for="chunk_level">Chunk granularity</label>
-              <select id="chunk_level" name="chunk_level">
-                {% for option in options.chunk_levels %}
-                <option value="{{ option.value }}" {% if settings.chunk_level == option.value %}selected{% endif %}>{{ option.label }}</option>
-                {% endfor %}
-              </select>
-              <p class="hint">Controls how chapters are split into TTS-ready chunks.</p>
-            </div>
-            <div class="field">
-              <label for="speaker_mode">Speaker mode</label>
-              <select id="speaker_mode" name="speaker_mode">
-                {% for option in options.speaker_modes %}
-                <option value="{{ option.value }}" {% if settings.speaker_mode == option.value %}selected{% endif %}>{{ option.label }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="field">
-              <label class="toggle-pill">
-                <input type="checkbox" name="generate_epub3" value="true" {% if settings.generate_epub3 %}checked{% endif %}>
-                <span>Generate EPUB 3 (experimental)</span>
-              </label>
-              <p class="hint">Creates a synchronized EPUB alongside audio output.</p>
-            </div>
+          <div class="field field--file">
+            <label for="source_file">Source File</label>
+            <input type="file" id="source_file" name="source_file" accept=".txt,.pdf,.epub,.md,.markdown">
           </div>
-          <div class="grid">
-            <div class="field field--full">
-              <label for="source_text">Or Paste Text Directly</label>
-              <textarea id="source_text" name="source_text" rows="12" placeholder="Drop some text here if you don't have a file handy..." data-role="source-text"></textarea>
-            </div>
-            <div class="text-preview" data-role="text-preview" aria-live="polite">
-              <div class="text-preview__header">
-                <h2>Preview</h2>
-                <div class="text-preview__meta">
-                  <span data-role="char-count">0 characters</span>
-                  <span>·</span>
-                  <span data-role="word-count">0 words</span>
-                </div>
-              </div>
-              <pre class="text-preview__body" data-role="preview-body">Paste text to see a live preview and character count.</pre>
-            </div>
+          <div class="field">
+            <label for="language">Language</label>
+            <select id="language" name="language">
+              {% for key, label in options.languages.items() %}
+              <option value="{{ key }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="voice_profile">Voice Profile</label>
+            <select id="voice_profile" name="voice_profile" data-role="voice-profile">
+              <option value="__standard" {% if not options.voice_profile_options %}selected{% endif %}>Standard Voice</option>
+              <option value="__formula">Custom Voice Formula</option>
+              {% if options.voice_profile_options %}
+              <optgroup label="Saved mixes">
+                {% for profile in options.voice_profile_options %}
+                <option value="{{ profile.name }}" data-language="{{ profile.language }}" data-formula="{{ profile.formula|e }}" {% if loop.first %}selected{% endif %}>{{ profile.name }}{% if profile.language %} ({{ profile.language|upper }}){% endif %}</option>
+                {% endfor %}
+              </optgroup>
+              {% endif %}
+            </select>
+          </div>
+          <div class="field" data-role="voice-field" {% if options.voice_profile_options %}hidden aria-hidden="true"{% endif %}>
+            <label for="voice">Voice</label>
+            <select id="voice" name="voice" data-role="voice-select" data-default="{{ settings.default_voice }}">
+              {% for voice in options.voices %}
+              <option value="{{ voice }}" {% if settings.default_voice == voice %}selected{% endif %}>{{ voice }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field" data-conditional="formula" data-role="formula-field" hidden aria-hidden="true">
+            <label for="voice_formula">Custom Voice Formula</label>
+            <input type="text" id="voice_formula" name="voice_formula" placeholder="af_nova*0.4+am_liam*0.6" data-role="voice-formula">
+          </div>
+          <div class="field">
+            <label for="speaker_config">Speaker preset</label>
+            <select id="speaker_config" name="speaker_config">
+              <option value="">None</option>
+              {% for config in options.speaker_configs %}
+              <option value="{{ config.name }}">{{ config.name }} · {{ config.speakers|length }} speaker{% if config.speakers|length != 1 %}s{% endif %}</option>
+              {% endfor %}
+            </select>
+            <p class="hint">Optional: reuse a saved roster to keep character voices consistent.</p>
+          </div>
+          <div class="field">
+            <label for="speed">Speed <span class="tag" id="speed_value">1.00×</span></label>
+            <input type="range" id="speed" name="speed" min="0.6" max="1.4" step="0.05" value="1.0" oninput="document.getElementById('speed_value').textContent = Number.parseFloat(this.value).toFixed(2) + '×';">
+          </div>
+          <div class="field">
+            <label for="subtitle_mode">Subtitle mode</label>
+            <select id="subtitle_mode" name="subtitle_mode">
+              <option value="Disabled">Disabled</option>
+              <option value="Sentence">Sentence</option>
+              <option value="Sentence + Comma">Sentence + Comma</option>
+              <option value="Sentence + Highlighting">Sentence + Highlighting</option>
+              {% for i in range(1, 11) %}
+              <option value="{{ i }} {% if i == 1 %}word{% else %}words{% endif %}">{{ i }} {% if i == 1 %}word{% else %}words{% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="chunk_level">Chunk granularity</label>
+            <select id="chunk_level" name="chunk_level">
+              {% for option in options.chunk_levels %}
+              <option value="{{ option.value }}" {% if settings.chunk_level == option.value %}selected{% endif %}>{{ option.label }}</option>
+              {% endfor %}
+            </select>
+            <p class="hint">Controls how chapters are split into TTS-ready chunks.</p>
+          </div>
+          <div class="field">
+            <label for="speaker_mode">Speaker mode</label>
+            <select id="speaker_mode" name="speaker_mode">
+              {% for option in options.speaker_modes %}
+              <option value="{{ option.value }}" {% if settings.speaker_mode == option.value %}selected{% endif %}>{{ option.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label class="toggle-pill">
+              <input type="checkbox" name="generate_epub3" value="true" {% if settings.generate_epub3 %}checked{% endif %}>
+              <span>Generate EPUB 3 (experimental)</span>
+            </label>
+            <p class="hint">Creates a synchronized EPUB alongside audio output.</p>
           </div>
         </div>
       </div>

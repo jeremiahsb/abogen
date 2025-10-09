@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import logging
 import os
 from pathlib import Path
 from typing import Any, Optional
@@ -11,6 +12,23 @@ from abogen.utils import get_user_cache_path, get_user_output_path
 
 from .conversion_runner import run_conversion_job
 from .service import build_service
+
+
+class _SuppressSuccessfulAccessFilter(logging.Filter):
+    """Filter out successful (HTTP 200) werkzeug access logs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:  # pragma: no cover - small utility
+        try:
+            message = record.getMessage()
+        except Exception:  # pragma: no cover - defensive
+            return True
+        # Werkzeug access logs include the status code near the end, e.g.
+        # "GET /path HTTP/1.1" 200 -
+        # Treat any 2xx response as success to suppress.
+        return " 200 " not in message and " 201 " not in message and " 204 " not in message
+
+
+_access_log_filter_attached = False
 
 
 def _default_dirs() -> tuple[Path, Path]:
@@ -63,6 +81,11 @@ def create_app(config: Optional[dict[str, Any]] = None) -> Flask:
     app.register_blueprint(api_bp, url_prefix="/api")
 
     atexit.register(service.shutdown)
+
+    global _access_log_filter_attached
+    if not _access_log_filter_attached:
+        logging.getLogger("werkzeug").addFilter(_SuppressSuccessfulAccessFilter())
+        _access_log_filter_attached = True
 
     return app
 
