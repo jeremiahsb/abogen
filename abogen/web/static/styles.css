@@ -478,6 +478,23 @@ body {
   margin-bottom: 1rem;
 }
 
+.card__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.card__title-row .card__title {
+  margin: 0;
+}
+
+.card__title-row .button {
+  margin-left: auto;
+}
+
 .grid {
   display: grid;
   gap: 1.5rem;
@@ -537,6 +554,36 @@ body {
 .button--ghost:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.log-copy {
+  margin-top: 1.5rem;
+}
+
+.log-copy > summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.log-copy__textarea {
+  display: block;
+  width: 100%;
+  min-height: 240px;
+  padding: 1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  background: rgba(15, 23, 42, 0.35);
+  color: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.log-copy__textarea:focus {
+  outline: 2px solid rgba(56, 189, 248, 0.55);
+  outline-offset: 2px;
 }
 
 .field {

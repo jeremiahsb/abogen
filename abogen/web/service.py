@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
+import sys
 import threading
 import time
 import uuid
@@ -22,6 +24,35 @@ def _create_set_event() -> threading.Event:
 
 
 STATE_VERSION = 5
+
+
+_JOB_LOGGER = logging.getLogger("abogen.jobs")
+if not _JOB_LOGGER.handlers:
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S"))
+    _JOB_LOGGER.addHandler(handler)
+    _JOB_LOGGER.propagate = False
+_JOB_LOGGER.setLevel(logging.DEBUG)
+
+_JOB_LEVEL_MAP: Dict[str, int] = {
+    "critical": logging.CRITICAL,
+    "error": logging.ERROR,
+    "warning": logging.WARNING,
+    "info": logging.INFO,
+    "success": logging.INFO,
+    "debug": logging.DEBUG,
+    "trace": logging.DEBUG,
+}
+
+
+def _emit_job_log(job_id: str, level: str, message: str) -> None:
+    normalized = (level or "info").lower()
+    log_level = _JOB_LEVEL_MAP.get(normalized, logging.INFO)
+    try:
+        _JOB_LOGGER.log(log_level, "[job %s] %s", job_id, message)
+    except Exception:
+        # Logging failures should never disrupt job processing.
+        pass
 
 
 class JobStatus(str, Enum):
@@ -105,7 +136,9 @@ class Job:
     applied_speaker_config: Optional[str] = None
 
     def add_log(self, message: str, level: str = "info") -> None:
-        self.logs.append(JobLog(timestamp=time.time(), message=message, level=level))
+        entry = JobLog(timestamp=time.time(), message=message, level=level)
+        self.logs.append(entry)
+        _emit_job_log(self.id, level, message)
 
     def as_dict(self) -> Dict[str, object]:
         return {
@@ -476,6 +509,7 @@ class ConversionService:
             new_job.applied_speaker_config = job.applied_speaker_config
             new_job.add_log(f"Retry created from job {job.id}", level="info")
             job.add_log(f"Retry scheduled as job {new_job.id}", level="info")
+            self._remove_job_locked(job_id)
             return new_job
 
     def delete(self, job_id: str) -> bool:
@@ -607,6 +641,12 @@ class ConversionService:
             if job:
                 job.queue_position = index
         self._persist_state()
+
+    def _remove_job_locked(self, job_id: str) -> None:
+        self._jobs.pop(job_id, None)
+        if job_id in self._queue:
+            self._queue.remove(job_id)
+        self._update_queue_positions_locked()
 
     # Persistence ------------------------------------------------------
     def _serialize_job(self, job: Job) -> Dict[str, Any]:

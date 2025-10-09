@@ -8,6 +8,7 @@ import re
 import threading
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, cast
 
@@ -2311,7 +2312,24 @@ def job_logs_partial(job_id: str) -> str:
     job = _service().get_job(job_id)
     if not job:
         abort(404)
-    return render_template("partials/logs.html", job=job)
+    return render_template("partials/logs.html", job=job, static_view=False)
+
+
+@web_bp.get("/jobs/<job_id>/logs/static")
+def job_logs_static(job_id: str) -> str:
+    job = _service().get_job(job_id)
+    if not job:
+        abort(404)
+    log_lines = [
+        f"{datetime.fromtimestamp(entry.timestamp).strftime('%Y-%m-%d %H:%M:%S')} [{entry.level.upper()}] {entry.message}"
+        for entry in job.logs
+    ]
+    return render_template(
+        "job_logs_static.html",
+        job=job,
+        log_text="\n".join(log_lines),
+        static_view=True,
+    )
 
 
 @api_bp.get("/jobs/<job_id>")
