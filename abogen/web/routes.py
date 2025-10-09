@@ -2225,6 +2225,7 @@ def job_detail(job_id: str) -> str:
         "job_detail.html",
         job=job,
         options=_template_options(),
+        JobStatus=JobStatus,
     )
 
 
@@ -2258,6 +2259,16 @@ def delete_job(job_id: str) -> ResponseReturnValue:
     if request.headers.get("HX-Request"):
         return _render_jobs_panel()
     return redirect(url_for("web.index"))
+
+
+@web_bp.post("/jobs/<job_id>/retry")
+def retry_job(job_id: str) -> ResponseReturnValue:
+    new_job = _service().retry(job_id)
+    if request.headers.get("HX-Request"):
+        return _render_jobs_panel()
+    if new_job:
+        return redirect(url_for("web.job_detail", job_id=new_job.id))
+    return redirect(url_for("web.job_detail", job_id=job_id))
 
 
 @web_bp.post("/jobs/clear-finished")

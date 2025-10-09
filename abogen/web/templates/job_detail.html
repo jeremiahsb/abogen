@@ -42,9 +42,15 @@
       {% if job.result.audio_path %}
       <p><a class="button" href="{{ url_for('web.download_job', job_id=job.id) }}">Download audio</a></p>
       {% endif %}
+      {% if job.status in [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.PAUSED] %}
       <form action="{{ url_for('web.cancel_job', job_id=job.id) }}" method="post">
         <button type="submit" class="button button--ghost">Cancel job</button>
       </form>
+      {% elif job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED] %}
+      <form action="{{ url_for('web.retry_job', job_id=job.id) }}" method="post">
+        <button type="submit" class="button">Retry job</button>
+      </form>
+      {% endif %}
     </article>
   </div>
 </section>

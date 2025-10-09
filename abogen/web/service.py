@@ -413,6 +413,71 @@ class ConversionService:
             self._persist_state()
             return True
 
+    def retry(self, job_id: str) -> Optional[Job]:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return None
+            if job.status not in {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}:
+                job.add_log(
+                    "Retry requested while job still active; ignoring.",
+                    level="warning",
+                )
+                return None
+
+            stored_path = job.stored_path
+            if not isinstance(stored_path, Path):
+                stored_path = Path(str(stored_path))
+
+            if not stored_path.exists():
+                job.add_log(
+                    f"Retry requested but source file is missing: {stored_path}",
+                    level="error",
+                )
+                return None
+
+            new_job = self.enqueue(
+                original_filename=job.original_filename,
+                stored_path=stored_path,
+                language=job.language,
+                voice=job.voice,
+                speed=job.speed,
+                use_gpu=job.use_gpu,
+                subtitle_mode=job.subtitle_mode,
+                output_format=job.output_format,
+                save_mode=job.save_mode,
+                output_folder=job.output_folder,
+                replace_single_newlines=job.replace_single_newlines,
+                subtitle_format=job.subtitle_format,
+                total_characters=job.total_characters,
+                chapters=job.chapters,
+                save_chapters_separately=job.save_chapters_separately,
+                merge_chapters_at_end=job.merge_chapters_at_end,
+                separate_chapters_format=job.separate_chapters_format,
+                silence_between_chapters=job.silence_between_chapters,
+                save_as_project=job.save_as_project,
+                voice_profile=job.voice_profile,
+                max_subtitle_words=job.max_subtitle_words,
+                metadata_tags=job.metadata_tags,
+                cover_image_path=job.cover_image_path,
+                cover_image_mime=job.cover_image_mime,
+                chapter_intro_delay=job.chapter_intro_delay,
+                chunk_level=job.chunk_level,
+                chunks=job.chunks,
+                speakers=job.speakers,
+                speaker_mode=job.speaker_mode,
+                generate_epub3=job.generate_epub3,
+                speaker_analysis=job.speaker_analysis,
+                speaker_analysis_threshold=job.speaker_analysis_threshold,
+                analysis_requested=job.analysis_requested,
+            )
+
+            new_job.speaker_voice_languages = list(job.speaker_voice_languages)
+            new_job.applied_speaker_config = job.applied_speaker_config
+            new_job.add_log(f"Retry created from job {job.id}", level="info")
+            job.add_log(f"Retry scheduled as job {new_job.id}", level="info")
+            return new_job
+
     def delete(self, job_id: str) -> bool:
         with self._lock:
             job = self._jobs.get(job_id)

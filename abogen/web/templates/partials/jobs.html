@@ -69,6 +69,9 @@
           </div>
           <div class="job-card__footer">
             <a class="button button--ghost" href="{{ url_for('web.job_detail', job_id=job.id) }}">Inspect</a>
+            {% if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED] %}
+              <button type="button" class="button button--ghost" hx-post="{{ url_for('web.retry_job', job_id=job.id) }}" hx-target="#jobs-panel" hx-swap="innerHTML">Retry</button>
+            {% endif %}
             {% if job.status == JobStatus.COMPLETED and job.result.audio_path %}
               <a class="button button--ghost" href="{{ url_for('web.download_job', job_id=job.id) }}">Download</a>
             {% endif %}
