@@ -6,6 +6,7 @@ import shutil
 import threading
 import time
 import uuid
+import traceback
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -513,7 +514,14 @@ class ConversionService:
             job.error = str(exc)
             job.status = JobStatus.FAILED
             job.finished_at = time.time()
-            job.add_log(f"Job failed: {exc}", level="error")
+            exc_type = exc.__class__.__name__
+            job.add_log(f"Job failed ({exc_type}): {exc}", level="error")
+            tb_lines = traceback.format_exception(exc.__class__, exc, exc.__traceback__)
+            for line in tb_lines[:20]:
+                trimmed = line.rstrip()
+                if trimmed:
+                    for snippet in trimmed.splitlines():
+                        job.add_log(f"TRACE: {snippet}", level="debug")
         else:
             if job.cancel_requested:
                 job.status = JobStatus.CANCELLED

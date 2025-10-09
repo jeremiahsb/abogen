@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import traceback
 from collections import defaultdict
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -624,6 +625,10 @@ def run_conversion_job(job: Job) -> None:
     chunk_markers: List[Dict[str, Any]] = []
     metadata_payload: Dict[str, Any] = {}
     audio_output_path: Optional[Path] = None
+    extraction: Optional[Any] = None
+    pipeline: Any = None
+    chunk_groups: Dict[int, List[Dict[str, Any]]] = {}
+    active_chapter_configs: List[Dict[str, Any]] = []
     try:
         pipeline = _load_pipeline(job)
         extraction = extract_from_path(job.stored_path)
@@ -660,8 +665,6 @@ def run_conversion_job(job: Job) -> None:
                 )
 
         metadata_overrides: Dict[str, Any] = dict(job.metadata_tags or {})
-        active_chapter_configs: List[Dict[str, Any]] = []
-        chunk_groups: Dict[int, List[Dict[str, Any]]] = {}
         if job.chapters:
             selected_chapters, chapter_metadata, diagnostics = _apply_chapter_overrides(
                 extraction.chapters,
@@ -1061,7 +1064,52 @@ def run_conversion_job(job: Job) -> None:
     except Exception as exc:  # pragma: no cover - defensive guard
         job.error = str(exc)
         job.status = JobStatus.FAILED
-        job.add_log(f"Job failed: {exc}", level="error")
+        exc_type = exc.__class__.__name__
+        job.add_log(f"Job failed ({exc_type}): {exc}", level="error")
+
+        chapter_count: Any
+        if extraction is not None and hasattr(extraction, "chapters"):
+            try:
+                chapter_count = len(getattr(extraction, "chapters", []) or [])
+            except Exception:  # pragma: no cover - defensive fallback
+                chapter_count = "unavailable"
+        else:
+            chapter_count = "unavailable"
+
+        try:
+            chunk_group_count = len(chunk_groups)
+            chunk_total = sum(len(items) for items in chunk_groups.values())
+        except Exception:  # pragma: no cover - defensive fallback
+            chunk_group_count = "unavailable"
+            chunk_total = "unavailable"
+
+        job.add_log(
+            "Context => chunk_level=%s, chapters=%s, chunk_groups=%s, chunks=%s"
+            % (job.chunk_level, chapter_count, chunk_group_count, chunk_total),
+            level="debug",
+        )
+
+        first_nonempty_group = next((items for items in chunk_groups.values() if items), None)
+        if first_nonempty_group:
+            first_chunk = dict(first_nonempty_group[0])
+            sample_text = str(first_chunk.get("text") or "")[:160].replace("\n", " ")
+            job.add_log(
+                "First chunk sample => id=%s, speaker=%s, chars=%s, preview=%s"
+                % (
+                    first_chunk.get("id") or first_chunk.get("chunk_index"),
+                    first_chunk.get("speaker_id", "narrator"),
+                    len(str(first_chunk.get("text") or "")),
+                    sample_text,
+                ),
+                level="debug",
+            )
+
+        tb_lines = traceback.format_exception(exc.__class__, exc, exc.__traceback__)
+        for line in tb_lines[:20]:
+            trimmed = line.rstrip()
+            if trimmed:
+                for snippet in trimmed.splitlines():
+                    job.add_log(f"TRACE: {snippet}", level="debug")
     finally:
         sink_stack.close()
         if subtitle_writer:
