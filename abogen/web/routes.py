@@ -64,7 +64,6 @@ from abogen.speaker_configs import (
     get_config,
     list_configs,
     load_configs,
-    random_voice,
     save_configs,
     upsert_config,
     slugify_label,
@@ -142,22 +141,34 @@ def _build_speaker_roster(
         payload = speakers.get(speaker_id, {})
         if speaker_id == "narrator":
             continue
-        if payload.get("suppressed"):
             continue
         previous = existing_map.get(speaker_id)
         roster[speaker_id] = {
             "id": speaker_id,
             "label": payload.get("label") or speaker_id.replace("_", " ").title(),
-            "voice": base_voice,
             "analysis_confidence": payload.get("confidence"),
             "analysis_count": payload.get("count"),
             "gender": payload.get("gender", "unknown"),
         }
+        detected_gender = payload.get("detected_gender")
+        if detected_gender:
+            roster[speaker_id]["detected_gender"] = detected_gender
+        samples = payload.get("sample_quotes")
+        if isinstance(samples, list):
+            roster[speaker_id]["sample_quotes"] = samples
         if isinstance(previous, Mapping):
             for key in ("voice", "voice_profile", "voice_formula", "resolved_voice", "pronunciation"):
                 value = previous.get(key)
                 if value is not None and value != "":
                     roster[speaker_id][key] = value
+            if "sample_quotes" not in roster[speaker_id]:
+                prev_samples = previous.get("sample_quotes")
+                if isinstance(prev_samples, list):
+                    roster[speaker_id]["sample_quotes"] = prev_samples
+            if "detected_gender" not in roster[speaker_id]:
+                prev_detected = previous.get("detected_gender")
+                if isinstance(prev_detected, str) and prev_detected:
+                    roster[speaker_id]["detected_gender"] = prev_detected
     return roster
 
 
@@ -187,7 +198,6 @@ def _apply_speaker_config_to_roster(
     roster: Mapping[str, Any],
     config: Optional[Mapping[str, Any]],
     *,
-    allow_randomize: bool = False,
     persist_changes: bool = False,
     fallback_languages: Optional[Iterable[str]] = None,
 ) -> Tuple[Dict[str, Any], List[str], Optional[Dict[str, Any]]]:
@@ -214,13 +224,11 @@ def _apply_speaker_config_to_roster(
 
     default_voice = config.get("default_voice") if isinstance(config.get("default_voice"), str) else ""
     used_voices = {entry.get("resolved_voice") or entry.get("voice") for entry in updated_roster.values()} - {None}
-
     narrator_voice = ""
     narrator_entry = updated_roster.get("narrator") if isinstance(updated_roster, Mapping) else None
     if isinstance(narrator_entry, Mapping):
         narrator_voice = str(
             narrator_entry.get("resolved_voice")
-            or narrator_entry.get("voice")
             or narrator_entry.get("default_voice")
             or ""
         ).strip()
@@ -251,25 +259,8 @@ def _apply_speaker_config_to_roster(
         voice_formula = str(config_entry.get("voice_formula") or "").strip()
         resolved_voice = str(config_entry.get("resolved_voice") or "").strip()
         languages = config_entry.get("languages") if isinstance(config_entry.get("languages"), list) else []
-        randomize_flag = bool(config_entry.get("randomize"))
-
         chosen_voice = resolved_voice or voice_formula or voice_id or roster_entry.get("voice")
         usable_languages = languages or allowed_languages
-        should_randomize = randomize_flag and (allow_randomize or not chosen_voice)
-        if should_randomize:
-            exclusion = used_voices | {voice_id, resolved_voice, narrator_voice}
-            randomized = random_voice(
-                gender=config_entry.get("gender", "unknown"),
-                allowed_languages=usable_languages,
-                fallback_voice=default_voice or roster_entry.get("voice"),
-                exclude=exclusion,
-            )
-            if randomized:
-                chosen_voice = randomized
-                voice_id = randomized
-                resolved_voice = randomized
-                config_changed = True
-                used_voices.add(randomized)
 
         if chosen_voice:
             roster_entry["resolved_voice"] = chosen_voice
@@ -298,7 +289,6 @@ def _apply_speaker_config_to_roster(
                 "voice_formula": voice_formula,
                 "resolved_voice": roster_entry.get("resolved_voice", resolved_voice or voice_id),
                 "languages": usable_languages,
-                "randomize": randomize_flag,
             }
 
     new_config = new_config_payload if (persist_changes and config_changed) else None
@@ -414,7 +404,6 @@ def _extract_speaker_config_form(form: Mapping[str, Any]) -> Tuple[str, Dict[str
         voice = (form.get(prefix + "voice") or "").strip()
         voice_profile = (form.get(prefix + "profile") or "").strip()
         voice_formula = (form.get(prefix + "formula") or "").strip()
-        randomize_flag = form.get(prefix + "randomize") in {"on", "1", "true"}
         speaker_id = (form.get(prefix + "id") or "").strip() or slugify_label(label)
         speakers[speaker_id] = {
             "id": speaker_id,
@@ -425,7 +414,6 @@ def _extract_speaker_config_form(form: Mapping[str, Any]) -> Tuple[str, Dict[str
             "voice_formula": voice_formula,
             "resolved_voice": voice_formula or voice,
             "languages": [],
-            "randomize": randomize_flag,
         }
 
     payload = {
@@ -459,7 +447,6 @@ def _prepare_speaker_metadata(
     run_analysis: bool = True,
     speaker_config: Optional[Mapping[str, Any]] = None,
     apply_config: bool = False,
-    allow_randomize: bool = False,
     persist_config: bool = False,
 ) -> tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any], List[str], Optional[Dict[str, Any]]]:
     chunk_list = [dict(chunk) for chunk in chunks]
@@ -561,7 +548,6 @@ def _prepare_speaker_metadata(
         roster, applied_languages, updated_config = _apply_speaker_config_to_roster(
             roster,
             speaker_config,
-            allow_randomize=allow_randomize,
             persist_changes=persist_config,
             fallback_languages=global_random_languages,
         )
@@ -618,7 +604,6 @@ def _apply_prepare_form(
     str,
     bool,
     bool,
-    bool,
 ]:
     raw_chunk_level = (form.get("chunk_level") or pending.chunk_level or "paragraph").strip().lower()
     if raw_chunk_level not in _CHUNK_LEVEL_VALUES:
@@ -665,11 +650,7 @@ def _apply_prepare_form(
             pending.speakers["narrator"] = existing_narrator
 
     selected_config = (form.get("applied_speaker_config") or "").strip()
-    randomize_requested = str(form.get("randomize_speaker_config", "")).strip() in {"1", "true", "on"}
-    apply_config_requested = (
-        str(form.get("apply_speaker_config", "")).strip() in {"1", "true", "on"}
-        or randomize_requested
-    )
+    apply_config_requested = str(form.get("apply_speaker_config", "")).strip() in {"1", "true", "on"}
     persist_config_requested = str(form.get("save_speaker_config", "")).strip() in {"1", "true", "on"}
 
     pending.applied_speaker_config = selected_config or None
@@ -693,9 +674,6 @@ def _apply_prepare_form(
             else:
                 payload.pop("voice", None)
                 payload.pop("resolved_voice", None)
-
-            randomize_flag = form.get(f"speaker-{speaker_id}-randomize") in {"on", "1", "true"}
-            payload["randomize"] = randomize_flag
 
             lang_key = f"speaker-{speaker_id}-languages"
             languages: List[str] = []
@@ -782,7 +760,6 @@ def _apply_prepare_form(
         errors,
         selected_total,
         selected_config,
-        randomize_requested,
         apply_config_requested,
         persist_config_requested,
     )
@@ -833,6 +810,9 @@ _SUPPLEMENT_TEXT_KEYWORDS: List[tuple[str, float]] = [
     ("also by", 0.9),
     ("glossary", 0.8),
     ("index", 0.8),
+    ("newsletter", 3.2),
+    ("mailing list", 2.6),
+    ("sign-up", 2.2),
 ]
 
 
@@ -1826,14 +1806,6 @@ def enqueue_job() -> ResponseReturnValue:
     custom_formula_raw = request.form.get("voice_formula", "").strip()
     selected_speaker_config = (request.form.get("speaker_config") or "").strip()
     speaker_config_payload = get_config(selected_speaker_config) if selected_speaker_config else None
-    config_randomize_default = False
-    if isinstance(speaker_config_payload, Mapping):
-        speakers_map = speaker_config_payload.get("speakers")
-        if isinstance(speakers_map, Mapping):
-            for config_entry in speakers_map.values():
-                if isinstance(config_entry, Mapping) and config_entry.get("randomize"):
-                    config_randomize_default = True
-                    break
 
     if profile_selection in {"__standard", ""}:
         profile_name = ""
@@ -1907,7 +1879,6 @@ def enqueue_job() -> ResponseReturnValue:
         run_analysis=initial_analysis,
         speaker_config=speaker_config_payload,
         apply_config=bool(speaker_config_payload),
-        allow_randomize=config_randomize_default,
     )
 
     pending = PendingJob(
@@ -1983,7 +1954,6 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
         errors,
         selected_total,
         selected_config,
-        randomize_requested,
         apply_config_requested,
         persist_config_requested,
     ) = _apply_prepare_form(pending, request.form)
@@ -2036,7 +2006,6 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
         run_analysis=True,
         speaker_config=speaker_config_payload,
         apply_config=apply_config_requested or bool(speaker_config_payload),
-        allow_randomize=randomize_requested,
         persist_config=persist_config_requested,
     )
 
@@ -2077,7 +2046,6 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
         errors,
         selected_total,
         selected_config,
-        randomize_requested,
         apply_config_requested,
         persist_config_requested,
     ) = _apply_prepare_form(pending, request.form)
@@ -2126,7 +2094,6 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
         run_analysis=analysis_active,
         speaker_config=speaker_config_payload,
         apply_config=apply_config_requested or bool(speaker_config_payload),
-        allow_randomize=randomize_requested,
         persist_config=persist_config_requested,
     )
     pending.chunks = processed_chunks

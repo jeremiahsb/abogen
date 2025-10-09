@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import json
 import os
-import random
-from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
-from abogen.constants import LANGUAGE_DESCRIPTIONS, VOICES_INTERNAL
+from abogen.constants import LANGUAGE_DESCRIPTIONS
 from abogen.utils import get_user_config_path
 
 _CONFIG_WRAPPER_KEY = "abogen_speaker_configs"
@@ -135,7 +133,6 @@ def _sanitize_speaker(entry: Dict[str, Any]) -> Dict[str, Any]:
     for code in voice_languages:
         if isinstance(code, str) and code:
             normalized_langs.append(code.lower())
-    randomize = bool(entry.get("randomize"))
     resolved_voice = entry.get("resolved_voice") or voice_formula or voice
     resolved_label = label or entry.get("id") or ""
     slug = entry.get("id") if isinstance(entry.get("id"), str) else slugify_label(resolved_label)
@@ -148,7 +145,6 @@ def _sanitize_speaker(entry: Dict[str, Any]) -> Dict[str, Any]:
         "voice_formula": voice_formula if isinstance(voice_formula, str) else "",
         "resolved_voice": resolved_voice if isinstance(resolved_voice, str) else "",
         "languages": normalized_langs,
-        "randomize": randomize,
     }
 
 
@@ -159,68 +155,6 @@ def list_configs() -> List[Dict[str, Any]]:
         entry = configs[name]
         ordered.append({"name": name, **entry})
     return ordered
-
-
-@dataclass
-class RandomVoiceOptions:
-    gender: str
-    allowed_languages: List[str] = field(default_factory=list)
-    fallback_voice: Optional[str] = None
-
-
-def random_voice(
-    *,
-    gender: str,
-    allowed_languages: Optional[Iterable[str]] = None,
-    fallback_voice: Optional[str] = None,
-    exclude: Optional[Iterable[str]] = None,
-) -> Optional[str]:
-    gender = (gender or "unknown").lower()
-    allowed = [code.lower() for code in (allowed_languages or []) if isinstance(code, str) and code]
-    excluded = {voice for voice in (exclude or []) if isinstance(voice, str)}
-
-    def _voice_gender(code: str) -> str:
-        if len(code) >= 2:
-            marker = code[1]
-            if marker == "m":
-                return "male"
-            if marker == "f":
-                return "female"
-        return "unknown"
-
-    def _voice_language(code: str) -> str:
-        return code[0] if code else "a"
-
-    candidates: List[str] = []
-    for voice in VOICES_INTERNAL:
-        if voice in excluded:
-            continue
-        voice_gender = _voice_gender(voice)
-        voice_language = _voice_language(voice)
-        if allowed and voice_language not in allowed:
-            continue
-        if gender in {"male", "female"} and voice_gender != gender:
-            continue
-        candidates.append(voice)
-
-    if not candidates and allowed:
-        # retry without language restriction, preserving gender
-        for voice in VOICES_INTERNAL:
-            if voice in excluded:
-                continue
-            voice_gender = _voice_gender(voice)
-            if gender in {"male", "female"} and voice_gender != gender:
-                continue
-            candidates.append(voice)
-
-    if not candidates:
-        candidates = [voice for voice in VOICES_INTERNAL if voice not in excluded]
-
-    if not candidates:
-        return fallback_voice
-
-    choice = random.choice(candidates)
-    return choice or fallback_voice
 
 
 def describe_language(code: str) -> str:

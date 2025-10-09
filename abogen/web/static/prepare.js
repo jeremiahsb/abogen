@@ -18,6 +18,63 @@ document.addEventListener("DOMContentLoaded", () => {
   const languageMap = parseJSONScript("voice-language-map") || {};
   const voiceCatalogMap = new Map(voiceCatalog.map((voice) => [voice.id, voice]));
 
+  const formatCustomMixLabel = (formula) => {
+    if (!formula) return "Custom mix";
+    const segments = formula
+      .split("+")
+      .map((segment) => segment.trim())
+      .filter((segment) => segment.length);
+    if (!segments.length) {
+      return "Custom mix";
+    }
+    const parts = segments.map((segment) => {
+      const [voiceIdRaw, weightRaw] = segment.split("*").map((token) => token.trim());
+      const voiceId = voiceIdRaw || "";
+      const voiceMeta = voiceCatalogMap.get(voiceId);
+      const displayName = voiceMeta?.display_name || voiceId || "Voice";
+      const weight = Number.parseFloat(weightRaw || "");
+      if (!Number.isNaN(weight)) {
+        return `${displayName} ${(weight * 100).toFixed(0)}%`;
+      }
+      return displayName;
+    });
+    return parts.join(" + ");
+  };
+
+  const ensureCustomMixOption = (select) => {
+    if (!select) return null;
+    let option = select.querySelector('option[data-role="custom-mix-option"]');
+    if (!option) {
+      option = document.createElement("option");
+      option.value = "__custom_mix";
+      option.dataset.role = "custom-mix-option";
+      option.hidden = true;
+      option.disabled = true;
+      option.textContent = "Custom mix";
+      const firstOptGroup = select.querySelector("optgroup");
+      if (firstOptGroup) {
+        select.insertBefore(option, firstOptGroup);
+      } else {
+        select.appendChild(option);
+      }
+    }
+    return option;
+  };
+
+  const updateCustomMixOption = (select, formula) => {
+    const option = ensureCustomMixOption(select);
+    if (!option) return;
+    if (formula) {
+      option.hidden = false;
+      option.disabled = false;
+      option.textContent = formatCustomMixLabel(formula);
+    } else {
+      option.hidden = true;
+      option.disabled = true;
+      option.textContent = "Custom mix";
+    }
+  };
+
   const chapterRows = Array.from(form.querySelectorAll("[data-role=chapter-row]"));
 
   const updateRowState = (row) => {
@@ -87,97 +144,89 @@ document.addEventListener("DOMContentLoaded", () => {
   const updatePreviewVoice = (select) => {
     const container = select.closest(".speaker-list__item");
     if (!container) return;
-    const previewButton = container.querySelector('[data-role="speaker-preview"]');
-    if (!previewButton) return;
-    const formulaInput = container.querySelector('[data-role="speaker-formula"]');
-    const mixContainer = container.querySelector('[data-role="speaker-mix"]');
-    const mixLabel = container.querySelector('[data-role="speaker-mix-label"]');
-    const formulaValue = formulaInput?.value?.trim();
-    if (formulaValue) {
-      previewButton.dataset.voice = formulaValue;
-      if (mixContainer) {
-        mixContainer.hidden = false;
-      }
-      if (mixLabel) {
-        mixLabel.textContent = formulaValue;
-      }
-      return;
-    }
-    if (mixContainer) {
-      mixContainer.hidden = true;
-    }
-    const defaultVoice = select.dataset.defaultVoice || previewButton.dataset.voice || "";
-    const currentVoice = select.disabled ? defaultVoice : (select.value || defaultVoice);
-    previewButton.dataset.voice = currentVoice || defaultVoice;
-  };
+    const previewButtons = container.querySelectorAll('[data-role="speaker-preview"]');
+    if (!previewButtons.length) return;
 
-  const handleRandomizeToggle = (checkbox) => {
-    const container = checkbox.closest(".speaker-list__item");
-    if (!container) return;
-    const select = container.querySelector('[data-role="speaker-voice"]');
-    if (!select) return;
-    if (checkbox.checked) {
-      if (!select.dataset.prevManual) {
-        select.dataset.prevManual = select.value;
-      }
-      const formulaInput = container.querySelector('[data-role="speaker-formula"]');
-      const mixContainer = container.querySelector('[data-role="speaker-mix"]');
-      if (formulaInput) {
-        formulaInput.value = "";
-      }
-      if (mixContainer) {
-        mixContainer.hidden = true;
-      }
-      select.dataset.suppressRandomize = "1";
-      select.disabled = true;
-      select.value = "";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-      delete select.dataset.suppressRandomize;
-    } else {
-      const previous = select.dataset.prevManual || "";
-      select.disabled = false;
-      select.dataset.suppressRandomize = "1";
-      select.value = previous;
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-      delete select.dataset.suppressRandomize;
+    const formulaInput = container.querySelector('[data-role="speaker-formula"]');
+  const mixContainer = container.querySelector('[data-role="speaker-mix"]');
+  const mixLabel = container.querySelector('[data-role="speaker-mix-label"]');
+
+    const formulaValue = formulaInput?.value?.trim() || "";
+    updateCustomMixOption(select, formulaValue);
+
+    const defaultVoice = select.dataset.defaultVoice || "";
+    let assignedVoice = select.value || defaultVoice;
+    if (select.value === "__custom_mix" || formulaValue) {
+      assignedVoice = formulaValue || defaultVoice;
     }
+
+    if (formulaValue) {
+      if (mixContainer) mixContainer.hidden = false;
+      if (mixLabel) mixLabel.textContent = formulaValue;
+    } else {
+      if (mixContainer) mixContainer.hidden = true;
+      if (mixLabel) mixLabel.textContent = "";
+      if (assignedVoice === "__custom_mix" || !assignedVoice) {
+        assignedVoice = defaultVoice;
+      }
+    }
+
+    previewButtons.forEach((button) => {
+      const kind = button.dataset.previewKind || "";
+      if (kind === "generated") {
+        button.hidden = !formulaValue;
+        button.dataset.voice = assignedVoice;
+        return;
+      }
+
+      const context = button.dataset.previewContext || "";
+      if (context === "mix") {
+        button.dataset.voice = formulaValue || assignedVoice;
+        return;
+      }
+
+      button.dataset.voice = assignedVoice || defaultVoice || button.dataset.voice || "";
+    });
   };
 
   const voiceSelects = Array.from(form.querySelectorAll('[data-role="speaker-voice"]'));
   voiceSelects.forEach((select) => {
+    ensureCustomMixOption(select);
     select.addEventListener("change", (event) => {
       const target = event.target;
       const container = target.closest(".speaker-list__item");
-      if (container && !target.dataset.suppressRandomize) {
-        const randomToggle = container.querySelector('[data-role="randomize-toggle"]');
-        if (randomToggle && randomToggle.checked && target.value) {
-          randomToggle.checked = false;
-          handleRandomizeToggle(randomToggle);
+      if (!container) return;
+      const formulaInput = container.querySelector('[data-role="speaker-formula"]');
+      const mixContainer = container.querySelector('[data-role="speaker-mix"]');
+      const mixLabel = container.querySelector('[data-role="speaker-mix-label"]');
+
+      if (target.value === "__custom_mix") {
+        if (!formulaInput?.value?.trim()) {
+          const previous = target.dataset.prevManual || "";
+          target.value = previous;
         }
+        updatePreviewVoice(target);
+        return;
       }
-      if (container && !target.dataset.suppressFormulaClear) {
-        const formulaInput = container.querySelector('[data-role="speaker-formula"]');
-        const mixContainer = container.querySelector('[data-role="speaker-mix"]');
+
+      if (!target.dataset.suppressFormulaClear) {
         if (formulaInput) {
           formulaInput.value = "";
+        }
+        if (mixLabel) {
+          mixLabel.textContent = "";
         }
         if (mixContainer) {
           mixContainer.hidden = true;
         }
+        updateCustomMixOption(target, "");
       }
-      if (!target.dataset.suppressRandomize) {
-        target.dataset.prevManual = target.value || "";
-      }
+
+      target.dataset.prevManual = target.value || "";
       updatePreviewVoice(target);
       delete target.dataset.suppressFormulaClear;
     });
     updatePreviewVoice(select);
-  });
-
-  const randomizeToggles = Array.from(form.querySelectorAll('[data-role="randomize-toggle"]'));
-  randomizeToggles.forEach((checkbox) => {
-    handleRandomizeToggle(checkbox);
-    checkbox.addEventListener("change", () => handleRandomizeToggle(checkbox));
   });
 
   const finalizeAction = form.getAttribute("action");
@@ -427,12 +476,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const formulaInput = speakerItem.querySelector('[data-role="speaker-formula"]');
     const mixLabel = speakerItem.querySelector('[data-role="speaker-mix-label"]');
     const mixContainer = speakerItem.querySelector('[data-role="speaker-mix"]');
-    const previewButton = speakerItem.querySelector('[data-role="speaker-preview"]');
-    const randomToggle = speakerItem.querySelector('[data-role="randomize-toggle"]');
-    if (randomToggle && randomToggle.checked) {
-      randomToggle.checked = false;
-      handleRandomizeToggle(randomToggle);
-    }
+
     if (formulaInput) {
       formulaInput.value = formula || "";
     }
@@ -442,26 +486,29 @@ document.addEventListener("DOMContentLoaded", () => {
     if (mixContainer) {
       mixContainer.hidden = !formula;
     }
-    if (select) {
-      select.disabled = false;
-      select.dataset.suppressRandomize = "1";
+
+    if (!select) {
+      return;
+    }
+
+    ensureCustomMixOption(select);
+
+    if (formula) {
+      if (select.value !== "__custom_mix") {
+        select.dataset.prevManual = select.value || select.dataset.prevManual || select.dataset.defaultVoice || "";
+      }
       select.dataset.suppressFormulaClear = "1";
-      if (formula) {
-        select.value = "";
-      } else if (!select.value && select.dataset.prevManual) {
-        select.value = select.dataset.prevManual;
-      }
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-      delete select.dataset.suppressRandomize;
+      updateCustomMixOption(select, formula);
+      select.value = "__custom_mix";
+    } else {
+      const fallback = select.dataset.prevManual || select.dataset.defaultVoice || "";
+      select.dataset.suppressFormulaClear = "1";
+      updateCustomMixOption(select, "");
+      select.value = fallback;
     }
-    if (previewButton) {
-      if (formula) {
-        previewButton.dataset.voice = formula;
-      } else {
-        const defaultVoice = select?.dataset.defaultVoice || previewButton.dataset.voice || "";
-        previewButton.dataset.voice = select?.value || defaultVoice;
-      }
-    }
+
+    updatePreviewVoice(select);
+    delete select.dataset.suppressFormulaClear;
   };
 
   const hideGenderMenus = () => {
@@ -999,16 +1046,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!container) return;
     const select = container.querySelector('[data-role="speaker-voice"]');
     if (!select) return;
-    const randomToggle = container.querySelector('[data-role="randomize-toggle"]');
-    if (randomToggle && randomToggle.checked) {
-      randomToggle.checked = false;
-      handleRandomizeToggle(randomToggle);
-    }
-    select.disabled = false;
-    select.dataset.suppressRandomize = "1";
     select.value = chip.dataset.voice || "";
     select.dispatchEvent(new Event("change", { bubbles: true }));
-    delete select.dataset.suppressRandomize;
     select.dataset.prevManual = select.value || "";
   });
 

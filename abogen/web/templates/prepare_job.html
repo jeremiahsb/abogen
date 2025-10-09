@@ -43,16 +43,6 @@
       <div class="alert alert--info">{{ notice }}</div>
     {% endif %}
 
-    <div class="prepare-step-nav" data-role="prepare-step-nav">
-      <button type="button" class="button button--ghost{% if is_chapters %} is-active{% endif %}" data-step-target="chapters">Step 2 · Chapters</button>
-      <button type="button"
-              class="button button--ghost{% if is_speakers %} is-active{% endif %}"
-              data-step-target="speakers"
-              {% if not is_speakers %}disabled aria-disabled="true" data-state="locked"{% else %}data-state="unlocked"{% endif %}>
-        Step 3 · Speakers
-      </button>
-    </div>
-
     <div class="prepare-steps" data-role="prepare-step-panels">
       <section class="prepare-step" data-step-panel="chapters">
         <header class="prepare-step__header">
@@ -198,16 +188,6 @@
                       {% if not speaker_configs %}disabled{% endif %}>
                 Apply preset
               </button>
-              <button type="submit"
-                      class="button button--ghost"
-                      name="randomize_speaker_config"
-                      value="1"
-                      formaction="{{ url_for('web.analyze_pending_job', pending_id=pending.id) }}"
-                      formmethod="post"
-                      formnovalidate
-                      {% if not speaker_configs %}disabled{% endif %}>
-                Randomize compatible voices
-              </button>
               <label class="toggle-pill">
                 <input type="checkbox" name="save_speaker_config" value="1">
                 <span>Save roster updates back to preset</span>
@@ -274,9 +254,6 @@
                 {% if speaker.get('analysis_count') %}
                 <span class="badge badge--muted">{{ speaker.analysis_count }} lines · {{ speaker.analysis_confidence|default('low')|title }} confidence</span>
                 {% endif %}
-                {% if settings.speaker_random_languages %}
-                <span class="badge badge--muted">Randomizer: {{ settings.speaker_random_languages | map('upper') | join(', ') }}</span>
-                {% endif %}
               </div>
               <label class="speaker-list__field" for="speaker-{{ speaker_id }}-pronunciation">
                 <span>Pronunciation</span>
@@ -293,9 +270,11 @@
                     <select id="speaker-{{ speaker_id }}-voice"
                             name="speaker-{{ speaker_id }}-voice"
                             data-role="speaker-voice"
-                            data-default-voice="{{ pending.voice }}"
-                            {% if speaker.randomize %}disabled{% endif %}>
+                            data-default-voice="{{ pending.voice }}">
                       <option value="" {% if not selected_voice %}selected{% endif %}>Use narrator voice ({{ pending.voice }})</option>
+                      <option value="__custom_mix" data-role="custom-mix-option" {% if speaker.voice_formula %}selected{% else %}hidden disabled{% endif %}>
+                        Custom mix
+                      </option>
                       {% if speaker.recommended_voices %}
                       <optgroup label="Recommended">
                         {% for voice_id in speaker.recommended_voices[:6] %}
@@ -333,21 +312,38 @@
                           data-speaker-id="{{ speaker_id }}">
                     Generate voice
                   </button>
-                </div>
-                <div class="speaker-list__inline">
-                  <label class="toggle-pill">
-                    <input type="checkbox"
-                           name="speaker-{{ speaker_id }}-randomize"
-                           value="1"
-                           data-role="randomize-toggle"
-                           {% if speaker.randomize %}checked{% endif %}>
-                    <span>Randomize compatible voice on analyze</span>
-                  </label>
+                  <button type="button"
+                          class="button button--ghost button--small"
+                          data-role="speaker-preview"
+                          data-preview-kind="generated"
+                          data-speaker-id="{{ speaker_id }}"
+                          data-preview-text="{{ preview_text|e }}"
+                          data-language="{{ pending.language }}"
+                          data-voice="{{ speaker.voice_formula or selected_voice or pending.voice }}"
+                          data-speed="{{ '%.2f'|format(pending.speed) }}"
+                          data-use-gpu="{{ 'true' if pending.use_gpu else 'false' }}"
+                          {% if not speaker.voice_formula %}hidden{% endif %}>
+                    Preview generated
+                  </button>
                 </div>
                 <div class="speaker-list__mix" data-role="speaker-mix" {% if not speaker.voice_formula %}hidden{% endif %}>
                   <span class="tag">Custom mix</span>
                   <span data-role="speaker-mix-label">{{ speaker.voice_formula or '' }}</span>
-                  <button type="button" class="button button--ghost button--small" data-role="clear-mix">Clear</button>
+                  <div class="speaker-list__mix-actions">
+                    <button type="button"
+                            class="button button--ghost button--small"
+                            data-role="speaker-preview"
+                            data-preview-context="mix"
+                            data-speaker-id="{{ speaker_id }}"
+                            data-preview-text="{{ preview_text|e }}"
+                            data-language="{{ pending.language }}"
+                            data-voice="{{ speaker.voice_formula or selected_voice or pending.voice }}"
+                            data-speed="{{ '%.2f'|format(pending.speed) }}"
+                            data-use-gpu="{{ 'true' if pending.use_gpu else 'false' }}">
+                      Preview mix
+                    </button>
+                    <button type="button" class="button button--ghost button--small" data-role="clear-mix">Clear</button>
+                  </div>
                 </div>
                 <input type="hidden" name="speaker-{{ speaker_id }}-formula" value="{{ speaker.voice_formula or '' }}" data-role="speaker-formula">
               </div>
@@ -447,7 +443,6 @@
             <button type="button" class="button button--ghost button--small" data-role="voice-modal-gender" data-value="f">Female</button>
             <button type="button" class="button button--ghost button--small" data-role="voice-modal-gender" data-value="m">Male</button>
           </div>
-          <button type="button" class="button button--ghost" data-role="voice-modal-random">Random blend</button>
           <button type="button" class="button button--ghost" data-role="voice-modal-clear">Clear selection</button>
         </aside>
         <section class="voice-browser__catalog" aria-label="Voice catalog">

@@ -1231,6 +1231,62 @@ body {
   gap: 0.5rem;
   font-size: 0.8rem;
   margin-bottom: 0.3rem;
+  align-items: center;
+}
+
+.speaker-gender {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.speaker-gender__pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.32rem 0.8rem;
+  min-width: 8.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--accent);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.speaker-gender__pill:hover,
+.speaker-gender__pill.is-open {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18);
+}
+
+.speaker-gender__menu {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 0;
+  z-index: 40;
+  min-width: 220px;
+  padding: 0.75rem;
+  border-radius: 16px;
+  border: 1px solid var(--panel-border);
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 18px 40px rgba(7, 14, 32, 0.55);
+}
+
+.speaker-gender__menu[hidden] {
+  display: none !important;
+}
+
+.speaker-gender__options {
+  display: grid;
+  gap: 0.35rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.speaker-gender__options .chip {
+  width: 100%;
+  justify-content: center;
 }
 
 .speaker-list__controls {
@@ -1289,21 +1345,21 @@ body {
 
 .prepare-form {
   display: grid;
-  gap: 1.5rem;
+  gap: 2rem;
 }
 
 .chapter-grid {
   display: grid;
-  gap: 1rem;
+  gap: 1.25rem;
 }
 
 .chapter-card {
   border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 20px;
-  padding: 1rem 1.25rem;
+  border-radius: 22px;
+  padding: 1.25rem 1.5rem;
   background: rgba(15, 23, 42, 0.32);
   display: grid;
-  gap: 0.85rem;
+  gap: 1.1rem;
 }
 
 .chapter-card[data-disabled="true"] {
@@ -1314,7 +1370,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 1rem;
+  gap: 1.25rem;
 }
 
 .chapter-card__title {
@@ -1517,17 +1573,20 @@ body {
 
 .prepare-actions {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   gap: 1rem;
+  padding-top: 1.25rem;
 }
 
 .prepare-actions .button {
-  min-width: 190px;
+  min-width: 200px;
+  padding-left: 1.75rem;
+  padding-right: 1.75rem;
 }
 
 .prepare-actions .button--ghost {
-  border-color: rgba(148, 163, 184, 0.25);
+  border-color: rgba(148, 163, 184, 0.35);
 }
 
 .toggle-pill input:checked + span {

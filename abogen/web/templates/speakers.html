@@ -2,7 +2,6 @@
 
 {% macro speaker_row(row_key, speaker, options) %}
   {% set gender = (speaker.gender or 'unknown') %}
-  {% set randomize = speaker.randomize %}
   <div class="speaker-config-row" data-role="speaker-row" data-row-id="{{ row_key }}">
     <input type="hidden" name="speaker_rows" value="{{ row_key }}">
     <input type="hidden" name="speaker-{{ row_key }}-id" value="{{ speaker.id or row_key }}">
@@ -30,10 +29,6 @@
       </label>
     </div>
     <div class="speaker-config-row__footer">
-      <label class="toggle-pill">
-        <input type="checkbox" name="speaker-{{ row_key }}-randomize" value="1" {% if randomize %}checked{% endif %}>
-        <span>Randomize compatible voice when applied</span>
-      </label>
       <button type="button" class="button button--ghost button--small" data-action="remove-speaker">
         Remove
       </button>
@@ -60,7 +55,7 @@
     </span>
   </div>
   <div class="card__title">Speaker presets</div>
-  <p class="card__subtitle">Store recurring casts, control randomization defaults, and keep voices consistent between books.</p>
+  <p class="card__subtitle">Store recurring casts and keep voices consistent between books.</p>
 
   {% if message %}
   <div class="alert alert--success">{{ message }}</div>
@@ -125,7 +120,7 @@
             <h3>Speakers</h3>
             <button type="button" class="button button--ghost button--small" data-action="add-speaker">Add speaker</button>
           </div>
-          <p class="hint">Add each recurring character, set their gender, and decide whether to randomize a compatible voice automatically.</p>
+          <p class="hint">Add each recurring character, set their gender, and choose a preferred voice.</p>
           <div class="speaker-config-rows__list" data-role="speaker-rows">
             {% set speakers_map = editing.speakers or {} %}
             {% if speakers_map %}
@@ -147,7 +142,7 @@
   </div>
 
   <template id="speaker-row-template">
-    {{ speaker_row('__ROW__', {'id': '', 'label': '', 'gender': 'unknown', 'voice': '', 'randomize': True}, options) | safe }}
+  {{ speaker_row('__ROW__', {'id': '', 'label': '', 'gender': 'unknown', 'voice': ''}, options) | safe }}
   </template>
 </section>
 {% endblock %}
