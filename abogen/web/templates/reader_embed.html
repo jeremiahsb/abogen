@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ job.original_filename }} · Reader</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #020617;
+      --panel: rgba(15, 23, 42, 0.92);
+      --border: rgba(148, 163, 184, 0.25);
+      --text: #e2e8f0;
+      --accent: #38bdf8;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      padding: 0.75rem;
+    }
+
+    .reader-shell {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 auto;
+      min-height: 0;
+      gap: 0.75rem;
+    }
+
+    .reader-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.75rem 1rem;
+      border-radius: 14px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+    }
+
+    .reader-toolbar__title {
+      flex: 1 1 auto;
+      text-align: center;
+      font-weight: 600;
+      font-size: 1rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .reader-toolbar button {
+      flex: 0 0 auto;
+      border: 1px solid var(--border);
+      background: rgba(30, 41, 59, 0.8);
+      color: var(--text);
+      border-radius: 12px;
+      padding: 0.45rem 0.9rem;
+      font-weight: 500;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: background 0.2s ease, border-color 0.2s ease;
+    }
+
+    .reader-toolbar button:hover,
+    .reader-toolbar button:focus-visible {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: rgba(56, 189, 248, 0.4);
+      outline: none;
+    }
+
+    .reader-toolbar select {
+      flex: 1 1 30%;
+      min-width: 140px;
+      max-width: 320px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(30, 41, 59, 0.8);
+      color: var(--text);
+      padding: 0.4rem 0.75rem;
+      font-size: 0.95rem;
+    }
+
+    .reader-toolbar select:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    #reader-container {
+      flex: 1 1 auto;
+      min-height: 0;
+      border-radius: 16px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      overflow: hidden;
+      display: flex;
+    }
+
+    #reader {
+      flex: 1 1 auto;
+    }
+
+    .reader-footer {
+      border-radius: 14px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 0.75rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .reader-footer audio {
+      width: 100%;
+    }
+
+    .reader-status {
+      font-size: 0.85rem;
+      color: rgba(226, 232, 240, 0.75);
+    }
+  </style>
+</head>
+<body
+  data-chapter-url="{{ chapter_url }}"
+  data-asset-base="{{ asset_base }}"
+>
+  <div class="reader-shell" data-role="reader-shell">
+    <div class="reader-toolbar">
+      <button type="button" data-action="prev">Previous</button>
+      <select data-role="reader-chapter" aria-label="Select chapter"></select>
+      <div class="reader-toolbar__title" data-role="reader-title">{{ job.original_filename }}</div>
+      <button type="button" data-action="next">Next</button>
+    </div>
+    <div id="reader-container">
+      <div id="reader"></div>
+    </div>
+    <div class="reader-footer">
+      {% if audio_url %}
+      <audio controls preload="metadata" src="{{ audio_url }}"></audio>
+      {% endif %}
+      <div class="reader-status" data-role="reader-status">Loading EPUB…</div>
+    </div>
+  </div>
+  <script type="application/json" id="reader-data">{{ {'chapters': chapters, 'title': job.original_filename}|tojson }}</script>
+  <script type="module">
+  const statusEl = document.querySelector('[data-role="reader-status"]');
+  const prevBtn = document.querySelector('[data-action="prev"]');
+  const nextBtn = document.querySelector('[data-action="next"]');
+  const titleEl = document.querySelector('[data-role="reader-title"]');
+  const readerEl = document.getElementById('reader');
+  const chapterSelect = document.querySelector('[data-role="reader-chapter"]');
+  const rawData = document.getElementById('reader-data');
+  const chapterUrl = document.body.dataset.chapterUrl || '';
+  const assetBase = document.body.dataset.assetBase || '';
+
+    let data = { chapters: [] };
+    try {
+      data = JSON.parse(rawData?.textContent || '{}');
+    } catch (error) {
+      data = { chapters: [] };
+    }
+
+  const chapters = Array.isArray(data.chapters) ? data.chapters : [];
+  const baseTitle = typeof data.title === 'string' && data.title ? data.title : 'Book';
+  let currentIndex = 0;
+    const parser = new DOMParser();
+    const activeStyleNodes = [];
+
+    const escapeFragment = (value) => {
+      if (!value) return '';
+      if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+        return CSS.escape(value);
+      }
+      return value.replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+    };
+
+    const setStatus = (message) => {
+      if (statusEl) {
+        statusEl.textContent = message;
+      }
+    };
+
+    const resolveAsset = (value) => {
+      if (!value) return value;
+      const trimmed = value.trim();
+      if (/^(?:[a-z]+:)?\/\//i.test(trimmed) || trimmed.startsWith('data:')) {
+        return trimmed;
+      }
+      const base = window.location.origin + assetBase;
+      try {
+        const url = new URL(trimmed, base);
+        return url.pathname + url.search + url.hash;
+      } catch (error) {
+        const normalized = trimmed.replace(/^\.\//, '').replace(/^\/+/, '');
+        return `${assetBase}${normalized}`;
+      }
+    };
+
+    const rewriteAssets = (root) => {
+      root.querySelectorAll('script').forEach((node) => node.remove());
+      root.querySelectorAll('[src]').forEach((node) => {
+        const resolved = resolveAsset(node.getAttribute('src'));
+        if (resolved) {
+          node.setAttribute('src', resolved);
+        }
+      });
+      root.querySelectorAll('link[href]').forEach((node) => {
+        const resolved = resolveAsset(node.getAttribute('href'));
+        if (resolved) {
+          node.setAttribute('href', resolved);
+        }
+      });
+    };
+
+    const applyStyles = (root) => {
+      while (activeStyleNodes.length) {
+        const node = activeStyleNodes.pop();
+        node?.remove();
+      }
+
+      root.querySelectorAll('style').forEach((styleNode) => {
+        const clone = styleNode.cloneNode(true);
+        document.head.append(clone);
+        activeStyleNodes.push(clone);
+        styleNode.remove();
+      });
+
+      root.querySelectorAll('link[rel="stylesheet"]').forEach((linkNode) => {
+        const href = linkNode.getAttribute('href');
+        if (!href) {
+          linkNode.remove();
+          return;
+        }
+        const clone = document.createElement('link');
+        clone.rel = 'stylesheet';
+        clone.href = href;
+        document.head.append(clone);
+        activeStyleNodes.push(clone);
+        linkNode.remove();
+      });
+    };
+
+    const updateControls = () => {
+      const hasChapters = chapters.length > 0;
+      if (prevBtn) {
+        prevBtn.disabled = !hasChapters || currentIndex <= 0;
+      }
+      if (nextBtn) {
+        nextBtn.disabled = !hasChapters || currentIndex >= chapters.length - 1;
+      }
+      if (chapterSelect && hasChapters) {
+        chapterSelect.value = String(currentIndex);
+      }
+      if (titleEl) {
+        const current = chapters[currentIndex];
+        titleEl.textContent = current?.title ? `${current.title} · ${baseTitle}` : baseTitle;
+      }
+    };
+
+    const renderChapter = async (index, fragmentId = '') => {
+      if (!chapters[index]) {
+        setStatus('No chapter available.');
+        return;
+      }
+      setStatus('Loading chapter…');
+      currentIndex = index;
+      updateControls();
+      try {
+        const target = new URL(chapterUrl, window.location.origin);
+        target.searchParams.set('href', chapters[index].href);
+        const response = await fetch(target.toString(), { credentials: 'same-origin' });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        const content = payload?.content || '';
+        const doc = parser.parseFromString(content, 'text/html');
+        rewriteAssets(doc);
+        applyStyles(doc);
+        const fragment = document.createDocumentFragment();
+        const body = doc.body || doc.documentElement;
+        body.childNodes.forEach((node) => {
+          fragment.append(node.cloneNode(true));
+        });
+        readerEl?.replaceChildren(fragment);
+        if (readerEl) {
+          readerEl.scrollTop = 0;
+          if (fragmentId) {
+            const target = readerEl.querySelector(`#${escapeFragment(fragmentId)}`);
+            if (target instanceof HTMLElement) {
+              target.scrollIntoView({ block: 'start', behavior: 'auto' });
+            }
+          }
+        }
+        setStatus(`Chapter ${index + 1} of ${chapters.length}`);
+        updateControls();
+      } catch (error) {
+        console.error('Failed to load chapter', error);
+        setStatus('Unable to load this chapter. Try another one.');
+      }
+    };
+
+    const initChapters = () => {
+      chapterSelect?.replaceChildren();
+      if (!chapters.length) {
+        setStatus('No chapters found in this book.');
+        if (chapterSelect) {
+          const option = document.createElement('option');
+          option.textContent = 'No chapters';
+          option.value = '';
+          chapterSelect.append(option);
+          chapterSelect.disabled = true;
+        }
+        updateControls();
+        readerEl.textContent = 'This EPUB does not include any readable chapters.';
+        return;
+      }
+
+      chapterSelect?.removeAttribute('disabled');
+      chapters.forEach((chapter, idx) => {
+        const option = document.createElement('option');
+        option.value = String(idx);
+        option.textContent = chapter.title || `Chapter ${idx + 1}`;
+        chapterSelect?.append(option);
+      });
+
+      chapterSelect?.addEventListener('change', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLSelectElement)) {
+          return;
+        }
+        const value = Number.parseInt(target.value, 10);
+        if (!Number.isNaN(value)) {
+          renderChapter(value);
+        }
+      });
+
+      prevBtn?.addEventListener('click', () => {
+        if (currentIndex > 0) {
+          renderChapter(currentIndex - 1);
+        }
+      });
+
+      nextBtn?.addEventListener('click', () => {
+        if (currentIndex < chapters.length - 1) {
+          renderChapter(currentIndex + 1);
+        }
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowLeft') {
+          if (currentIndex > 0) {
+            renderChapter(currentIndex - 1);
+          }
+        } else if (event.key === 'ArrowRight') {
+          if (currentIndex < chapters.length - 1) {
+            renderChapter(currentIndex + 1);
+          }
+        }
+      });
+
+      renderChapter(0);
+    };
+
+    initChapters();
+
+    readerEl?.addEventListener('click', (event) => {
+      const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;
+      if (!anchor) {
+        return;
+      }
+      const href = anchor.getAttribute('href') || '';
+      if (!href || href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:')) {
+        return;
+      }
+      if (href.startsWith('#')) {
+        event.preventDefault();
+        const fragmentId = href.slice(1);
+  const target = readerEl.querySelector(`#${escapeFragment(fragmentId)}`);
+        if (target instanceof HTMLElement) {
+          target.scrollIntoView({ block: 'start', behavior: 'auto' });
+        }
+        return;
+      }
+      const [resource, fragment] = href.split('#', 2);
+      const matchIndex = chapters.findIndex((chapter) => {
+        const normalized = (chapter.href || '').split('#', 1)[0];
+        return normalized === resource;
+      });
+      if (matchIndex >= 0) {
+        event.preventDefault();
+        renderChapter(matchIndex, fragment || '');
+      }
+    });
+  </script>
+</body>
+</html>

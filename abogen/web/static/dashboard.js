@@ -1,6 +1,11 @@
 const initDashboard = () => {
   const uploadModal = document.querySelector('[data-role="upload-modal"]');
   const openModalButtons = document.querySelectorAll('[data-role="open-upload-modal"]');
+  const readerModal = document.querySelector('[data-role="reader-modal"]');
+  const readerFrame = readerModal?.querySelector('[data-role="reader-frame"]') || null;
+  const readerHint = readerModal?.querySelector('[data-role="reader-modal-hint"]') || null;
+  const readerTitle = readerModal?.querySelector('#reader-modal-title') || null;
+  const defaultReaderHint = readerHint?.textContent || "";
   const scope = uploadModal || document;
 
   const profileSelect = scope.querySelector('[data-role="voice-profile"]');
@@ -11,6 +16,7 @@ const initDashboard = () => {
   const languageSelect = uploadModal?.querySelector("#language") || document.getElementById("language");
 
   let lastTrigger = null;
+  let readerTrigger = null;
 
   const openUploadModal = (trigger) => {
     if (!uploadModal) return;
@@ -36,6 +42,51 @@ const initDashboard = () => {
     }
   };
 
+  const openReaderModal = (trigger) => {
+    if (!readerModal || !readerFrame) return;
+    const url = trigger?.dataset.readerUrl || "";
+    if (!url) return;
+    readerTrigger = trigger || null;
+    const bookTitle = trigger?.dataset.bookTitle || "";
+    if (readerTitle) {
+      readerTitle.textContent = bookTitle ? `${bookTitle} · reader` : "Read & listen";
+    }
+    if (readerHint) {
+      readerHint.textContent = bookTitle ? `Preview ${bookTitle} directly in your browser.` : defaultReaderHint;
+    }
+    closeUploadModal();
+    readerModal.hidden = false;
+    readerModal.dataset.open = "true";
+    document.body.classList.add("modal-open");
+    readerFrame.src = url;
+    try {
+      readerFrame.focus({ preventScroll: true });
+    } catch (error) {
+      // Ignore focus errors when the browser blocks iframe focus
+    }
+  };
+
+  const closeReaderModal = () => {
+    if (!readerModal) return;
+    if (readerModal.hidden) return;
+    readerModal.hidden = true;
+    delete readerModal.dataset.open;
+    document.body.classList.remove("modal-open");
+    if (readerFrame) {
+      readerFrame.src = "about:blank";
+    }
+    if (readerHint) {
+      readerHint.textContent = defaultReaderHint;
+    }
+    if (readerTitle) {
+      readerTitle.textContent = "Read & listen";
+    }
+    if (readerTrigger && readerTrigger instanceof HTMLElement) {
+      readerTrigger.focus({ preventScroll: true });
+    }
+    readerTrigger = null;
+  };
+
   openModalButtons.forEach((button) => {
     button.addEventListener("click", (event) => {
       event.preventDefault();
@@ -54,8 +105,29 @@ const initDashboard = () => {
   }
 
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && uploadModal && !uploadModal.hidden) {
-      closeUploadModal();
+    if (event.key === "Escape") {
+      if (uploadModal && !uploadModal.hidden) {
+        closeUploadModal();
+        return;
+      }
+      if (readerModal && !readerModal.hidden) {
+        closeReaderModal();
+      }
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    const readerClose = event.target.closest('[data-role="reader-modal-close"]');
+    if (readerClose) {
+      event.preventDefault();
+      closeReaderModal();
+      return;
+    }
+
+    const readerTriggerBtn = event.target.closest('[data-role="open-reader"]');
+    if (readerTriggerBtn) {
+      event.preventDefault();
+      openReaderModal(readerTriggerBtn);
     }
   });
 

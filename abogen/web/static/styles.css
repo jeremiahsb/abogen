@@ -233,6 +233,29 @@ body {
   border-radius: 28px;
 }
 
+.reader-modal {
+  width: min(960px, 95vw);
+  height: min(90vh, 720px);
+  display: flex;
+  flex-direction: column;
+}
+
+.reader-modal__body {
+  padding: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  background: rgba(15, 23, 42, 0.75);
+}
+
+.reader-modal__frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 18px;
+  background: #0f172a;
+}
+
 .voice-browser__header {
   display: flex;
   align-items: center;

@@ -4,13 +4,17 @@ import io
 import json
 import mimetypes
 import os
+import posixpath
 import re
 import threading
 import time
 import uuid
+import zipfile
 from datetime import datetime
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, cast
+from xml.etree import ElementTree as ET
 
 from flask import (
     Blueprint,
@@ -96,6 +100,281 @@ _SPEAKER_MODE_VALUES = {option["value"] for option in _SPEAKER_MODE_OPTIONS}
 
 
 _DEFAULT_ANALYSIS_THRESHOLD = 3
+
+
+def _coerce_path(value: Any) -> Optional[Path]:
+    if isinstance(value, Path):
+        return value
+    if isinstance(value, str):
+        candidate = Path(value)
+        return candidate
+    return None
+
+
+def _normalize_epub_path(base_dir: str, href: str) -> str:
+    if not href:
+        return ""
+    sanitized = href.split("#", 1)[0].split("?", 1)[0].strip()
+    sanitized = sanitized.replace("\\", "/")
+    if not sanitized:
+        return ""
+    if sanitized.startswith("/"):
+        sanitized = sanitized[1:]
+        base_dir = ""
+    base = base_dir.strip("/")
+    combined = posixpath.join(base, sanitized) if base else sanitized
+    normalized = posixpath.normpath(combined)
+    if normalized in {"", "."}:
+        return ""
+    if normalized.startswith("../") or normalized == "..":
+        return ""
+    return normalized
+
+
+def _decode_text(payload: bytes) -> str:
+    for encoding in ("utf-8", "utf-16", "windows-1252"):
+        try:
+            return payload.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return payload.decode("utf-8", "ignore")
+
+
+class _NavMapParser(HTMLParser):
+    def __init__(self, base_dir: str) -> None:
+        super().__init__()
+        self._base_dir = base_dir
+        self._in_nav = False
+        self._nav_depth = 0
+        self._current_href: Optional[str] = None
+        self._buffer: List[str] = []
+        self.links: Dict[str, str] = {}
+
+    def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
+        tag_lower = tag.lower()
+        if tag_lower == "nav":
+            attributes = dict(attrs)
+            nav_type = (attributes.get("epub:type") or attributes.get("type") or "").strip().lower()
+            nav_role = (attributes.get("role") or "").strip().lower()
+            type_tokens = {token.strip() for token in nav_type.split() if token}
+            role_tokens = {token.strip() for token in nav_role.split() if token}
+            if "toc" in type_tokens or "doc-toc" in role_tokens:
+                self._in_nav = True
+                self._nav_depth = 1
+                return
+            if self._in_nav:
+                self._nav_depth += 1
+            return
+        if not self._in_nav:
+            return
+        if tag_lower == "a":
+            attributes = dict(attrs)
+            href = attributes.get("href") or ""
+            normalized = _normalize_epub_path(self._base_dir, href)
+            if normalized:
+                self._current_href = normalized
+                self._buffer = []
+
+    def handle_endtag(self, tag: str) -> None:
+        tag_lower = tag.lower()
+        if tag_lower == "nav" and self._in_nav:
+            self._nav_depth -= 1
+            if self._nav_depth <= 0:
+                self._in_nav = False
+            return
+        if not self._in_nav:
+            return
+        if tag_lower == "a" and self._current_href:
+            text = "".join(self._buffer).strip()
+            if text:
+                self.links.setdefault(self._current_href, text)
+            self._current_href = None
+            self._buffer = []
+
+    def handle_data(self, data: str) -> None:
+        if self._in_nav and self._current_href and data:
+            self._buffer.append(data)
+
+
+def _parse_nav_document(payload: bytes, base_dir: str) -> Dict[str, str]:
+    parser = _NavMapParser(base_dir)
+    parser.feed(_decode_text(payload))
+    parser.close()
+    return parser.links
+
+
+def _parse_ncx_document(payload: bytes, base_dir: str) -> Dict[str, str]:
+    try:
+        root = ET.fromstring(payload)
+    except ET.ParseError:
+        return {}
+    nav_map: Dict[str, str] = {}
+    for nav_point in root.findall(".//{*}navPoint"):
+        content = nav_point.find(".//{*}content")
+        if content is None:
+            continue
+        src = content.attrib.get("src", "")
+        normalized = _normalize_epub_path(base_dir, src)
+        if not normalized:
+            continue
+        label_el = nav_point.find(".//{*}text")
+        label = (label_el.text or "").strip() if label_el is not None and label_el.text else ""
+        if not label:
+            label = posixpath.basename(normalized) or f"Section {len(nav_map) + 1}"
+        nav_map.setdefault(normalized, label)
+    return nav_map
+
+
+def _extract_epub_chapters(epub_path: Path) -> List[Dict[str, str]]:
+    chapters: List[Dict[str, str]] = []
+    if not epub_path or not epub_path.exists():
+        return chapters
+    try:
+        with zipfile.ZipFile(epub_path, "r") as archive:
+            container_bytes = archive.read("META-INF/container.xml")
+            container_root = ET.fromstring(container_bytes)
+            rootfile = container_root.find(".//{*}rootfile")
+            if rootfile is None:
+                return chapters
+            opf_path = (rootfile.attrib.get("full-path") or "").strip()
+            if not opf_path:
+                return chapters
+            opf_dir = posixpath.dirname(opf_path)
+            opf_bytes = archive.read(opf_path)
+            opf_root = ET.fromstring(opf_bytes)
+
+            manifest: Dict[str, Dict[str, str]] = {}
+            for item in opf_root.findall(".//{*}manifest/{*}item"):
+                item_id = item.attrib.get("id")
+                href = item.attrib.get("href")
+                if not item_id or not href:
+                    continue
+                manifest[item_id] = {
+                    "href": _normalize_epub_path(opf_dir, href),
+                    "properties": item.attrib.get("properties", ""),
+                    "media_type": item.attrib.get("media-type", ""),
+                }
+
+            spine_hrefs: List[str] = []
+            nav_id: Optional[str] = None
+            spine = opf_root.find(".//{*}spine")
+            if spine is not None:
+                nav_id = spine.attrib.get("toc")
+                for itemref in spine.findall(".//{*}itemref"):
+                    idref = itemref.attrib.get("idref")
+                    if not idref:
+                        continue
+                    entry = manifest.get(idref)
+                    if not entry:
+                        continue
+                    href = entry["href"]
+                    if href and href not in spine_hrefs:
+                        spine_hrefs.append(href)
+
+            nav_href: Optional[str] = None
+            for entry in manifest.values():
+                properties = entry.get("properties") or ""
+                if "nav" in {token.strip() for token in properties.split() if token}:
+                    nav_href = entry["href"]
+                    break
+            if not nav_href and nav_id:
+                toc_entry = manifest.get(nav_id)
+                if toc_entry:
+                    nav_href = toc_entry["href"]
+
+            nav_titles: Dict[str, str] = {}
+            if nav_href:
+                nav_base = posixpath.dirname(nav_href)
+                try:
+                    nav_bytes = archive.read(nav_href)
+                except KeyError:
+                    nav_bytes = None
+                if nav_bytes is not None:
+                    if nav_href.lower().endswith(".ncx"):
+                        nav_titles = _parse_ncx_document(nav_bytes, nav_base)
+                    else:
+                        nav_titles = _parse_nav_document(nav_bytes, nav_base)
+
+            if not nav_titles and nav_id and nav_id in manifest:
+                toc_entry = manifest[nav_id]
+                nav_base = posixpath.dirname(toc_entry["href"])
+                try:
+                    nav_bytes = archive.read(toc_entry["href"])
+                except KeyError:
+                    nav_bytes = None
+                if nav_bytes is not None:
+                    nav_titles = _parse_ncx_document(nav_bytes, nav_base)
+
+            for index, href in enumerate(spine_hrefs, start=1):
+                normalized = _normalize_epub_path("", href)
+                if not normalized:
+                    continue
+                title = (
+                    nav_titles.get(normalized)
+                    or nav_titles.get(normalized.split("#", 1)[0])
+                    or posixpath.basename(normalized)
+                    or f"Chapter {index}"
+                )
+                chapters.append({"href": normalized, "title": title})
+
+            if not chapters and nav_titles:
+                for index, (href, title) in enumerate(nav_titles.items(), start=1):
+                    normalized = _normalize_epub_path("", href)
+                    if not normalized:
+                        continue
+                    label = title or posixpath.basename(normalized) or f"Chapter {index}"
+                    chapters.append({"href": normalized, "title": label})
+
+            return chapters
+    except (FileNotFoundError, zipfile.BadZipFile, KeyError, ET.ParseError, UnicodeDecodeError):
+        return []
+    return chapters
+
+
+def _read_epub_bytes(epub_path: Path, raw_href: str) -> bytes:
+    normalized = _normalize_epub_path("", raw_href)
+    if not normalized:
+        raise ValueError("Invalid resource path")
+    with zipfile.ZipFile(epub_path, "r") as archive:
+        return archive.read(normalized)
+
+
+def _locate_job_epub(job: Job) -> Optional[Path]:
+    result = getattr(job, "result", None)
+    if result is not None:
+        primary = _coerce_path(getattr(result, "epub_path", None))
+        if primary and primary.exists():
+            return primary
+        artifacts = getattr(result, "artifacts", None)
+        if isinstance(artifacts, Mapping):
+            for value in artifacts.values():
+                candidate = _coerce_path(value)
+                if candidate and candidate.suffix.lower() == ".epub" and candidate.exists():
+                    return candidate
+    return None
+
+
+def _locate_job_audio(job: Job) -> Optional[Path]:
+    result = getattr(job, "result", None)
+    candidates: List[Path] = []
+    if result is not None:
+        primary = _coerce_path(getattr(result, "audio_path", None))
+        if primary:
+            candidates.append(primary)
+        artifacts = getattr(result, "artifacts", None)
+        if isinstance(artifacts, Mapping):
+            for value in artifacts.values():
+                candidate = _coerce_path(value)
+                if candidate:
+                    candidates.append(candidate)
+
+    for candidate in candidates:
+        if candidate and candidate.exists() and candidate.suffix.lower() in {".mp3", ".wav", ".flac", ".ogg", ".opus", ".m4a"}:
+            return candidate
+    for candidate in candidates:
+        if candidate and candidate.exists():
+            return candidate
+    return None
 def _build_narrator_roster(
     voice: str,
     voice_profile: Optional[str],
@@ -2288,26 +2567,121 @@ def clear_finished_jobs() -> ResponseReturnValue:
     return redirect(url_for("web.index", _anchor="queue"))
 
 
+@web_bp.get("/jobs/<job_id>/epub")
+def job_epub(job_id: str) -> ResponseReturnValue:
+    job = _service().get_job(job_id)
+    if job is None or job.status != JobStatus.COMPLETED:
+        abort(404)
+    epub_path = _locate_job_epub(job)
+    if not epub_path:
+        abort(404)
+    return send_file(
+        epub_path,
+        mimetype="application/epub+zip",
+        as_attachment=False,
+        download_name=epub_path.name,
+        conditional=True,
+    )
+
+
+@web_bp.get("/jobs/<job_id>/audio-stream")
+def job_audio_stream(job_id: str) -> ResponseReturnValue:
+    job = _service().get_job(job_id)
+    if job is None or job.status != JobStatus.COMPLETED:
+        abort(404)
+    audio_path = _locate_job_audio(job)
+    if not audio_path:
+        abort(404)
+    mime_type, _ = mimetypes.guess_type(str(audio_path))
+    return send_file(
+        audio_path,
+        mimetype=mime_type or "audio/mpeg",
+        as_attachment=False,
+        conditional=True,
+    )
+
+
+@web_bp.get("/jobs/<job_id>/reader")
+def job_reader(job_id: str) -> ResponseReturnValue:
+    job = _service().get_job(job_id)
+    if job is None or job.status != JobStatus.COMPLETED:
+        abort(404)
+    epub_path = _locate_job_epub(job)
+    if not epub_path:
+        abort(404)
+    chapters = _extract_epub_chapters(epub_path)
+    audio_path = _locate_job_audio(job)
+    chapter_url = url_for("web.job_reader_chapter", job_id=job.id)
+    asset_base = url_for("web.job_reader_asset", job_id=job.id, asset_path="").rstrip("/") + "/"
+    audio_url = url_for("web.job_audio_stream", job_id=job.id) if audio_path else ""
+    epub_url = url_for("web.job_epub", job_id=job.id)
+    return render_template(
+        "reader_embed.html",
+        job=job,
+        audio_url=audio_url,
+        epub_url=epub_url,
+        chapters=chapters,
+        chapter_url=chapter_url,
+        asset_base=asset_base,
+    )
+
+
+@web_bp.get("/jobs/<job_id>/reader/chapter")
+def job_reader_chapter(job_id: str) -> ResponseReturnValue:
+    job = _service().get_job(job_id)
+    if job is None or job.status != JobStatus.COMPLETED:
+        abort(404)
+    epub_path = _locate_job_epub(job)
+    if not epub_path:
+        abort(404)
+    raw_href = request.args.get("href", "").strip()
+    if not raw_href:
+        abort(400)
+    try:
+        chapter_bytes = _read_epub_bytes(epub_path, raw_href)
+    except (ValueError, FileNotFoundError, KeyError):
+        abort(404)
+    content = _decode_text(chapter_bytes)
+    return jsonify({"content": content})
+
+
+@web_bp.get("/jobs/<job_id>/reader/asset/<path:asset_path>")
+def job_reader_asset(job_id: str, asset_path: str) -> ResponseReturnValue:
+    job = _service().get_job(job_id)
+    if job is None or job.status != JobStatus.COMPLETED:
+        abort(404)
+    epub_path = _locate_job_epub(job)
+    if not epub_path:
+        abort(404)
+    try:
+        payload = _read_epub_bytes(epub_path, asset_path)
+    except (ValueError, FileNotFoundError, KeyError):
+        abort(404)
+    mime_type, _ = mimetypes.guess_type(asset_path)
+    buffer = io.BytesIO(payload)
+    buffer.seek(0)
+    return send_file(
+        buffer,
+        mimetype=mime_type or "application/octet-stream",
+        as_attachment=False,
+        download_name=posixpath.basename(asset_path) or "asset",
+    )
+
+
 @web_bp.get("/jobs/<job_id>/download")
 def download_job(job_id: str) -> ResponseReturnValue:
     job = _service().get_job(job_id)
     if job is None or job.status != JobStatus.COMPLETED:
         abort(404)
-    result = getattr(job, "result", None)
-    audio_path = getattr(result, "audio_path", None)
-    if audio_path is None:
+    audio_path = _locate_job_audio(job)
+    if not audio_path:
         abort(404)
-    if not isinstance(audio_path, Path):  # pragma: no cover - sanity guard
-        abort(404)
-    audio_path_path = cast(Path, audio_path)
-    if not audio_path_path.exists():
-        abort(404)
-    mime_type, _ = mimetypes.guess_type(str(audio_path_path))
+    mime_type, _ = mimetypes.guess_type(str(audio_path))
     return send_file(
-        audio_path_path,
+        audio_path,
         mimetype=mime_type or "application/octet-stream",
         as_attachment=True,
-        download_name=audio_path_path.name,
+        download_name=audio_path.name,
     )
 
 

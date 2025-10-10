@@ -75,6 +75,25 @@
             {% if job.status == JobStatus.COMPLETED and job.result.audio_path %}
               <a class="button button--ghost" href="{{ url_for('web.download_job', job_id=job.id) }}">Download</a>
             {% endif %}
+            {% set reader_source = None %}
+            {% if job.status == JobStatus.COMPLETED and job.result %}
+              {% if job.result.epub_path %}
+                {% set reader_source = job.result.epub_path %}
+              {% elif job.result.artifacts and job.result.artifacts.get('epub3') %}
+                {% set reader_source = job.result.artifacts.get('epub3') %}
+              {% endif %}
+            {% endif %}
+            {% if reader_source %}
+              <button type="button"
+                      class="icon-button"
+                      data-role="open-reader"
+                      data-reader-url="{{ url_for('web.job_reader', job_id=job.id) }}"
+                      data-book-title="{{ job.original_filename }}"
+                      title="Open reader"
+                      aria-label="Open EPUB reader for {{ job.original_filename }}">
+                📖
+              </button>
+            {% endif %}
             <button type="button" class="button button--ghost" hx-post="{{ url_for('web.delete_job', job_id=job.id) }}" hx-target="#jobs-panel" hx-swap="innerHTML" hx-confirm="Remove this job from the list?">Remove</button>
           </div>
         </li>
