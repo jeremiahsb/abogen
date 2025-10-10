@@ -656,11 +656,10 @@ def _render_chunk_html(chunk: ChunkOverlay) -> str:
     escaped_text = html.escape(raw_text)
     if not escaped_text:
         escaped_text = "&nbsp;"
-    body = escaped_text.replace("\n", "\n        ")
     return (
-        f"      <div class=\"chunk\" id=\"{escaped_id}\"{speaker_attr}{voice_attr}{level_attr}>\n"
-        f"        {body}\n"
-        "      </div>"
+        f"      <div class=\"chunk\" id=\"{escaped_id}\"{speaker_attr}{voice_attr}{level_attr}>"
+        f"{escaped_text}"
+        "</div>"
     )
 
 
