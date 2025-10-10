@@ -2,7 +2,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import List, Tuple, Iterable, Callable, Optional
+from typing import Callable, Iterable, List, Optional, Sequence, Tuple
 
 # ---------- Configuration Dataclass ----------
 
@@ -116,7 +116,12 @@ ACRONYM_POSSESSIVE_RE = re.compile(r"^[A-Z]{2,}'s$")
 
 INTERNAL_APOSTROPHE_RE = re.compile(r"[A-Za-z]'.+[A-Za-z]")  # apostrophe not at edge
 
-WORD_TOKEN_RE = re.compile(r"[A-Za-z0-9'’]+|[^A-Za-z0-9\s]")
+# Capture contiguous runs of Unicode letters/digits/apostrophes/hyphens, otherwise fall back to
+# single-character tokens (punctuation, symbols, etc.).
+WORD_TOKEN_RE = re.compile(
+    r"[0-9A-Za-z'’\u00C0-\u1FFF\u2C00-\uD7FF\-]+|[^0-9A-Za-z\s]",
+    re.UNICODE,
+)
 
 APOSTROPHE_CHARS = "’`´ꞌʼ"
 
@@ -159,6 +164,154 @@ def normalize_unicode_apostrophes(text: str) -> str:
 def tokenize(text: str) -> List[str]:
     # Simple tokenization preserving punctuation tokens
     return WORD_TOKEN_RE.findall(text)
+
+
+def _cleanup_spacing(text: str) -> str:
+    if not text:
+        return text
+
+    for marker in ("\ufeff", "\u200b", "\u200c", "\u200d", "\u2060"):
+        text = text.replace(marker, "")
+
+    # Collapse spaces before closing punctuation.
+    text = re.sub(r"\s+([,.;:!?%])", r"\1", text)
+    text = re.sub(r"\s+([’\"”»›)\]\}])", r"\1", text)
+
+    # Remove spaces directly after opening punctuation/quotes.
+    text = re.sub(r"([«‹“‘\"'(\[\{])\s+", r"\1", text)
+
+    # Ensure spaces exist after sentence punctuation when followed by a word/quote.
+    text = re.sub(r"([,.;:!?%])(?![\s”'\"’»›)])", r"\1 ", text)
+    text = re.sub(r"([”\"’])(?![\s.,;:!?\"”’»›)])", r"\1 ", text)
+
+    # Tighten hyphen/em dash spacing between word characters.
+    text = re.sub(r"(?<=\w)\s*([-–—])\s*(?=\w)", r"\1", text)
+
+    # Normalize multiple spaces.
+    text = re.sub(r"\s{2,}", " ", text)
+    return text.strip()
+
+
+_ROMAN_VALUE_MAP = {
+    "I": 1,
+    "V": 5,
+    "X": 10,
+    "L": 50,
+    "C": 100,
+    "D": 500,
+    "M": 1000,
+}
+
+_ROMAN_COMPOSE_ORDER = [
+    (1000, "M"),
+    (900, "CM"),
+    (500, "D"),
+    (400, "CD"),
+    (100, "C"),
+    (90, "XC"),
+    (50, "L"),
+    (40, "XL"),
+    (10, "X"),
+    (9, "IX"),
+    (5, "V"),
+    (4, "IV"),
+    (1, "I"),
+]
+
+_ROMAN_PREFIX_RE = re.compile(r"^(?P<roman>[IVXLCDM]+)(?P<sep>[\s\.:,;\-–—]*)", re.IGNORECASE)
+
+
+def _roman_to_int(token: str) -> Optional[int]:
+    if not token:
+        return None
+    total = 0
+    prev = 0
+    token_upper = token.upper()
+    for char in reversed(token_upper):
+        value = _ROMAN_VALUE_MAP.get(char)
+        if value is None:
+            return None
+        if value < prev:
+            total -= value
+        else:
+            total += value
+            prev = value
+    if total <= 0:
+        return None
+    if _int_to_roman(total) != token_upper:
+        return None
+    return total
+
+
+def _int_to_roman(value: int) -> str:
+    parts: List[str] = []
+    remaining = value
+    for amount, symbol in _ROMAN_COMPOSE_ORDER:
+        while remaining >= amount:
+            parts.append(symbol)
+            remaining -= amount
+    return "".join(parts)
+
+
+def normalize_roman_numeral_titles(
+    titles: Sequence[str],
+    *,
+    threshold: float = 0.5,
+) -> List[str]:
+    if not titles:
+        return []
+
+    normalized: List[str] = []
+    matches: List[Tuple[int, str, int, str, str]] = []
+    non_empty = 0
+
+    for index, raw in enumerate(titles):
+        title = "" if raw is None else str(raw)
+        stripped = title.lstrip()
+        leading_ws = title[: len(title) - len(stripped)]
+        if not stripped:
+            normalized.append(title)
+            continue
+
+        non_empty += 1
+        match = _ROMAN_PREFIX_RE.match(stripped)
+        if not match:
+            normalized.append(title)
+            continue
+
+        roman_token = match.group("roman")
+        separator = match.group("sep") or ""
+        rest = stripped[match.end():]
+
+        if not separator and rest and rest[:1].isalnum():
+            normalized.append(title)
+            continue
+
+        numeric_value = _roman_to_int(roman_token)
+        if numeric_value is None:
+            normalized.append(title)
+            continue
+
+        matches.append((index, leading_ws, numeric_value, separator, rest))
+        normalized.append(title)
+
+    if not matches or non_empty == 0:
+        return list(normalized)
+
+    if len(matches) <= non_empty * threshold:
+        return list(normalized)
+
+    output = list(normalized)
+    for idx, leading_ws, value, separator, rest in matches:
+        new_title = f"{leading_ws}{value}"
+        if separator:
+            new_title += separator
+        elif rest and not rest[0].isspace() and rest[0] not in ".-–—:;,":
+            new_title += " "
+        new_title += rest
+        output[idx] = new_title
+
+    return output
 
 
 def _match_casing(template: str, replacement: str) -> str:
@@ -385,26 +538,8 @@ def normalize_apostrophes(text: str, cfg: ApostropheConfig | None = None) -> Tup
         results.append((tok, category, norm))
         normalized_tokens.append(norm)
 
-    # Simple rejoin heuristic:
-    # If token is purely punctuation, attach without extra space.
-    out_parts = []
-    for i, (orig, cat, norm) in enumerate(results):
-        if i == 0:
-            out_parts.append(norm)
-            continue
-        prev = results[i-1][2]
-        if re.match(r"^[.,;:!?)]$", norm):
-            # Attach to previous
-            out_parts[-1] = out_parts[-1] + norm
-        elif re.match(r"^[(]$", norm):
-            out_parts.append(norm)
-        else:
-            # Normal separation
-            if not (re.match(r"^[.,;:!?)]$", prev) or prev.endswith("—")):
-                out_parts.append(" " + norm)
-            else:
-                out_parts.append(norm)
-    normalized_text = "".join(out_parts)
+    filtered = [token for token in normalized_tokens if token]
+    normalized_text = _cleanup_spacing(" ".join(filtered))
     return normalized_text, results
 
 # ---------- Optional phoneme hint post-processing ----------

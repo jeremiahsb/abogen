@@ -41,6 +41,7 @@ from abogen.constants import (
     VOICES_INTERNAL,
 )
 from abogen.chunking import ChunkLevel, build_chunks_for_chapters
+from abogen.kokoro_text_normalization import normalize_roman_numeral_titles
 from abogen.utils import (
     calculate_text_length,
     clean_text,
@@ -2048,6 +2049,13 @@ def enqueue_job() -> ResponseReturnValue:
     assert extraction is not None
 
     cover_path, cover_mime = _persist_cover_image(extraction, stored_path)
+
+    if extraction.chapters:
+        original_titles = [chapter.title for chapter in extraction.chapters]
+        normalized_titles = normalize_roman_numeral_titles(original_titles)
+        if normalized_titles != original_titles:
+            for chapter, new_title in zip(extraction.chapters, normalized_titles):
+                chapter.title = new_title
 
     metadata_tags = extraction.metadata or {}
     total_chars = extraction.total_characters or calculate_text_length(extraction.combined_text)
