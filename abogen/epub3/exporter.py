@@ -18,6 +18,7 @@ from abogen.text_extractor import ExtractedChapter, ExtractionResult
 class ChunkOverlay:
     id: str
     text: str
+    original_text: Optional[str]
     start: Optional[float]
     end: Optional[float]
     speaker_id: str
@@ -259,6 +260,7 @@ class EPUB3PackageBuilder:
                 ChunkOverlay(
                     id=normalized_id,
                     text=text or self.extraction.chapters[chapter_index].text,
+                    original_text=None,
                     start=_safe_float(marker.get("start")),
                     end=_safe_float(marker.get("end")),
                     speaker_id=speaker_id,
@@ -284,11 +286,11 @@ class EPUB3PackageBuilder:
             chunk_html = "<p></p>"
         original_block = ""
         if chapter.chunks:
-            original_text = "".join(chunk.text or "" for chunk in chapter.chunks)
+            original_text = "".join((chunk.original_text if chunk.original_text is not None else (chunk.text or "")) for chunk in chapter.chunks)
             if original_text:
                 safe_original = html.escape(original_text)
                 original_block = (
-                    "      <pre class=\"chapter-original\" hidden>\n"
+                    "      <pre class=\"chapter-original\" hidden=\"hidden\" aria-hidden=\"true\">\n"
                     f"{safe_original}\n"
                     "      </pre>"
                 )
@@ -701,10 +703,22 @@ def _restore_original_chunk_text(chapter_text: str, overlays: List[ChunkOverlay]
         if match is None and cursor:
             match = _search_original_span(chapter_text, candidate, 0)
         if match is None:
+            if chunk.original_text is None:
+                chunk.original_text = chunk.text
+            chunk.text = _prepare_display_text(chunk.text or "")
             continue
         start, end = match
-        chunk.text = chapter_text[start:end]
+        segment = chapter_text[start:end]
+        chunk.original_text = segment
+        chunk.text = _prepare_display_text(segment)
         cursor = end
+
+
+def _prepare_display_text(value: str) -> str:
+    if not value:
+        return ""
+    cleaned = re.sub(r"(?:[ \t]*\r?\n)+\Z", "", value)
+    return cleaned if cleaned else ""
 
 
 def _search_original_span(source: str, normalized: str, start: int) -> Optional[Tuple[int, int]]:

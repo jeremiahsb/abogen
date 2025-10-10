@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+import re
 import zipfile
 
 from abogen.epub3.exporter import build_epub3_package
@@ -167,5 +169,12 @@ def test_epub3_preserves_original_whitespace(tmp_path) -> None:
     with zipfile.ZipFile(output_path) as archive:
         chapter_doc = archive.read("OEBPS/text/chapter_0001.xhtml").decode("utf-8")
     assert "Line one  with  double spaces." in chapter_doc
-    normalized = chapter_doc.replace("        ", "")
-    assert "Second line\n\nThird paragraph." in normalized
+
+    chunk_section = chapter_doc.replace("        ", "")
+    assert "Second line" in chunk_section
+    assert "Third paragraph." in chunk_section
+
+    match = re.search(r"<pre class=\"chapter-original\"[^>]*>(.*?)</pre>", chapter_doc, re.DOTALL)
+    assert match is not None
+    original_text = html.unescape(match.group(1))
+    assert "Second line\n\nThird paragraph." in original_text
