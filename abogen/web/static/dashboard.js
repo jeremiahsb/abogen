@@ -8,15 +8,35 @@ const initDashboard = () => {
   const defaultReaderHint = readerHint?.textContent || "";
   const scope = uploadModal || document;
 
+  const parseJSONScript = (id) => {
+    const element = document.getElementById(id);
+    if (!element) return null;
+    try {
+      const raw = element.textContent || "";
+      return raw ? JSON.parse(raw) : null;
+    } catch (error) {
+      console.warn(`Failed to parse JSON script: ${id}`, error);
+      return null;
+    }
+  };
+
   const profileSelect = scope.querySelector('[data-role="voice-profile"]');
   const voiceField = scope.querySelector('[data-role="voice-field"]');
   const voiceSelect = scope.querySelector('[data-role="voice-select"]');
   const formulaField = scope.querySelector('[data-role="formula-field"]');
   const formulaInput = scope.querySelector('[data-role="voice-formula"]');
   const languageSelect = uploadModal?.querySelector("#language") || document.getElementById("language");
+  const speedInput = uploadModal?.querySelector('#speed') || document.getElementById('speed');
+  const previewButton = scope.querySelector('[data-role="voice-preview-button"]');
+  const previewStatus = scope.querySelector('[data-role="voice-preview-status"]');
+  const previewAudio = scope.querySelector('[data-role="voice-preview-audio"]');
+  const sampleVoiceTexts = parseJSONScript('voice-sample-texts') || {};
 
   let lastTrigger = null;
   let readerTrigger = null;
+  let previewAbortController = null;
+  let previewObjectUrl = null;
+  let suppressPauseStatus = false;
 
   const openUploadModal = (trigger) => {
     if (!uploadModal) return;
@@ -131,6 +151,215 @@ const initDashboard = () => {
     }
   });
 
+  const resolveSampleText = (language) => {
+    const fallback = typeof sampleVoiceTexts === "object" && sampleVoiceTexts?.a
+      ? sampleVoiceTexts.a
+      : "This is a sample of the selected voice.";
+    if (!language || typeof sampleVoiceTexts !== "object" || !sampleVoiceTexts) {
+      return fallback;
+    }
+    const normalizedKey = language.toLowerCase();
+    if (typeof sampleVoiceTexts[normalizedKey] === "string" && sampleVoiceTexts[normalizedKey].trim()) {
+      return sampleVoiceTexts[normalizedKey];
+    }
+    const baseKey = normalizedKey.split(/[_.-]/)[0];
+    if (baseKey && typeof sampleVoiceTexts[baseKey] === "string" && sampleVoiceTexts[baseKey].trim()) {
+      return sampleVoiceTexts[baseKey];
+    }
+    return fallback;
+  };
+
+  const getSelectedLanguage = () => {
+    const value = languageSelect?.value || "a";
+    return (value || "a").trim() || "a";
+  };
+
+  const getSelectedSpeed = () => {
+    const raw = speedInput?.value || "1";
+    const parsed = Number.parseFloat(raw);
+    return Number.isFinite(parsed) ? parsed : 1;
+  };
+
+  const cancelPreviewRequest = () => {
+    if (!previewAbortController) return;
+    previewAbortController.abort();
+    previewAbortController = null;
+  };
+
+  const stopPreviewAudio = () => {
+    if (previewAudio) {
+      suppressPauseStatus = true;
+      try {
+        previewAudio.pause();
+      } catch (error) {
+        // Ignore pause errors
+      }
+      previewAudio.removeAttribute("src");
+      previewAudio.load();
+      previewAudio.hidden = true;
+      suppressPauseStatus = false;
+    }
+    if (previewObjectUrl) {
+      URL.revokeObjectURL(previewObjectUrl);
+      previewObjectUrl = null;
+    }
+  };
+
+  const setPreviewStatus = (message, state = "") => {
+    if (!previewStatus) return;
+    if (!message) {
+      previewStatus.textContent = "";
+      previewStatus.hidden = true;
+      previewStatus.removeAttribute("data-state");
+      return;
+    }
+    previewStatus.textContent = message;
+    previewStatus.hidden = false;
+    if (state) {
+      previewStatus.dataset.state = state;
+    } else {
+      previewStatus.removeAttribute("data-state");
+    }
+  };
+
+  const setPreviewLoading = (isLoading) => {
+    if (!previewButton) return;
+    previewButton.disabled = isLoading;
+    if (isLoading) {
+      previewButton.dataset.loading = "true";
+    } else {
+      previewButton.removeAttribute("data-loading");
+    }
+  };
+
+  const buildPreviewRequest = () => {
+    const language = getSelectedLanguage();
+    const speed = getSelectedSpeed();
+    const basePayload = {
+      language,
+      speed,
+      max_seconds: 8,
+      text: resolveSampleText(language),
+    };
+
+    const profileValue = profileSelect?.value || "__standard";
+
+    if (profileValue && profileValue !== "__standard") {
+      if (profileValue === "__formula") {
+        const formulaValue = (formulaInput?.value || "").trim();
+        if (!formulaValue) {
+          return { error: "Enter a custom voice formula to preview." };
+        }
+        return {
+          endpoint: "/api/voice-profiles/preview",
+          payload: { ...basePayload, formula: formulaValue },
+        };
+      }
+      return {
+        endpoint: "/api/voice-profiles/preview",
+        payload: { ...basePayload, profile: profileValue },
+      };
+    }
+
+    const selectedVoice = (voiceSelect?.value || voiceSelect?.dataset.default || "").trim();
+    if (!selectedVoice) {
+      return { error: "Select a narrator voice to preview." };
+    }
+    return {
+      endpoint: "/api/speaker-preview",
+      payload: { ...basePayload, voice: selectedVoice },
+    };
+  };
+
+  const resetPreview = () => {
+    cancelPreviewRequest();
+    stopPreviewAudio();
+    setPreviewStatus("", "");
+  };
+
+  if (previewAudio) {
+    previewAudio.addEventListener("ended", () => {
+      setPreviewStatus("Preview finished", "info");
+    });
+    previewAudio.addEventListener("pause", () => {
+      if (suppressPauseStatus || previewAudio.ended || previewAudio.currentTime === 0) {
+        return;
+      }
+      setPreviewStatus("Preview paused", "info");
+    });
+  }
+
+  const handleVoicePreview = async () => {
+    if (!previewButton) return;
+    const request = buildPreviewRequest();
+    if (!request) {
+      return;
+    }
+    if (request.error) {
+      setPreviewStatus(request.error, "error");
+      cancelPreviewRequest();
+      stopPreviewAudio();
+      return;
+    }
+
+    cancelPreviewRequest();
+    stopPreviewAudio();
+    previewAbortController = new AbortController();
+    setPreviewLoading(true);
+    setPreviewStatus("Generating preview…", "loading");
+
+    try {
+      const response = await fetch(request.endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request.payload),
+        signal: previewAbortController.signal,
+      });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `Preview failed (status ${response.status})`);
+      }
+      const blob = await response.blob();
+      previewObjectUrl = URL.createObjectURL(blob);
+      if (previewAudio) {
+        previewAudio.src = previewObjectUrl;
+        previewAudio.hidden = false;
+        try {
+          await previewAudio.play();
+          setPreviewStatus("Preview playing", "success");
+        } catch (error) {
+          setPreviewStatus("Preview ready. Press play to listen.", "success");
+        }
+      } else {
+        setPreviewStatus("Preview ready.", "success");
+      }
+    } catch (error) {
+      if (error.name === "AbortError") {
+        return;
+      }
+      console.error("Voice preview failed", error);
+      setPreviewStatus(error.message || "Preview failed", "error");
+      stopPreviewAudio();
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  if (previewButton) {
+    previewButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      handleVoicePreview();
+    });
+  }
+
+  [voiceSelect, profileSelect, formulaInput, languageSelect, speedInput].forEach((input) => {
+    if (!input) return;
+    const eventName = input === formulaInput ? "input" : "change";
+    input.addEventListener(eventName, () => {
+      resetPreview();
+    });
+  });
+
   const hydrateDefaultVoice = () => {
     if (!voiceSelect) return;
     const defaultVoice = voiceSelect.dataset.default;
@@ -232,6 +461,11 @@ const initDashboard = () => {
   } else {
     hydrateDefaultVoice();
   }
+
+  window.addEventListener("beforeunload", () => {
+    cancelPreviewRequest();
+    stopPreviewAudio();
+  });
 };
 
 if (document.readyState === "loading") {

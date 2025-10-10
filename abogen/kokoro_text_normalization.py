@@ -3,6 +3,10 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from typing import Callable, Iterable, List, Optional, Sequence, Tuple
+try:  # pragma: no cover - optional dependency guard
+    from num2words import num2words
+except Exception:  # pragma: no cover - graceful degradation
+    num2words = None  # type: ignore
 
 # ---------- Configuration Dataclass ----------
 
@@ -24,6 +28,8 @@ class ApostropheConfig:
     joiner: str = ""                              # Replacement used when collapsing internal apostrophes
     lowercase_for_matching: bool = True           # Normalize to lower for rule matching (not output)
     protect_cultural_names: bool = True           # Always keep O'Brien, D'Angelo, etc.
+    convert_numbers: bool = True                  # Convert grouped numbers such as 12,500 to words
+    number_lang: str = "en"                       # num2words language code
 
 # ---------- Dictionaries / Patterns ----------
 
@@ -80,6 +86,7 @@ CONTRACTIONS_EXACT = {
 }
 
 # For ambiguous 'd and 's we handle separately
+_NUMBER_WITH_GROUP_RE = re.compile(r"(?<![\w\d])(-?\d{1,3}(?:,\d{3})+)(?![\w\d])")
 AMBIGUOUS_D_BASES = {"i","you","he","she","we","they"}
 AMBIGUOUS_S_BASES = {"it","that","what","where","who","when","how","there","here"}
 
@@ -528,6 +535,7 @@ def normalize_apostrophes(text: str, cfg: ApostropheConfig | None = None) -> Tup
         cfg = ApostropheConfig()
 
     text = normalize_unicode_apostrophes(text)
+    text = _normalize_grouped_numbers(text, cfg)
     tokens = tokenize(text)
 
     results = []
@@ -541,6 +549,41 @@ def normalize_apostrophes(text: str, cfg: ApostropheConfig | None = None) -> Tup
     filtered = [token for token in normalized_tokens if token]
     normalized_text = _cleanup_spacing(" ".join(filtered))
     return normalized_text, results
+
+def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
+    if not text or not cfg.convert_numbers:
+        return text
+
+    def _replace(match: re.Match[str]) -> str:
+        token = match.group(1)
+        cleaned = token.replace(",", "")
+        if not cleaned:
+            return token
+        negative = cleaned.startswith("-")
+        cleaned_digits = cleaned[1:] if negative else cleaned
+
+        if not cleaned_digits.isdigit():
+            return cleaned_digits if not negative else f"-{cleaned_digits}"
+
+        if num2words is None:
+            return ("-" if negative else "") + cleaned_digits
+
+        try:
+            value = int(cleaned)
+        except ValueError:
+            return cleaned
+
+        language = (cfg.number_lang or "en").strip() or "en"
+        try:
+            words = num2words(abs(value), lang=language)
+        except Exception:  # pragma: no cover - unsupported locale
+            return str(value)
+
+        if value < 0:
+            words = f"minus {words}"
+        return words
+
+    return _NUMBER_WITH_GROUP_RE.sub(_replace, text)
 
 # ---------- Optional phoneme hint post-processing ----------
 
@@ -567,6 +610,7 @@ def normalize_for_pipeline(text: str, *, config: Optional[ApostropheConfig] = No
     normalized, _details = normalize_apostrophes(text, cfg)
     normalized = expand_titles_and_suffixes(normalized)
     normalized = ensure_terminal_punctuation(normalized)
+    normalized = _normalize_grouped_numbers(normalized, cfg)
     if cfg.add_phoneme_hints:
         normalized = apply_phoneme_hints(normalized, iz_marker=cfg.sibilant_iz_marker)
     return normalized

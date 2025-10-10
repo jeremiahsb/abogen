@@ -1508,13 +1508,15 @@ def index() -> str:
         "index.html",
         options=_template_options(),
         settings=_load_settings(),
-        jobs_panel=_render_jobs_panel(),
     )
 
 
 @web_bp.get("/queue")
 def queue_page() -> ResponseReturnValue:
-    return redirect(url_for("web.index", _anchor="queue"))
+    return render_template(
+        "queue.html",
+        jobs_panel=_render_jobs_panel(),
+    )
 
 
 @web_bp.route("/settings", methods=["GET", "POST"])

@@ -63,3 +63,8 @@ def test_normalize_roman_titles_preserves_separators() -> None:
     assert normalized[0] == "  4.  The Trial"
     assert normalized[1] == "5 - The Verdict"
     assert normalized[2].startswith("6\nAftermath")
+
+
+def test_grouped_numbers_are_spelled_out() -> None:
+    normalized = _normalize_for_pipeline("The vault holds 35,000 credits")
+    assert "thirty-five thousand" in normalized.lower()

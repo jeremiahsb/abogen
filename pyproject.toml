@@ -30,7 +30,8 @@ dependencies = [
     "Markdown>=3.9",
     "Flask>=3.0.3",
     "numpy>=1.24.0",
-    "gpustat>=1.1.1"
+    "gpustat>=1.1.1",
+    "num2words>=0.5.13"
 ]
 
 classifiers = [

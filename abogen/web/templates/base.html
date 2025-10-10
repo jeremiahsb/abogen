@@ -20,7 +20,7 @@
     <a href="{{ url_for('web.index') }}" class="btn{% if endpoint == 'web.index' %} is-active{% endif %}">Dashboard</a>
   <a href="{{ url_for('web.voice_profiles_page') }}" class="btn{% if endpoint == 'web.voice_profiles_page' %} is-active{% endif %}">Voice Mixer</a>
     <a href="{{ url_for('web.speaker_configs_page') }}" class="btn{% if endpoint == 'web.speaker_configs_page' %} is-active{% endif %}">Speakers</a>
-    <a href="{{ url_for('web.index', _anchor='queue') }}" class="btn{% if endpoint in ['web.queue_page', 'web.job_detail'] %} is-active{% endif %}">Queue</a>
+  <a href="{{ url_for('web.queue_page') }}" class="btn{% if endpoint in ['web.queue_page', 'web.job_detail'] %} is-active{% endif %}">Queue</a>
     <a href="{{ url_for('web.settings_page') }}" class="btn{% if endpoint == 'web.settings_page' %} is-active{% endif %}">Settings</a>
     </nav>
   </header>
