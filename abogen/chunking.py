@@ -5,11 +5,19 @@ from typing import Dict, Iterable, Iterator, List, Literal, Optional
 
 import re
 
+from abogen.kokoro_text_normalization import ApostropheConfig, normalize_for_pipeline
+
 ChunkLevel = Literal["paragraph", "sentence"]
 
 _SENTENCE_SPLIT_REGEX = re.compile(r"(?<!\b[A-Z])[.!?][\s\n]+")
 _WHITESPACE_REGEX = re.compile(r"\s+")
 _PARAGRAPH_SPLIT_REGEX = re.compile(r"(?:\r?\n){2,}")
+_ABBREVIATION_END_RE = re.compile(
+    r"\b(?:Mr|Mrs|Ms|Dr|Prof|Rev|Sr|Jr|St|Gen|Lt|Col|Sgt|Capt|Adm|Cmdr|vs|etc)\.$",
+    re.IGNORECASE,
+)
+
+_PIPELINE_APOSTROPHE_CONFIG = ApostropheConfig()
 
 
 @dataclass(frozen=True)
@@ -64,6 +72,37 @@ def _normalize_whitespace(value: str) -> str:
     return _WHITESPACE_REGEX.sub(" ", value).strip()
 
 
+def _normalize_chunk_text(value: str) -> str:
+    normalized = normalize_for_pipeline(value, config=_PIPELINE_APOSTROPHE_CONFIG)
+    return _normalize_whitespace(normalized)
+
+
+def _split_sentences(paragraph: str) -> List[str]:
+    sentences = list(_iter_sentences(paragraph))
+    if not sentences:
+        return []
+
+    merged: List[str] = []
+    buffer: List[str] = []
+
+    for sentence in sentences:
+        if buffer:
+            buffer.append(sentence)
+        else:
+            buffer = [sentence]
+
+        if _ABBREVIATION_END_RE.search(sentence.rstrip()):
+            continue
+
+        merged.append(" ".join(buffer))
+        buffer = []
+
+    if buffer:
+        merged.append(" ".join(buffer))
+
+    return merged
+
+
 def chunk_text(
     *,
     chapter_index: int,
@@ -88,19 +127,19 @@ def chunk_text(
             if not normalized:
                 continue
             chunk_id = f"{prefix}_p{para_index:04d}"
-            chunks.append(
-                Chunk(
-                    id=chunk_id,
-                    chapter_index=chapter_index,
-                    chunk_index=len(chunks),
-                    level=level,
-                    text=normalized,
-                    speaker_id=speaker_id,
-                    voice=voice,
-                    voice_profile=voice_profile,
-                    voice_formula=voice_formula,
-                ).as_dict()
-            )
+            payload = Chunk(
+                id=chunk_id,
+                chapter_index=chapter_index,
+                chunk_index=len(chunks),
+                level=level,
+                text=normalized,
+                speaker_id=speaker_id,
+                voice=voice,
+                voice_profile=voice_profile,
+                voice_formula=voice_formula,
+            ).as_dict()
+            payload["normalized_text"] = _normalize_chunk_text(paragraph)
+            chunks.append(payload)
         return chunks
 
     # Sentence level – flatten paragraphs into individual sentences
@@ -109,25 +148,25 @@ def chunk_text(
         normalized_para = _normalize_whitespace(paragraph)
         if not normalized_para:
             continue
-        sentences = list(_iter_sentences(normalized_para)) or [normalized_para]
+        sentences = _split_sentences(normalized_para) or [normalized_para]
         for sent_local_index, sentence in enumerate(sentences):
             normalized_sentence = _normalize_whitespace(sentence)
             if not normalized_sentence:
                 continue
             chunk_id = f"{prefix}_p{para_index:04d}_s{sent_local_index:04d}"
-            chunks.append(
-                Chunk(
-                    id=chunk_id,
-                    chapter_index=chapter_index,
-                    chunk_index=sentence_index,
-                    level=level,
-                    text=normalized_sentence,
-                    speaker_id=speaker_id,
-                    voice=voice,
-                    voice_profile=voice_profile,
-                    voice_formula=voice_formula,
-                ).as_dict()
-            )
+            payload = Chunk(
+                id=chunk_id,
+                chapter_index=chapter_index,
+                chunk_index=sentence_index,
+                level=level,
+                text=normalized_sentence,
+                speaker_id=speaker_id,
+                voice=voice,
+                voice_profile=voice_profile,
+                voice_formula=voice_formula,
+            ).as_dict()
+            payload["normalized_text"] = _normalize_chunk_text(sentence)
+            chunks.append(payload)
             sentence_index += 1
 
     return chunks

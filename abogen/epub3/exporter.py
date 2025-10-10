@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import html
+import re
 import shutil
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Pattern, Sequence, Tuple
 import zipfile
 
 from abogen.text_extractor import ExtractedChapter, ExtractionResult
@@ -258,6 +259,13 @@ class EPUB3PackageBuilder:
                     voice=str(voice) if voice else None,
                 )
             )
+
+        chapter_text = ""
+        if 0 <= chapter_index < len(self.extraction.chapters):
+            chapter_entry = self.extraction.chapters[chapter_index]
+            chapter_text = getattr(chapter_entry, "text", "") or ""
+
+        _restore_original_chunk_text(chapter_text, overlays)
 
         return overlays
 
@@ -617,33 +625,16 @@ def _render_chunk_html(chunk: ChunkOverlay) -> str:
     escaped_id = html.escape(chunk.id)
     speaker_attr = f" data-speaker=\"{html.escape(chunk.speaker_id)}\"" if chunk.speaker_id else ""
     voice_attr = f" data-voice=\"{html.escape(chunk.voice)}\"" if chunk.voice else ""
-    paragraphs = _split_paragraphs(chunk.text)
-    if not paragraphs:
-        paragraphs = ["&nbsp;"]
-    return "      <div class=\"chunk\" id=\"{id}\"{speaker}{voice}>\n{body}\n      </div>".format(
-        id=escaped_id,
-        speaker=speaker_attr,
-        voice=voice_attr,
-        body="\n".join(f"        <p>{para}</p>" for para in paragraphs),
+    raw_text = chunk.text or ""
+    escaped_text = html.escape(raw_text)
+    if not escaped_text:
+        escaped_text = "&nbsp;"
+    body = escaped_text.replace("\n", "\n        ")
+    return (
+        f"      <div class=\"chunk\" id=\"{escaped_id}\"{speaker_attr}{voice_attr}>\n"
+        f"        {body}\n"
+        "      </div>"
     )
-
-
-def _split_paragraphs(text: str) -> List[str]:
-    if not text:
-        return []
-    segments = [segment.strip() for segment in text.replace("\r", "").split("\n\n")]
-    paragraphs: List[str] = []
-    for segment in segments:
-        if not segment:
-            continue
-        lines = [html.escape(line.strip()) for line in segment.split("\n") if line.strip()]
-        if not lines:
-            continue
-        if len(lines) == 1:
-            paragraphs.append(lines[0])
-        else:
-            paragraphs.append("<br />".join(lines))
-    return paragraphs
 
 
 def _format_smil_time(value: Optional[float]) -> str:
@@ -670,6 +661,49 @@ def _safe_float(value: Any) -> Optional[float]:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _restore_original_chunk_text(chapter_text: str, overlays: List[ChunkOverlay]) -> None:
+    if not chapter_text or not overlays:
+        return
+
+    cursor = 0
+    for chunk in overlays:
+        candidate = chunk.text or ""
+        if not candidate:
+            continue
+        match = _search_original_span(chapter_text, candidate, cursor)
+        if match is None and cursor:
+            match = _search_original_span(chapter_text, candidate, 0)
+        if match is None:
+            continue
+        start, end = match
+        chunk.text = chapter_text[start:end]
+        cursor = end
+
+
+def _search_original_span(source: str, normalized: str, start: int) -> Optional[Tuple[int, int]]:
+    if not normalized:
+        return None
+    pattern = _build_chunk_pattern(normalized)
+    match = pattern.search(source, start)
+    if not match:
+        return None
+    return match.start(1), match.end(1)
+
+
+_CHUNK_REGEX_CACHE: Dict[str, Pattern[str]] = {}
+
+
+def _build_chunk_pattern(text: str) -> Pattern[str]:
+    cached = _CHUNK_REGEX_CACHE.get(text)
+    if cached is not None:
+        return cached
+    escaped = re.escape(text)
+    escaped = escaped.replace(r"\ ", r"\s+")
+    pattern = re.compile(r"(\s*" + escaped + r"\s*)", re.DOTALL)
+    _CHUNK_REGEX_CACHE[text] = pattern
+    return pattern
 
 
 def _render_metadata_xml(

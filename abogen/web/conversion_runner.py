@@ -20,13 +20,7 @@ import static_ffmpeg
 
 from abogen.constants import VOICES_INTERNAL
 from abogen.epub3.exporter import build_epub3_package
-from abogen.kokoro_text_normalization import (
-    ApostropheConfig,
-    apply_phoneme_hints,
-    expand_titles_and_suffixes,
-    ensure_terminal_punctuation,
-    normalize_apostrophes,
-)
+from abogen.kokoro_text_normalization import ApostropheConfig, normalize_for_pipeline
 from abogen.text_extractor import ExtractedChapter, extract_from_path
 from abogen.utils import (
     calculate_text_length,
@@ -402,12 +396,7 @@ _APOSTROPHE_CONFIG = ApostropheConfig()
 
 
 def _normalize_for_pipeline(text: str) -> str:
-    normalized, _details = normalize_apostrophes(text, _APOSTROPHE_CONFIG)
-    normalized = expand_titles_and_suffixes(normalized)
-    normalized = ensure_terminal_punctuation(normalized)
-    if _APOSTROPHE_CONFIG.add_phoneme_hints:
-        return apply_phoneme_hints(normalized, iz_marker=_APOSTROPHE_CONFIG.sibilant_iz_marker)
-    return normalized
+    return normalize_for_pipeline(text, config=_APOSTROPHE_CONFIG)
 
 
 def _chapter_voice_spec(job: Job, override: Optional[Dict[str, Any]]) -> str:
@@ -988,7 +977,11 @@ def run_conversion_job(job: Job) -> None:
                         level="debug",
                     )
                 for chunk_entry in chunks_for_chapter:
-                    chunk_text = str(chunk_entry.get("text") or "").strip()
+                    chunk_text = str(
+                        chunk_entry.get("normalized_text")
+                        or chunk_entry.get("text")
+                        or ""
+                    ).strip()
                     if not chunk_text:
                         continue
 

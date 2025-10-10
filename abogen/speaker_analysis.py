@@ -175,7 +175,7 @@ def analyze_speakers(
 
     for chunk in ordered_chunks:
         chunk_id = str(chunk.get("id") or "")
-        text = str(chunk.get("text") or "")
+        text = str(chunk.get("normalized_text") or chunk.get("text") or "")
         speaker_id, confidence, quote = _infer_chunk_speaker(text, last_explicit)
         if speaker_id is None:
             speaker_id = last_explicit or narrator_id

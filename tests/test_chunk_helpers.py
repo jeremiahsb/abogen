@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from abogen.chunking import chunk_text
 from abogen.web.conversion_runner import _chunk_voice_spec, _group_chunks_by_chapter
 
 
@@ -37,3 +38,22 @@ def test_chunk_voice_spec_uses_fallback_when_no_overrides() -> None:
     chunk = {"speaker_id": "unknown"}
 
     assert _chunk_voice_spec(job, chunk, "fallback") == "fallback"
+
+
+def test_chunk_text_merges_title_abbreviations() -> None:
+    text = "Dr. Watson met Mr. Holmes at 5 p.m."
+
+    chunks = chunk_text(
+        chapter_index=0,
+        chapter_title="Chapter 1",
+        text=text,
+        level="sentence",
+    )
+
+    assert len(chunks) == 1
+    chunk = chunks[0]
+    text_value = str(chunk["text"])
+    normalized_value = str(chunk.get("normalized_text") or "")
+    assert normalized_value
+    assert text_value.startswith("Dr.")
+    assert "Doctor" in normalized_value

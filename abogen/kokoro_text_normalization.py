@@ -2,7 +2,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import List, Tuple, Iterable, Callable
+from typing import List, Tuple, Iterable, Callable, Optional
 
 # ---------- Configuration Dataclass ----------
 
@@ -415,6 +415,26 @@ def apply_phoneme_hints(text: str, iz_marker="‹IZ›") -> str:
     your phonemizer will reliably convert to /ɪz/.
     """
     return text.replace(iz_marker, " iz")
+
+
+DEFAULT_APOSTROPHE_CONFIG = ApostropheConfig()
+
+
+def normalize_for_pipeline(text: str, *, config: Optional[ApostropheConfig] = None) -> str:
+    """Normalize text for the synthesis pipeline.
+
+    This expands contractions, normalizes apostrophes, and adds phoneme hints
+    using the provided configuration so downstream chunking and synthesis share
+    the same representation.
+    """
+
+    cfg = config or DEFAULT_APOSTROPHE_CONFIG
+    normalized, _details = normalize_apostrophes(text, cfg)
+    normalized = expand_titles_and_suffixes(normalized)
+    normalized = ensure_terminal_punctuation(normalized)
+    if cfg.add_phoneme_hints:
+        normalized = apply_phoneme_hints(normalized, iz_marker=cfg.sibilant_iz_marker)
+    return normalized
 
 # ---------- Example Usage ----------
 
