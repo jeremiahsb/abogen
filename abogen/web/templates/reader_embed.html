@@ -112,6 +112,23 @@
 
     #reader {
       flex: 1 1 auto;
+      padding: 1.5rem;
+      overflow-y: auto;
+      overflow-x: hidden;
+      line-height: 1.6;
+      font-size: 1.05rem;
+      scroll-behavior: smooth;
+    }
+
+    #reader:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 4px;
+    }
+
+    #reader p,
+    #reader li,
+    #reader blockquote {
+      max-width: 60ch;
     }
 
     .reader-footer {
@@ -146,7 +163,7 @@
       <button type="button" data-action="next">Next</button>
     </div>
     <div id="reader-container">
-      <div id="reader"></div>
+  <div id="reader" tabindex="0"></div>
     </div>
     <div class="reader-footer">
       {% if audio_url %}
@@ -362,6 +379,16 @@
       });
 
       document.addEventListener('keydown', (event) => {
+        if (event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey) {
+          return;
+        }
+        const target = event.target;
+        if (target instanceof HTMLElement) {
+          const tag = target.tagName.toLowerCase();
+          if (tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable) {
+            return;
+          }
+        }
         if (event.key === 'ArrowLeft') {
           if (currentIndex > 0) {
             renderChapter(currentIndex - 1);
