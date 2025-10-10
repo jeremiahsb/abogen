@@ -126,9 +126,17 @@
     }
 
     #reader .chunk {
-      margin-bottom: 1.75rem;
+      margin-bottom: 1.25rem;
       white-space: pre-wrap;
       word-wrap: break-word;
+    }
+
+    #reader .chunk[data-level="sentence"] {
+      margin-bottom: 0.6rem;
+    }
+
+    #reader .chunk[data-level="sentence"] + #reader .chunk[data-level="sentence"] {
+      margin-top: -0.2rem;
     }
 
     #reader p,

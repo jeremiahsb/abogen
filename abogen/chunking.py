@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, Iterator, List, Literal, Optional
+from typing import Dict, Iterable, Iterator, List, Literal, Optional, Tuple
+from typing import Pattern
 
 import re
 
@@ -31,6 +32,7 @@ class Chunk:
     voice: Optional[str] = None
     voice_profile: Optional[str] = None
     voice_formula: Optional[str] = None
+    display_text: Optional[str] = None
 
     def as_dict(self) -> Dict[str, object]:
         return {
@@ -43,6 +45,7 @@ class Chunk:
             "voice": self.voice,
             "voice_profile": self.voice_profile,
             "voice_formula": self.voice_formula,
+            "display_text": self.display_text,
         }
 
 
@@ -53,19 +56,21 @@ def _iter_paragraphs(text: str) -> Iterator[str]:
             yield normalized
 
 
-def _iter_sentences(paragraph: str) -> Iterator[str]:
+def _iter_sentences(paragraph: str) -> Iterator[Tuple[str, str]]:
     if not paragraph:
         return
     start = 0
     for match in _SENTENCE_SPLIT_REGEX.finditer(paragraph):
         end = match.end()
-        candidate = paragraph[start:end].strip()
+        raw_segment = paragraph[start:end]
+        candidate = raw_segment.strip()
         if candidate:
-            yield candidate
+            yield candidate, raw_segment
         start = match.end()
-    tail = paragraph[start:].strip()
+    tail_raw = paragraph[start:]
+    tail = tail_raw.strip()
     if tail:
-        yield tail
+        yield tail, tail_raw
 
 
 def _normalize_whitespace(value: str) -> str:
@@ -77,28 +82,32 @@ def _normalize_chunk_text(value: str) -> str:
     return _normalize_whitespace(normalized)
 
 
-def _split_sentences(paragraph: str) -> List[str]:
+def _split_sentences(paragraph: str) -> List[Tuple[str, str]]:
     sentences = list(_iter_sentences(paragraph))
     if not sentences:
         return []
 
-    merged: List[str] = []
-    buffer: List[str] = []
+    merged: List[Tuple[str, str]] = []
+    buffer_norm: List[str] = []
+    buffer_raw: List[str] = []
 
-    for sentence in sentences:
-        if buffer:
-            buffer.append(sentence)
+    for normalized_sentence, raw_sentence in sentences:
+        if buffer_norm:
+            buffer_norm.append(normalized_sentence)
+            buffer_raw.append(raw_sentence)
         else:
-            buffer = [sentence]
+            buffer_norm = [normalized_sentence]
+            buffer_raw = [raw_sentence]
 
-        if _ABBREVIATION_END_RE.search(sentence.rstrip()):
+        if _ABBREVIATION_END_RE.search(normalized_sentence.rstrip()):
             continue
 
-        merged.append(" ".join(buffer))
-        buffer = []
+        merged.append((" ".join(buffer_norm), "".join(buffer_raw)))
+        buffer_norm = []
+        buffer_raw = []
 
-    if buffer:
-        merged.append(" ".join(buffer))
+    if buffer_norm:
+        merged.append((" ".join(buffer_norm), "".join(buffer_raw)))
 
     return merged
 
@@ -140,6 +149,7 @@ def chunk_text(
             ).as_dict()
             payload["normalized_text"] = _normalize_chunk_text(paragraph)
             chunks.append(payload)
+        _attach_display_text(text, chunks)
         return chunks
 
     # Sentence level – flatten paragraphs into individual sentences
@@ -148,9 +158,9 @@ def chunk_text(
         normalized_para = _normalize_whitespace(paragraph)
         if not normalized_para:
             continue
-        sentences = _split_sentences(normalized_para) or [normalized_para]
-        for sent_local_index, sentence in enumerate(sentences):
-            normalized_sentence = _normalize_whitespace(sentence)
+        sentence_pairs = _split_sentences(paragraph) or [(normalized_para, paragraph)]
+        for sent_local_index, (normalized_sentence, raw_sentence) in enumerate(sentence_pairs):
+            normalized_sentence = _normalize_whitespace(normalized_sentence)
             if not normalized_sentence:
                 continue
             chunk_id = f"{prefix}_p{para_index:04d}_s{sent_local_index:04d}"
@@ -165,11 +175,56 @@ def chunk_text(
                 voice_profile=voice_profile,
                 voice_formula=voice_formula,
             ).as_dict()
-            payload["normalized_text"] = _normalize_chunk_text(sentence)
+            payload["normalized_text"] = _normalize_chunk_text(raw_sentence)
+            payload["display_text"] = raw_sentence
             chunks.append(payload)
             sentence_index += 1
 
+    _attach_display_text(text, chunks)
     return chunks
+
+
+_DISPLAY_PATTERN_CACHE: Dict[str, Pattern[str]] = {}
+
+
+def _build_display_pattern(text: str) -> Pattern[str]:
+    cached = _DISPLAY_PATTERN_CACHE.get(text)
+    if cached is not None:
+        return cached
+    escaped = re.escape(text)
+    escaped = escaped.replace(r"\ ", r"\s+")
+    pattern = re.compile(r"(\s*" + escaped + r"\s*)", re.DOTALL)
+    _DISPLAY_PATTERN_CACHE[text] = pattern
+    return pattern
+
+
+def _search_source_span(source: str, normalized: str, start: int) -> Optional[Tuple[int, int]]:
+    if not normalized:
+        return None
+    pattern = _build_display_pattern(normalized)
+    match = pattern.search(source, start)
+    if not match:
+        return None
+    return match.start(1), match.end(1)
+
+
+def _attach_display_text(source: str, chunks: List[Dict[str, object]]) -> None:
+    if not source or not chunks:
+        return
+    cursor = 0
+    for chunk in chunks:
+        candidate = str(chunk.get("display_text") or chunk.get("text") or "")
+        if not candidate:
+            continue
+        match = _search_source_span(source, candidate, cursor)
+        if match is None and cursor:
+            match = _search_source_span(source, candidate, 0)
+        if match is None:
+            chunk.setdefault("display_text", candidate)
+            continue
+        start, end = match
+        chunk["display_text"] = source[start:end]
+        cursor = end
 
 
 def build_chunks_for_chapters(

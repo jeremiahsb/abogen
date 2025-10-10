@@ -57,3 +57,23 @@ def test_chunk_text_merges_title_abbreviations() -> None:
     assert normalized_value
     assert text_value.startswith("Dr.")
     assert "Doctor" in normalized_value
+    display_value = str(chunk.get("display_text") or "")
+    assert display_value.startswith("Dr.")
+
+
+def test_chunk_text_display_preserves_whitespace() -> None:
+    text = "Line one  with  double spaces.\nSecond line\n\nThird paragraph."
+
+    chunks = chunk_text(
+        chapter_index=0,
+        chapter_title="Chapter 1",
+        text=text,
+        level="paragraph",
+    )
+
+    assert len(chunks) == 2
+    first_display = str(chunks[0].get("display_text") or "")
+    assert "  with  " in first_display
+    assert first_display.endswith("\n\n")
+    second_display = str(chunks[1].get("display_text") or "")
+    assert second_display == "Third paragraph."

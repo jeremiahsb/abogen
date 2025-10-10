@@ -22,6 +22,7 @@ class ChunkOverlay:
     end: Optional[float]
     speaker_id: str
     voice: Optional[str]
+    level: Optional[str] = None
 
 
 @dataclass(slots=True)
@@ -233,14 +234,19 @@ class EPUB3PackageBuilder:
                 if chunk_entry is None and chapter_chunks and position < len(chapter_chunks):
                     chunk_entry = chapter_chunks[position]
 
+            level = None
             if chunk_entry is None:
                 text = self.extraction.chapters[chapter_index].text
                 speaker_id = str(marker.get("speaker_id") or "narrator")
                 voice = marker.get("voice")
             else:
-                text = str(chunk_entry.get("text") or "")
+                display_text = chunk_entry.get("display_text")
+                text = str(display_text or chunk_entry.get("text") or "")
                 speaker_id = str(chunk_entry.get("speaker_id") or marker.get("speaker_id") or "narrator")
                 voice = chunk_entry.get("voice") or chunk_entry.get("resolved_voice") or marker.get("voice")
+                level = chunk_entry.get("level") or None
+            if chunk_entry is None:
+                level = None
 
             normalized_id = _normalize_chunk_id(chunk_id) if chunk_id else None
             if not normalized_id:
@@ -257,6 +263,7 @@ class EPUB3PackageBuilder:
                     end=_safe_float(marker.get("end")),
                     speaker_id=speaker_id,
                     voice=str(voice) if voice else None,
+                    level=str(level) if level else None,
                 )
             )
 
@@ -275,6 +282,16 @@ class EPUB3PackageBuilder:
         chunk_html = "\n".join(_render_chunk_html(chunk) for chunk in chapter.chunks)
         if not chunk_html:
             chunk_html = "<p></p>"
+        original_block = ""
+        if chapter.chunks:
+            original_text = "".join(chunk.text or "" for chunk in chapter.chunks)
+            if original_text:
+                safe_original = html.escape(original_text)
+                original_block = (
+                    "      <pre class=\"chapter-original\" hidden>\n"
+                    f"{safe_original}\n"
+                    "      </pre>"
+                )
 
         return (
             "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
@@ -288,10 +305,17 @@ class EPUB3PackageBuilder:
             "    <section epub:type=\"chapter\" id=\"chapter-{index:04d}\">\n"
             "      <h1>{title}</h1>\n"
             "      {chunks}\n"
+            "{original_block}"
             "    </section>\n"
             "  </body>\n"
             "</html>\n"
-        ).format(lang=language, title=title, index=chapter.index + 1, chunks=chunk_html)
+        ).format(
+            lang=language,
+            title=title,
+            index=chapter.index + 1,
+            chunks=chunk_html,
+            original_block=("" if not original_block else f"{original_block}\n"),
+        )
 
     def _render_chapter_smil(self, chapter: ChapterDocument, audio_href: str) -> str:
         par_lines = []
@@ -625,13 +649,14 @@ def _render_chunk_html(chunk: ChunkOverlay) -> str:
     escaped_id = html.escape(chunk.id)
     speaker_attr = f" data-speaker=\"{html.escape(chunk.speaker_id)}\"" if chunk.speaker_id else ""
     voice_attr = f" data-voice=\"{html.escape(chunk.voice)}\"" if chunk.voice else ""
+    level_attr = f" data-level=\"{html.escape(chunk.level)}\"" if chunk.level else ""
     raw_text = chunk.text or ""
     escaped_text = html.escape(raw_text)
     if not escaped_text:
         escaped_text = "&nbsp;"
     body = escaped_text.replace("\n", "\n        ")
     return (
-        f"      <div class=\"chunk\" id=\"{escaped_id}\"{speaker_attr}{voice_attr}>\n"
+        f"      <div class=\"chunk\" id=\"{escaped_id}\"{speaker_attr}{voice_attr}{level_attr}>\n"
         f"        {body}\n"
         "      </div>"
     )
@@ -803,7 +828,16 @@ h1 {
 }
 
 div.chunk {
-  margin-bottom: 1em;
+    margin: 0 0 1em 0;
+    white-space: pre-wrap;
+}
+
+div.chunk[data-level="sentence"] {
+    margin-bottom: 0.5em;
+}
+
+div.chunk[data-level="sentence"] + div.chunk[data-level="sentence"] {
+    margin-top: -0.2em;
 }
 
 p {
