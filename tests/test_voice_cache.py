@@ -4,7 +4,7 @@ from typing import cast
 import pytest
 
 from abogen.constants import VOICES_INTERNAL
-from abogen.voice_cache import _CACHED_VOICES, ensure_voice_assets
+from abogen.voice_cache import LocalEntryNotFoundError, _CACHED_VOICES, ensure_voice_assets
 from abogen.web.conversion_runner import _collect_required_voice_ids
 from abogen.web.service import Job
 
@@ -19,9 +19,18 @@ def clear_voice_cache():
 def test_ensure_voice_assets_downloads_missing(monkeypatch):
     recorded = []
 
+    cached = set()
+
     def fake_download(**kwargs):
-        recorded.append(kwargs["filename"])
-        return "/tmp/fake"
+        filename = kwargs["filename"]
+        if kwargs.get("local_files_only"):
+            if filename in cached:
+                return f"/tmp/{filename}"
+            raise LocalEntryNotFoundError(f"{filename} missing")
+
+        recorded.append(filename)
+        cached.add(filename)
+        return f"/tmp/{filename}"
 
     monkeypatch.setattr("abogen.voice_cache.hf_hub_download", fake_download)
 

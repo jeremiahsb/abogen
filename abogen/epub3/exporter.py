@@ -24,6 +24,7 @@ class ChunkOverlay:
     speaker_id: str
     voice: Optional[str]
     level: Optional[str] = None
+    group_id: Optional[str] = None
 
 
 @dataclass(slots=True)
@@ -256,6 +257,10 @@ class EPUB3PackageBuilder:
                 normalized_id = f"{normalized_id}_dup"
             used_ids.add(normalized_id)
 
+            raw_group_key = chunk_entry.get("id") if chunk_entry else chunk_id
+            group_id = _derive_group_id(raw_group_key, level)
+            normalized_group_id = _normalize_chunk_id(group_id) if group_id else None
+
             overlays.append(
                 ChunkOverlay(
                     id=normalized_id,
@@ -266,6 +271,7 @@ class EPUB3PackageBuilder:
                     speaker_id=speaker_id,
                     voice=str(voice) if voice else None,
                     level=str(level) if level else None,
+                    group_id=normalized_group_id,
                 )
             )
 
@@ -281,7 +287,10 @@ class EPUB3PackageBuilder:
     def _render_chapter_xhtml(self, chapter: ChapterDocument) -> str:
         language = html.escape(self._language or "en")
         title = html.escape(chapter.title)
-        chunk_html = "\n".join(_render_chunk_html(chunk) for chunk in chapter.chunks)
+        grouped_chunks = _group_chunks_for_render(chapter.chunks)
+        chunk_html = "\n".join(
+            _render_chunk_group_html(group_id, items) for group_id, items in grouped_chunks
+        )
         if not chunk_html:
             chunk_html = "<p></p>"
         original_block = ""
@@ -647,7 +656,40 @@ def _normalize_chunk_id(chunk_id: Optional[Any]) -> Optional[str]:
     return safe[:120]
 
 
-def _render_chunk_html(chunk: ChunkOverlay) -> str:
+def _derive_group_id(chunk_id: Optional[Any], level: Optional[Any]) -> Optional[str]:
+    if chunk_id is None:
+        return None
+    text = str(chunk_id).strip()
+    if not text:
+        return None
+    if str(level or "").lower() == "sentence":
+        match = re.match(r"(.+?)_s\d+(?:_.*)?$", text)
+        if match:
+            return match.group(1)
+    return text
+
+
+def _group_chunks_for_render(chunks: Sequence[ChunkOverlay]) -> List[Tuple[Optional[str], List[ChunkOverlay]]]:
+    groups: List[Tuple[Optional[str], List[ChunkOverlay]]] = []
+    current_key: Optional[str] = None
+    current_items: List[ChunkOverlay] = []
+
+    for chunk in chunks:
+        key = chunk.group_id or chunk.id
+        if current_items and key != current_key:
+            groups.append((current_key, current_items))
+            current_items = []
+        if not current_items:
+            current_key = key
+        current_items.append(chunk)
+
+    if current_items:
+        groups.append((current_key, current_items))
+
+    return groups
+
+
+def _render_chunk_inline(chunk: ChunkOverlay) -> str:
     escaped_id = html.escape(chunk.id)
     speaker_attr = f" data-speaker=\"{html.escape(chunk.speaker_id)}\"" if chunk.speaker_id else ""
     voice_attr = f" data-voice=\"{html.escape(chunk.voice)}\"" if chunk.voice else ""
@@ -657,10 +699,20 @@ def _render_chunk_html(chunk: ChunkOverlay) -> str:
     if not escaped_text:
         escaped_text = "&nbsp;"
     return (
-        f"      <div class=\"chunk\" id=\"{escaped_id}\"{speaker_attr}{voice_attr}{level_attr}>"
+        f"<span class=\"chunk\" id=\"{escaped_id}\"{speaker_attr}{voice_attr}{level_attr}>"
         f"{escaped_text}"
-        "</div>"
+        "</span>"
     )
+
+
+def _render_chunk_group_html(group_id: Optional[str], chunks: Sequence[ChunkOverlay]) -> str:
+    if not chunks:
+        return ""
+    group_attr = f" data-group=\"{html.escape(group_id)}\"" if group_id else ""
+    inline_html = "".join(_render_chunk_inline(chunk) for chunk in chunks)
+    if not inline_html:
+        inline_html = "&nbsp;"
+    return f"      <p class=\"chunk-group\"{group_attr}>{inline_html}</p>"
 
 
 def _format_smil_time(value: Optional[float]) -> str:
@@ -840,20 +892,11 @@ h1 {
   margin-bottom: 0.5em;
 }
 
-div.chunk {
-    margin: 0 0 1em 0;
+.chunk-group {
+    margin: 0.5em 0;
+}
+
+.chunk-group .chunk {
     white-space: pre-wrap;
-}
-
-div.chunk[data-level="sentence"] {
-    margin-bottom: 0.5em;
-}
-
-div.chunk[data-level="sentence"] + div.chunk[data-level="sentence"] {
-    margin-top: -0.2em;
-}
-
-p {
-  margin: 0.5em 0;
 }
 """

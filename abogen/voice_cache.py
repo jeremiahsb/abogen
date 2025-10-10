@@ -10,6 +10,10 @@ except Exception:  # pragma: no cover - import fallback
     hf_hub_download = None  # type: ignore[assignment]
     LocalEntryNotFoundError = None  # type: ignore[assignment]
 
+if LocalEntryNotFoundError is None:  # pragma: no cover - fallback for tests
+    class LocalEntryNotFoundError(Exception):
+        pass
+
 from abogen.constants import VOICES_INTERNAL
 
 _CACHE_LOCK = threading.Lock()
@@ -116,11 +120,18 @@ def _ensure_single_voice_asset(
         raise RuntimeError("huggingface_hub is required to cache voices")
 
     filename = f"voices/{voice_id}.pt"
+    common_kwargs = {
+        "repo_id": repo_id,
+        "filename": filename,
+    }
+    if cache_dir is not None:
+        common_kwargs["cache_dir"] = cache_dir
 
-    hf_hub_download(
-        repo_id=repo_id,
-        filename=filename,
-        cache_dir=cache_dir,
-        resume_download=True,
-    )
+    try:
+        hf_hub_download(local_files_only=True, **common_kwargs)
+        return False
+    except LocalEntryNotFoundError:
+        pass
+
+    hf_hub_download(resume_download=True, **common_kwargs)
     return True

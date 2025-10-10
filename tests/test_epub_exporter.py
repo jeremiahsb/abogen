@@ -178,3 +178,77 @@ def test_epub3_preserves_original_whitespace(tmp_path) -> None:
     assert match is not None
     original_text = html.unescape(match.group(1))
     assert "Second line\n\nThird paragraph." in original_text
+
+
+def test_epub3_sentence_chunks_render_as_paragraphs(tmp_path) -> None:
+    extraction = ExtractionResult(
+        chapters=[
+            ExtractedChapter(
+                title="Chapter 1",
+                text="First sentence. Second sentence in same paragraph.\n\nNew paragraph starts here.",
+            )
+        ],
+        metadata={"title": "Sample", "artist": "Author", "language": "en"},
+    )
+
+    chunks = [
+        {
+            "id": "chap0000_p0000_s0000",
+            "chapter_index": 0,
+            "chunk_index": 0,
+            "text": "First sentence.",
+            "level": "sentence",
+            "speaker_id": "narrator",
+        },
+        {
+            "id": "chap0000_p0000_s0001",
+            "chapter_index": 0,
+            "chunk_index": 1,
+            "text": "Second sentence in same paragraph.",
+            "level": "sentence",
+            "speaker_id": "narrator",
+        },
+        {
+            "id": "chap0000_p0001_s0000",
+            "chapter_index": 0,
+            "chunk_index": 2,
+            "text": "New paragraph starts here.",
+            "level": "sentence",
+            "speaker_id": "narrator",
+        },
+    ]
+
+    chunk_markers = [
+        {"id": chunk["id"], "chapter_index": 0, "chunk_index": chunk["chunk_index"], "start": None, "end": None}
+        for chunk in chunks
+    ]
+
+    audio_path = tmp_path / "audio.mp3"
+    audio_path.write_bytes(b"ID3 audio")
+    output_path = tmp_path / "output.epub"
+
+    build_epub3_package(
+        output_path=output_path,
+        book_id="job-paragraphs",
+        extraction=extraction,
+        metadata_tags={"title": "Sample", "artist": "Author", "language": "en"},
+        chapter_markers=[],
+        chunk_markers=chunk_markers,
+        chunks=chunks,
+        audio_path=audio_path,
+        speaker_mode="single",
+    )
+
+    with zipfile.ZipFile(output_path) as archive:
+        chapter_doc = archive.read("OEBPS/text/chapter_0001.xhtml").decode("utf-8")
+
+    assert '<div class="chunk"' not in chapter_doc
+    assert chapter_doc.count('<p class="chunk-group"') == 2
+    assert 'First sentence.' in chapter_doc
+    assert 'Second sentence in same paragraph.' in chapter_doc
+
+    first_paragraph_start = chapter_doc.find('<p class="chunk-group"')
+    first_paragraph_end = chapter_doc.find('</p>', first_paragraph_start)
+    first_paragraph = chapter_doc[first_paragraph_start:first_paragraph_end]
+    assert "First sentence." in first_paragraph
+    assert "Second sentence in same paragraph." in first_paragraph
