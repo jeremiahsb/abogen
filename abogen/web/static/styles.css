@@ -130,10 +130,88 @@ body {
   gap: 1.25rem;
 }
 
+.upload-card__dropzone {
+  border: 1.5px dashed rgba(148, 163, 184, 0.3);
+  border-radius: 24px;
+  background: rgba(15, 23, 42, 0.28);
+  padding: 2.75rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+  outline: none;
+}
+
+.upload-card__dropzone:hover,
+.upload-card__dropzone:focus-visible {
+  border-color: rgba(56, 189, 248, 0.6);
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.12);
+}
+
+.upload-card__dropzone.is-dragging {
+  border-color: rgba(56, 189, 248, 0.85);
+  background: rgba(15, 23, 42, 0.45);
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.18);
+}
+
+.upload-card__dropzone-content {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: center;
+  max-width: 420px;
+}
+
+.upload-card__icon {
+  font-size: 2rem;
+  line-height: 1;
+  padding: 0.55rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--accent);
+}
+
+.upload-card__headline {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.upload-card__hint {
+  margin: 0;
+  color: var(--muted);
+}
+
+.upload-card__filename {
+  margin: 0;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.upload-card__filename[data-state="error"] {
+  color: var(--danger);
+}
+
+.upload-card__dropzone .button {
+  margin-top: 0.25rem;
+}
+
 .card__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+.card__actions .button {
+  padding: 0.7rem 1.1rem;
+  font-size: 0.95rem;
+  border-radius: 12px;
+  box-shadow: 0 8px 22px rgba(56, 189, 248, 0.18);
+}
+
+.card__actions .button:hover {
+  box-shadow: 0 12px 26px rgba(14, 165, 233, 0.24);
 }
 
 .card--modal {
@@ -213,6 +291,7 @@ body {
   flex-direction: column;
   gap: 1.5rem;
   flex: 1 1 auto;
+  min-height: 0;
 }
 
 .modal__footer {

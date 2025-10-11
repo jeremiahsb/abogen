@@ -8,6 +8,7 @@ import subprocess
 import sys
 import warnings
 from threading import Thread
+from typing import Dict, Optional
 
 from functools import lru_cache
 
@@ -29,12 +30,22 @@ warnings.filterwarnings("ignore")
 
 
 def detect_encoding(file_path):
-    import chardet
-    import charset_normalizer
+    try:
+        import chardet  # type: ignore[import-not-found]
+    except ImportError:  # pragma: no cover - optional dependency
+        chardet = None  # type: ignore[assignment]
+
+    try:
+        import charset_normalizer  # type: ignore[import-not-found]
+    except ImportError:  # pragma: no cover - optional dependency
+        charset_normalizer = None  # type: ignore[assignment]
+
     with open(file_path, "rb") as f:
         raw_data = f.read()
     detected_encoding = None
     for detectors in (charset_normalizer, chardet):
+        if detectors is None:
+            continue
         try:
             result = detectors.detect(raw_data)["encoding"]
         except Exception:
@@ -92,7 +103,10 @@ def get_resource_path(package, resource):
 def get_version():
     """Return the current version of the application."""
     try:
-        with open(get_resource_path("/", "VERSION"), "r") as f:
+        version_path = get_resource_path("/", "VERSION")
+        if not version_path:
+            raise FileNotFoundError("VERSION resource missing")
+        with open(version_path, "r") as f:
             return f.read().strip()
     except Exception:
         return "Unknown"
@@ -158,7 +172,14 @@ def get_user_cache_root():
         if last_error is not None:
             raise last_error
 
-    def _configure_cache_env():
+    def _configure_cache_env(root: Optional[str]) -> None:
+        temp_root = None
+        if root:
+            try:
+                temp_root = ensure_directory(root)
+            except OSError:
+                temp_root = None
+
         home_dir = os.environ.get("HOME")
         if not home_dir:
             home_dir = ensure_directory(os.path.join("/tmp", "abogen-home"))
@@ -169,6 +190,9 @@ def get_user_cache_root():
         cache_base = os.environ.get("XDG_CACHE_HOME")
         if cache_base:
             cache_base = ensure_directory(cache_base)
+        elif temp_root:
+            cache_base = temp_root
+            os.environ["XDG_CACHE_HOME"] = cache_base
         else:
             cache_base = ensure_directory(os.path.join(home_dir, ".cache"))
             os.environ["XDG_CACHE_HOME"] = cache_base
@@ -176,6 +200,9 @@ def get_user_cache_root():
         hf_cache = os.environ.get("HF_HOME")
         if hf_cache:
             hf_cache = ensure_directory(hf_cache)
+        elif temp_root:
+            hf_cache = ensure_directory(os.path.join(temp_root, "huggingface"))
+            os.environ["HF_HOME"] = hf_cache
         else:
             hf_cache = ensure_directory(os.path.join(cache_base, "huggingface"))
             os.environ["HF_HOME"] = hf_cache
@@ -185,7 +212,7 @@ def get_user_cache_root():
 
         os.environ.setdefault("ABOGEN_INTERNAL_CACHE_ROOT", cache_base)
 
-    cache_root = None
+    cache_root: Optional[str] = None
 
     override = os.environ.get("ABOGEN_TEMP_DIR")
     if override:
@@ -215,7 +242,10 @@ def get_user_cache_root():
             logger.warning("Falling back to temp cache directory %s", tmp_candidate)
             cache_root = ensure_directory(tmp_candidate)
 
-    _configure_cache_env()
+    if cache_root is None:
+        raise RuntimeError("Unable to determine cache directory")
+
+    _configure_cache_env(cache_root)
     return cache_root
 
 
@@ -260,7 +290,7 @@ def get_user_output_path(folder=None):
     return base
 
 
-_sleep_procs = {"Darwin": None, "Linux": None}  # Store sleep prevention processes
+_sleep_procs: Dict[str, Optional[subprocess.Popen[str]]] = {"Darwin": None, "Linux": None}  # Store sleep prevention processes
 
 
 def clean_text(text, *args, **kwargs):
@@ -319,11 +349,14 @@ def create_process(cmd, stdin=None, text=True, capture_output=False):
         kwargs["stdin"] = stdin
 
     if platform.system() == "Windows":
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startupinfo.wShowWindow = subprocess.SW_HIDE
+        startupinfo = subprocess.STARTUPINFO()  # type: ignore[attr-defined]
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW  # type: ignore[attr-defined]
+        startupinfo.wShowWindow = subprocess.SW_HIDE  # type: ignore[attr-defined]
         kwargs.update(
-            {"startupinfo": startupinfo, "creationflags": subprocess.CREATE_NO_WINDOW}
+            {
+                "startupinfo": startupinfo,
+                "creationflags": subprocess.CREATE_NO_WINDOW,  # type: ignore[attr-defined]
+            }
         )
 
     # Print the command being executed
@@ -398,8 +431,8 @@ def calculate_text_length(text):
 
 def get_gpu_acceleration(enabled):
     try:
-        import torch
-        from torch.cuda import is_available as cuda_available
+        import torch  # type: ignore[import-not-found]
+        from torch.cuda import is_available as cuda_available  # type: ignore[import-not-found]
 
         if not enabled:
             return "GPU available but using CPU.", False
@@ -437,7 +470,7 @@ def prevent_sleep_start():
     if system == "Windows":
         import ctypes
 
-        ctypes.windll.kernel32.SetThreadExecutionState(
+        ctypes.windll.kernel32.SetThreadExecutionState(  # type: ignore[attr-defined]
             0x80000000 | 0x00000001 | 0x00000040
         )
     elif system == "Darwin":
@@ -471,18 +504,21 @@ def prevent_sleep_end():
     if system == "Windows":
         import ctypes
 
-        ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)  # ES_CONTINUOUS
-    elif system in ("Darwin", "Linux") and _sleep_procs[system]:
-        try:
-            _sleep_procs[system].terminate()
-            _sleep_procs[system] = None
-        except Exception:
-            pass
+        ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)  # type: ignore[attr-defined]
+    elif system in ("Darwin", "Linux"):
+        proc = _sleep_procs.get(system)
+        if proc:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+            finally:
+                _sleep_procs[system] = None
 
 
 def load_numpy_kpipeline():
     import numpy as np
-    from kokoro import KPipeline
+    from kokoro import KPipeline  # type: ignore[import-not-found]
 
     return np, KPipeline
 

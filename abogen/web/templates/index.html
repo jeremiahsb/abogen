@@ -4,25 +4,16 @@
 
 {% block content %}
 <section class="card card--workflow">
-  <div class="step-indicator" aria-label="Audiobook workflow">
-    <span class="step-indicator__item is-active">
-      <span class="step-indicator__index">1</span>
-      <span class="step-indicator__label">Upload &amp; settings</span>
-    </span>
-    <span class="step-indicator__item">
-      <span class="step-indicator__index">2</span>
-      <span class="step-indicator__label">Chapters</span>
-    </span>
-    <span class="step-indicator__item">
-      <span class="step-indicator__index">3</span>
-      <span class="step-indicator__label">Speakers</span>
-    </span>
-  </div>
   <h1 class="card__title">Create a New Audiobook</h1>
   <p class="card__subtitle">Kick off a fresh conversion with your manuscript or pasted text. You can fine-tune chapters and speakers in the next steps.</p>
-  <div class="card__actions">
-    <button type="button" class="button" data-role="open-upload-modal">Open upload &amp; settings</button>
-    <a class="button button--ghost" href="{{ url_for('web.queue_page') }}">View queue</a>
+  <div class="upload-card__dropzone" data-role="upload-dropzone" tabindex="0" role="button" aria-label="Open upload settings or drop a manuscript file">
+    <div class="upload-card__dropzone-content">
+      <span class="upload-card__icon" aria-hidden="true">&uarr;</span>
+      <p class="upload-card__headline">Drop your manuscript to begin</p>
+      <p class="upload-card__hint">Drag &amp; drop a supported file here, or click to choose one in the next step.</p>
+      <p class="upload-card__filename" data-role="upload-dropzone-filename" hidden></p>
+      <button type="button" class="button" data-role="open-upload-modal">Open upload &amp; settings</button>
+    </div>
   </div>
 </section>
 

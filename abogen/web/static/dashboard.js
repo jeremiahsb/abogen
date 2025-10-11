@@ -7,6 +7,9 @@ const initDashboard = () => {
   const readerTitle = readerModal?.querySelector('#reader-modal-title') || null;
   const defaultReaderHint = readerHint?.textContent || "";
   const scope = uploadModal || document;
+  const sourceFileInput = scope.querySelector('#source_file');
+  const dropzone = document.querySelector('[data-role="upload-dropzone"]');
+  const dropzoneFilename = document.querySelector('[data-role="upload-dropzone-filename"]');
 
   const parseJSONScript = (id) => {
     const element = document.getElementById(id);
@@ -31,6 +34,71 @@ const initDashboard = () => {
   const previewStatus = scope.querySelector('[data-role="voice-preview-status"]');
   const previewAudio = scope.querySelector('[data-role="voice-preview-audio"]');
   const sampleVoiceTexts = parseJSONScript('voice-sample-texts') || {};
+
+  const setDropzoneStatus = (message, state = "") => {
+    if (!dropzoneFilename) return;
+    if (!message) {
+      dropzoneFilename.hidden = true;
+      dropzoneFilename.textContent = "";
+      dropzoneFilename.removeAttribute("data-state");
+      return;
+    }
+    dropzoneFilename.hidden = false;
+    dropzoneFilename.textContent = message;
+    if (state) {
+      dropzoneFilename.dataset.state = state;
+    } else {
+      dropzoneFilename.removeAttribute("data-state");
+    }
+  };
+
+  const updateDropzoneFilename = () => {
+    if (!sourceFileInput) {
+      setDropzoneStatus("");
+      return;
+    }
+    const file = sourceFileInput.files && sourceFileInput.files[0];
+    if (file) {
+      setDropzoneStatus(`Selected: ${file.name}`);
+    } else {
+      setDropzoneStatus("");
+    }
+  };
+
+  const assignDroppedFile = (file) => {
+    if (!sourceFileInput || !file) {
+      return false;
+    }
+    try {
+      if (typeof DataTransfer === "undefined") {
+        throw new Error("DataTransfer API unavailable");
+      }
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      sourceFileInput.files = transfer.files;
+      sourceFileInput.dispatchEvent(new Event("change", { bubbles: true }));
+      try {
+        sourceFileInput.focus({ preventScroll: true });
+      } catch (error) {
+        // Ignore focus errors
+      }
+      return true;
+    } catch (error) {
+      console.warn("Unable to assign dropped file to input", error);
+      setDropzoneStatus("Drag & drop isn't supported here. Click to choose a file instead.", "error");
+      return false;
+    }
+  };
+
+  const setDropzoneActive = (isActive) => {
+    if (!dropzone) return;
+    dropzone.classList.toggle("is-dragging", isActive);
+    if (isActive) {
+      dropzone.dataset.state = "drag";
+    } else {
+      delete dropzone.dataset.state;
+    }
+  };
 
   let lastTrigger = null;
   let readerTrigger = null;
@@ -150,6 +218,13 @@ const initDashboard = () => {
       openReaderModal(readerTriggerBtn);
     }
   });
+
+  if (sourceFileInput) {
+    sourceFileInput.addEventListener("change", updateDropzoneFilename);
+    updateDropzoneFilename();
+  } else {
+    setDropzoneStatus("");
+  }
 
   const resolveSampleText = (language) => {
     const fallback = typeof sampleVoiceTexts === "object" && sampleVoiceTexts?.a
@@ -349,6 +424,68 @@ const initDashboard = () => {
     previewButton.addEventListener("click", (event) => {
       event.preventDefault();
       handleVoicePreview();
+    });
+  }
+
+  if (dropzone) {
+    let dragDepth = 0;
+
+    dropzone.addEventListener("dragenter", (event) => {
+      event.preventDefault();
+      dragDepth += 1;
+      setDropzoneActive(true);
+    });
+
+    dropzone.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "copy";
+      }
+    });
+
+    const handleDragLeave = (event) => {
+      if (event && dropzone.contains(event.relatedTarget)) {
+        return;
+      }
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) {
+        setDropzoneActive(false);
+      }
+    };
+
+    dropzone.addEventListener("dragleave", (event) => {
+      handleDragLeave(event);
+    });
+
+    dropzone.addEventListener("dragend", () => {
+      dragDepth = 0;
+      setDropzoneActive(false);
+    });
+
+    dropzone.addEventListener("drop", (event) => {
+      event.preventDefault();
+      dragDepth = 0;
+      setDropzoneActive(false);
+      const files = event.dataTransfer && event.dataTransfer.files;
+      if (!files || !files.length) {
+        return;
+      }
+      openUploadModal(dropzone);
+      assignDroppedFile(files[0]);
+    });
+
+    dropzone.addEventListener("click", (event) => {
+      if (event.target.closest('[data-role="open-upload-modal"]')) {
+        return;
+      }
+      openUploadModal(dropzone);
+    });
+
+    dropzone.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openUploadModal(dropzone);
+      }
     });
   }
 
