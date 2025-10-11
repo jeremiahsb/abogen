@@ -1,7 +1,15 @@
 import { initReaderUI } from "./reader.js";
+import { initWizard } from "./wizard.js";
+
+const dashboardState = (window.AbogenDashboardState = window.AbogenDashboardState || {
+  boundKeydown: false,
+  boundBeforeUnload: false,
+});
 
 const initDashboard = () => {
-  const uploadModal = document.querySelector('[data-role="upload-modal"]');
+  const uploadModal =
+    document.querySelector('[data-role="new-job-modal"]') ||
+    document.querySelector('[data-role="upload-modal"]');
   const openModalButtons = document.querySelectorAll('[data-role="open-upload-modal"]');
   const scope = uploadModal || document;
   const sourceFileInput = scope.querySelector('#source_file');
@@ -138,35 +146,52 @@ const initDashboard = () => {
   };
 
   openModalButtons.forEach((button) => {
+    if (!button || button.dataset.dashboardBound === "true") {
+      return;
+    }
+    button.dataset.dashboardBound = "true";
     button.addEventListener("click", (event) => {
       event.preventDefault();
       openUploadModal(button);
     });
   });
 
-  if (uploadModal) {
+  if (uploadModal && uploadModal.dataset.dashboardCloseBound !== "true") {
+    uploadModal.dataset.dashboardCloseBound = "true";
     uploadModal.addEventListener("click", (event) => {
       const target = event.target;
-      if (target instanceof Element && target.closest('[data-role="upload-modal-close"]')) {
+      if (
+        target instanceof Element &&
+        (target.closest('[data-role="new-job-modal-close"]') ||
+          target.closest('[data-role="upload-modal-close"]') ||
+          target.closest('[data-role="wizard-close"]') ||
+          target.closest('[data-role="wizard-cancel"]'))
+      ) {
         event.preventDefault();
         closeUploadModal();
       }
     });
   }
 
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      if (uploadModal && !uploadModal.hidden) {
-        closeUploadModal();
-        return;
+  if (!dashboardState.boundKeydown) {
+    dashboardState.boundKeydown = true;
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        if (uploadModal && !uploadModal.hidden) {
+          closeUploadModal();
+          return;
+        }
       }
-    }
-  });
+    });
+  }
 
   initReaderUI({ onBeforeOpen: closeUploadModal });
 
   if (sourceFileInput) {
-    sourceFileInput.addEventListener("change", updateDropzoneFilename);
+    if (sourceFileInput.dataset.dashboardChangeBound !== "true") {
+      sourceFileInput.dataset.dashboardChangeBound = "true";
+      sourceFileInput.addEventListener("change", updateDropzoneFilename);
+    }
     updateDropzoneFilename();
   } else {
     setDropzoneStatus("");
@@ -366,14 +391,16 @@ const initDashboard = () => {
     }
   };
 
-  if (previewButton) {
+  if (previewButton && previewButton.dataset.dashboardBound !== "true") {
+    previewButton.dataset.dashboardBound = "true";
     previewButton.addEventListener("click", (event) => {
       event.preventDefault();
       handleVoicePreview();
     });
   }
 
-  if (dropzone) {
+  if (dropzone && dropzone.dataset.dashboardDragBound !== "true") {
+    dropzone.dataset.dashboardDragBound = "true";
     let dragDepth = 0;
 
     dropzone.addEventListener("dragenter", (event) => {
@@ -536,7 +563,10 @@ const initDashboard = () => {
 
   if (profileSelect) {
     const hasSaved = selectFirstProfileIfAvailable();
-    profileSelect.addEventListener("change", updateVoiceControls);
+    if (profileSelect.dataset.dashboardBound !== "true") {
+      profileSelect.dataset.dashboardBound = "true";
+      profileSelect.addEventListener("change", updateVoiceControls);
+    }
     updateVoiceControls();
     if (!hasSaved) {
       hydrateDefaultVoice();
@@ -545,14 +575,25 @@ const initDashboard = () => {
     hydrateDefaultVoice();
   }
 
-  window.addEventListener("beforeunload", () => {
-    cancelPreviewRequest();
-    stopPreviewAudio();
-  });
+  if (!dashboardState.boundBeforeUnload) {
+    dashboardState.boundBeforeUnload = true;
+    window.addEventListener("beforeunload", () => {
+      cancelPreviewRequest();
+      stopPreviewAudio();
+    });
+  }
+};
+
+window.AbogenDashboard = window.AbogenDashboard || {};
+window.AbogenDashboard.init = initDashboard;
+
+const bootDashboard = () => {
+  initDashboard();
+  initWizard();
 };
 
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initDashboard, { once: true });
+  document.addEventListener("DOMContentLoaded", bootDashboard, { once: true });
 } else {
-  initDashboard();
+  bootDashboard();
 }

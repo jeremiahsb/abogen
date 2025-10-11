@@ -1,10 +1,23 @@
-document.addEventListener("DOMContentLoaded", () => {
-  const form = document.querySelector(".prepare-form");
+const prepareState = (window.AbogenPrepareState = window.AbogenPrepareState || {
+  modalEventsBound: false,
+});
+
+const initPrepare = (root = document) => {
+  const rootEl = root instanceof HTMLElement ? root : document;
+  const form = rootEl.querySelector(".prepare-form") || document.querySelector(".prepare-form");
   if (!form) return;
+  if (form.dataset.prepareInitialized === "true") {
+    return;
+  }
+  form.dataset.prepareInitialized = "true";
 
   const wizardModal = document.querySelector('[data-role="wizard-modal"]');
-  const uploadModal = document.querySelector('[data-role="upload-modal"]');
-  const wizardPreviousButtons = Array.from(document.querySelectorAll('[data-role="wizard-previous"]'));
+  const uploadModal =
+    document.querySelector('[data-role="new-job-modal"]') ||
+    document.querySelector('[data-role="upload-modal"]');
+  const wizardPreviousButtons = Array.from(
+    document.querySelectorAll('[data-role="wizard-previous"], [data-role="wizard-back"]')
+  );
   const openUploadTriggers = Array.from(document.querySelectorAll('[data-role="open-upload-modal"]'));
 
   const showWizardModal = () => {
@@ -40,10 +53,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
   showWizardModal();
 
-  document.addEventListener("upload-modal:open", hideWizardModal);
-  document.addEventListener("upload-modal:close", showWizardModal);
+  if (!prepareState.modalEventsBound) {
+    prepareState.modalEventsBound = true;
+    document.addEventListener("upload-modal:open", hideWizardModal);
+    document.addEventListener("upload-modal:close", showWizardModal);
+  }
 
   wizardPreviousButtons.forEach((button) => {
+    if (!button || button.dataset.prepareBackBound === "true") {
+      return;
+    }
+    const targetStep = (button.dataset.targetStep || "").toLowerCase();
+    if (targetStep && targetStep !== "book") {
+      return;
+    }
+    button.dataset.prepareBackBound = "true";
     button.addEventListener("click", (event) => {
       event.preventDefault();
       hideWizardModal();
@@ -1775,4 +1799,13 @@ document.addEventListener("DOMContentLoaded", () => {
       hideGenderMenus();
     }
   });
-});
+};
+
+window.AbogenPrepare = window.AbogenPrepare || {};
+window.AbogenPrepare.init = initPrepare;
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => initPrepare());
+} else {
+  initPrepare();
+}

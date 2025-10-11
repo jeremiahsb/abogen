@@ -59,6 +59,7 @@ from abogen.entity_analysis import (
 from abogen.pronunciation_store import (
     delete_override as delete_pronunciation_override,
     load_overrides as load_pronunciation_overrides,
+    all_overrides as all_pronunciation_overrides,
     save_override as save_pronunciation_override,
     search_overrides as search_pronunciation_overrides,
 )
@@ -113,6 +114,26 @@ _SPEAKER_MODE_VALUES = {option["value"] for option in _SPEAKER_MODE_OPTIONS}
 
 
 _DEFAULT_ANALYSIS_THRESHOLD = 3
+
+
+_WIZARD_STEP_ORDER = ["book", "chapters", "entities"]
+_WIZARD_STEP_META = {
+    "book": {
+        "index": 1,
+        "title": "Book parameters",
+        "hint": "Choose your source file or paste text, then set the defaults used for chapter analysis and speaker casting.",
+    },
+    "chapters": {
+        "index": 2,
+        "title": "Select chapters",
+        "hint": "Choose which chapters to convert. We'll analyse entities automatically when you continue.",
+    },
+    "entities": {
+        "index": 3,
+        "title": "Review entities",
+        "hint": "Assign pronunciations, voices, and manual overrides before queueing the conversion.",
+    },
+}
 
 
 def _coerce_path(value: Any) -> Optional[Path]:
@@ -2029,6 +2050,88 @@ def voice_profiles_page() -> str:
     return render_template("voices.html", options=options)
 
 
+@web_bp.get("/entities")
+def entities_page() -> ResponseReturnValue:
+    options = _template_options()
+    settings = _load_settings()
+    languages_map = options.get("languages", {})
+
+    raw_language = (request.args.get("lang") or settings.get("language") or "a").strip().lower()
+    language = raw_language if raw_language in languages_map else "a"
+
+    query = (request.args.get("q") or "").strip()
+    voice_filter = (request.args.get("voice") or "all").strip().lower()
+    pronunciation_filter = (request.args.get("pronunciation") or "all").strip().lower()
+    limit_value = _coerce_int(request.args.get("limit"), 200, minimum=10, maximum=500)
+
+    if query:
+        overrides = search_pronunciation_overrides(language, query, limit=limit_value)
+    else:
+        overrides = all_pronunciation_overrides(language)
+        if limit_value and len(overrides) > limit_value:
+            overrides = overrides[:limit_value]
+
+    display_rows: List[Dict[str, Any]] = []
+    for entry in overrides:
+        has_voice = bool((entry.get("voice") or "").strip())
+        has_pronunciation = bool((entry.get("pronunciation") or "").strip())
+        if voice_filter == "with-voice" and not has_voice:
+            continue
+        if voice_filter == "without-voice" and has_voice:
+            continue
+        if pronunciation_filter == "with-pronunciation" and not has_pronunciation:
+            continue
+        if pronunciation_filter == "without-pronunciation" and has_pronunciation:
+            continue
+        row = dict(entry)
+        row["has_voice"] = has_voice
+        row["has_pronunciation"] = has_pronunciation
+        try:
+            updated_dt = datetime.fromtimestamp(float(entry.get("updated_at") or 0))
+            created_dt = datetime.fromtimestamp(float(entry.get("created_at") or 0))
+        except (TypeError, ValueError):
+            updated_dt = datetime.fromtimestamp(0)
+            created_dt = datetime.fromtimestamp(0)
+        row["updated_at_label"] = updated_dt.strftime("%Y-%m-%d %H:%M")
+        row["created_at_label"] = created_dt.strftime("%Y-%m-%d %H:%M")
+        display_rows.append(row)
+
+    stats = {
+        "total": len(overrides),
+        "filtered": len(display_rows),
+        "with_voice": sum(1 for row in display_rows if row["has_voice"]),
+        "with_pronunciation": sum(1 for row in display_rows if row["has_pronunciation"]),
+    }
+
+    language_options = sorted(languages_map.items(), key=lambda item: item[1])
+    voice_filters = [
+        {"value": "all", "label": "All voices"},
+        {"value": "with-voice", "label": "Assigned voice"},
+        {"value": "without-voice", "label": "No voice"},
+    ]
+    pronunciation_filters = [
+        {"value": "all", "label": "All pronunciations"},
+        {"value": "with-pronunciation", "label": "Has pronunciation"},
+        {"value": "without-pronunciation", "label": "No pronunciation"},
+    ]
+
+    context = {
+        "options": options,
+        "language": language,
+        "language_label": languages_map.get(language, language.upper()),
+        "languages": language_options,
+        "query": query,
+        "voice_filter": voice_filter,
+        "pronunciation_filter": pronunciation_filter,
+        "voice_filter_options": voice_filters,
+        "pronunciation_filter_options": pronunciation_filters,
+        "limit": limit_value,
+        "overrides": display_rows,
+        "stats": stats,
+    }
+    return render_template("entities.html", **context)
+
+
 @web_bp.route("/speakers", methods=["GET", "POST"])
 def speaker_configs_page() -> ResponseReturnValue:
     options = _template_options()
@@ -2721,13 +2824,19 @@ def enqueue_job() -> ResponseReturnValue:
         languages = speaker_config_payload.get("languages")
         if isinstance(languages, list):
             pending.speaker_voice_languages = [code for code in languages if isinstance(code, str)]
+    if _wants_wizard_json():
+        return _wizard_json_response(pending, "chapters", embed_scripts=False)
     return redirect(url_for("web.prepare_job", pending_id=pending.id))
 
 
 @web_bp.get("/jobs/prepare/<pending_id>")
-def prepare_job(pending_id: str) -> str:
+def prepare_job(pending_id: str) -> ResponseReturnValue:
     pending = _require_pending_job(pending_id)
-    return _render_prepare_page(pending, active_step="chapters")
+    requested_step = request.args.get("step") or "chapters"
+    normalized_step = _normalize_wizard_step(requested_step, pending)
+    if _wants_wizard_json():
+        return _wizard_json_response(pending, normalized_step, embed_scripts=False)
+    return _render_prepare_page(pending, active_step=normalized_step)
 
 
 @web_bp.post("/jobs/prepare/<pending_id>/analyze")
@@ -2747,15 +2856,33 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
     ) = _apply_prepare_form(pending, request.form)
 
     if errors:
-        return _render_prepare_page(pending, error=" ".join(errors), active_step="chapters")
+        message = " ".join(errors)
+        if _wants_wizard_json():
+            return _wizard_json_response(
+                pending,
+                "chapters",
+                error=message,
+                embed_scripts=False,
+                status=400,
+            )
+        return _render_prepare_page(pending, error=message, active_step="chapters")
 
     if pending.speaker_mode != "multi":
         setattr(pending, "analysis_requested", False)
         pending.chunks = []
         pending.speaker_analysis = {}
+        error_message = "Switch to multi-speaker mode to analyze speakers."
+        if _wants_wizard_json():
+            return _wizard_json_response(
+                pending,
+                "chapters",
+                error=error_message,
+                embed_scripts=False,
+                status=400,
+            )
         return _render_prepare_page(
             pending,
-            error="Switch to multi-speaker mode to analyze speakers.",
+            error=error_message,
             active_step="chapters",
         )
 
@@ -2763,9 +2890,18 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
         setattr(pending, "analysis_requested", False)
         pending.chunks = []
         pending.speaker_analysis = {}
+        error_message = "Select at least one chapter to analyze."
+        if _wants_wizard_json():
+            return _wizard_json_response(
+                pending,
+                "chapters",
+                error=error_message,
+                embed_scripts=False,
+                status=400,
+            )
         return _render_prepare_page(
             pending,
-            error="Select at least one chapter to analyze.",
+            error=error_message,
             active_step="chapters",
         )
 
@@ -2816,6 +2952,13 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
     notice_message = "Entity insights updated."
     if persist_config_requested and config_name:
         notice_message = "Entity insights updated and configuration saved."
+    if _wants_wizard_json():
+        return _wizard_json_response(
+            pending,
+            "entities",
+            notice=notice_message,
+            embed_scripts=False,
+        )
     return _render_prepare_page(pending, notice=notice_message, active_step="entities")
 
 
@@ -2836,10 +2979,21 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
     ) = _apply_prepare_form(pending, request.form)
 
     if errors:
+        active_hint = request.form.get("active_step") or "entities"
+        normalized_step = _normalize_wizard_step(active_hint, pending)
+        message = " ".join(errors)
+        if _wants_wizard_json():
+            return _wizard_json_response(
+                pending,
+                normalized_step,
+                error=message,
+                embed_scripts=False,
+                status=400,
+            )
         return _render_prepare_page(
             pending,
-            error=" ".join(errors),
-            active_step=request.form.get("active_step") or "entities",
+            error=message,
+            active_step=normalized_step,
         )
 
     if pending.speaker_mode != "multi":
@@ -2847,9 +3001,18 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
 
     if not enabled_overrides:
         pending.chunks = []
+        error_message = "Select at least one chapter to convert."
+        if _wants_wizard_json():
+            return _wizard_json_response(
+                pending,
+                "chapters",
+                error=error_message,
+                embed_scripts=False,
+                status=400,
+            )
         return _render_prepare_page(
             pending,
-            error="Select at least one chapter to convert.",
+            error=error_message,
             active_step="chapters",
         )
 
@@ -2916,6 +3079,13 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
         if persist_config_requested and config_key:
             notice_message = "Configuration saved. Review entity settings before queuing."
         service.store_pending_job(pending)
+        if _wants_wizard_json():
+            return _wizard_json_response(
+                pending,
+                "entities",
+                notice=notice_message,
+                embed_scripts=False,
+            )
         return _render_prepare_page(
             pending,
             notice=notice_message,
@@ -2972,7 +3142,10 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
     if isinstance(config_key, str) and config_key:
         job.applied_speaker_config = config_key
 
-    return redirect(url_for("web.index", _anchor="queue"))
+    redirect_url = url_for("web.index", _anchor="queue")
+    if _wants_wizard_json():
+        return jsonify({"redirect_url": redirect_url})
+    return redirect(redirect_url)
 
 
 @web_bp.post("/jobs/prepare/<pending_id>/cancel")
@@ -2988,7 +3161,10 @@ def cancel_pending_job(pending_id: str) -> ResponseReturnValue:
             pending.cover_image_path.unlink()
         except OSError:
             pass
-    return redirect(url_for("web.index", _anchor="queue"))
+    redirect_url = url_for("web.index", _anchor="queue")
+    if _wants_wizard_json():
+        return jsonify({"cancelled": True, "redirect_url": redirect_url})
+    return redirect(redirect_url)
 
 
 def _render_jobs_panel() -> str:
@@ -3008,6 +3184,111 @@ def _render_jobs_panel() -> str:
     )
 
 
+def _normalize_wizard_step(step: Optional[str], pending: Optional[PendingJob] = None) -> str:
+    if pending is None:
+        default_step = "book"
+    else:
+        default_step = "chapters"
+    if not step:
+        chosen = default_step
+    else:
+        normalized = step.strip().lower()
+        if normalized in {"", "upload", "settings"}:
+            chosen = default_step
+        elif normalized == "speakers":
+            chosen = "entities"
+        elif normalized in _WIZARD_STEP_ORDER:
+            chosen = normalized
+        else:
+            chosen = default_step
+    if chosen == "entities" and pending is not None and pending.speaker_mode != "multi":
+        return "chapters"
+    return chosen
+
+
+def _wants_wizard_json() -> bool:
+    format_hint = request.args.get("format", "").strip().lower()
+    if format_hint == "json":
+        return True
+    accept_header = (request.headers.get("Accept") or "").lower()
+    if "application/json" in accept_header:
+        return True
+    requested_with = (request.headers.get("X-Requested-With") or "").lower()
+    if requested_with in {"xmlhttprequest", "fetch"}:
+        return True
+    wizard_header = (request.headers.get("X-Abogen-Wizard") or "").lower()
+    return wizard_header == "json"
+
+
+def _render_wizard_partial(
+    pending: Optional[PendingJob],
+    step: str,
+    *,
+    error: Optional[str] = None,
+    notice: Optional[str] = None,
+    embed_scripts: bool = False,
+) -> str:
+    templates = {
+        "book": "partials/new_job_step_book.html",
+        "chapters": "partials/new_job_step_chapters.html",
+        "entities": "partials/new_job_step_entities.html",
+    }
+    template_name = templates[step]
+    context: Dict[str, Any] = {
+        "pending": pending,
+        "readonly": False,
+        "options": _template_options(),
+        "settings": _load_settings(),
+        "error": error,
+        "notice": notice,
+        "embed_scripts": embed_scripts,
+    }
+    return render_template(template_name, **context)
+
+
+def _wizard_step_payload(
+    pending: Optional[PendingJob],
+    step: str,
+    html: str,
+    *,
+    error: Optional[str] = None,
+    notice: Optional[str] = None,
+) -> Dict[str, Any]:
+    meta = _WIZARD_STEP_META.get(step, {})
+    try:
+        active_index = _WIZARD_STEP_ORDER.index(step)
+    except ValueError:
+        active_index = 0
+    completed = [slug for idx, slug in enumerate(_WIZARD_STEP_ORDER) if idx < active_index]
+    return {
+        "step": step,
+        "step_index": int(meta.get("index", active_index + 1)),
+        "total_steps": len(_WIZARD_STEP_ORDER),
+        "title": meta.get("title", ""),
+        "hint": meta.get("hint", ""),
+        "html": html,
+        "completed_steps": completed,
+        "pending_id": pending.id if pending else "",
+        "filename": pending.original_filename if pending and pending.original_filename else "",
+        "error": error or "",
+        "notice": notice or "",
+    }
+
+
+def _wizard_json_response(
+    pending: Optional[PendingJob],
+    step: str,
+    *,
+    error: Optional[str] = None,
+    notice: Optional[str] = None,
+    embed_scripts: bool = False,
+    status: int = 200,
+) -> ResponseReturnValue:
+    html = _render_wizard_partial(pending, step, error=error, notice=notice, embed_scripts=embed_scripts)
+    payload = _wizard_step_payload(pending, step, html, error=error, notice=notice)
+    return jsonify(payload), status
+
+
 def _render_prepare_page(
     pending: PendingJob,
     *,
@@ -3022,15 +3303,7 @@ def _render_prepare_page(
             else request.args.get("step")
         ) or "chapters"
 
-    normalized_step = (active_step or "chapters").strip().lower()
-    if normalized_step == "speakers":
-        normalized_step = "entities"
-    if normalized_step not in {"chapters", "entities"}:
-        normalized_step = "chapters"
-
-    is_multi = pending.speaker_mode == "multi"
-    if normalized_step == "entities" and not is_multi:
-        normalized_step = "chapters"
+    normalized_step = _normalize_wizard_step(active_step, pending)
 
     template_name = "prepare_entities.html" if normalized_step == "entities" else "prepare_chapters.html"
 

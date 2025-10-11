@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}abogen · Entities{% endblock %}
+
+{% block content %}
+<section class="card card--panel">
+  <h1 class="card__title">Entities &amp; Pronunciation Overrides</h1>
+  <p class="card__subtitle">Review and refine stored pronunciations so recurring names sound right in every project.</p>
+  <form class="entity-filter" method="get">
+    <div class="entity-filter__row">
+      <label class="field">
+        <span>Language</span>
+        <select name="lang">
+          {% for code, label in languages %}
+          <option value="{{ code }}" {% if code == language %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>Voice filter</span>
+        <select name="voice">
+          {% for option in voice_filter_options %}
+          <option value="{{ option.value }}" {% if option.value == voice_filter %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>Pronunciations</span>
+        <select name="pronunciation">
+          {% for option in pronunciation_filter_options %}
+          <option value="{{ option.value }}" {% if option.value == pronunciation_filter %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>Limit</span>
+        <input type="number" name="limit" min="10" max="500" value="{{ limit }}">
+      </label>
+    </div>
+    <div class="entity-filter__row entity-filter__row--actions">
+      <label class="field field--grow">
+        <span>Search overrides</span>
+        <input type="search" name="q" value="{{ query }}" placeholder="Search by token, pronunciation, or notes">
+      </label>
+      <div class="entity-filter__actions">
+        <button type="submit" class="button">Apply filters</button>
+        <a href="{{ url_for('web.entities_page') }}" class="button button--ghost">Reset</a>
+      </div>
+    </div>
+  </form>
+  <p class="hint">Looking for saved speaker rosters instead? <a href="{{ url_for('web.speaker_configs_page') }}">Manage speaker presets</a>.</p>
+</section>
+
+<section class="card card--panel">
+  <header class="entity-summary">
+    <h2 class="card__title">Overrides for {{ language_label }}</h2>
+    <p class="card__subtitle">
+      Showing {{ stats.filtered }} of {{ stats.total }} stored overrides ·
+      {{ stats.with_pronunciation }} with pronunciations · {{ stats.with_voice }} with assigned voices
+    </p>
+  </header>
+  {% if overrides %}
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th scope="col">Token</th>
+          <th scope="col">Pronunciation</th>
+          <th scope="col">Voice</th>
+          <th scope="col">Notes</th>
+          <th scope="col">Usage</th>
+          <th scope="col">Last updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for override in overrides %}
+        <tr>
+          <td data-label="Token">{{ override.token }}</td>
+          <td data-label="Pronunciation">{{ override.pronunciation or "—" }}</td>
+          <td data-label="Voice">{{ override.voice or "—" }}</td>
+          <td data-label="Notes">{{ override.notes or "" }}</td>
+          <td data-label="Usage">{{ override.usage_count }}</td>
+          <td data-label="Last updated">{{ override.updated_at_label }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="hint">No overrides matched your filters. Try adjusting the search or create overrides from the Entities step while preparing a job.</p>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+{% endblock %}
