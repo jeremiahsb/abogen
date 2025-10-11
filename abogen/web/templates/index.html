@@ -17,7 +17,9 @@
   </div>
 </section>
 
-{% include "partials/upload_modal.html" with pending=None, readonly=False, active_step='settings' %}
+{% with pending=None, readonly=False, active_step='settings' %}
+  {% include "partials/upload_modal.html" %}
+{% endwith %}
 
 {% include "partials/reader_modal.html" %}
 

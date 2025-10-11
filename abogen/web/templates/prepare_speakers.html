@@ -411,7 +411,9 @@
     </div>
   </div>
 </section>
-{% include "partials/upload_modal.html" with pending=pending, readonly=True, active_step='speakers' %}
+{% with pending=pending, readonly=True, active_step='speakers' %}
+  {% include "partials/upload_modal.html" %}
+{% endwith %}
 {% endblock %}
 
 {% block scripts %}

@@ -171,7 +171,9 @@
     <form method="post" action="{{ url_for('web.cancel_pending_job', pending_id=pending.id) }}" id="cancel-form"></form>
   </div>
 </section>
-{% include "partials/upload_modal.html" with pending=pending, readonly=True, active_step='chapters' %}
+{% with pending=pending, readonly=True, active_step='chapters' %}
+  {% include "partials/upload_modal.html" %}
+{% endwith %}
 {% endblock %}
 
 {% block scripts %}
