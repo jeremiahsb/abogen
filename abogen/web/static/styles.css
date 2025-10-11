@@ -298,7 +298,7 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
-  padding: 0 2rem 2rem;
+  padding: 1.25rem 2rem 2.75rem;
   border-top: 1px solid rgba(148, 163, 184, 0.12);
   background: linear-gradient(180deg, transparent, rgba(15, 23, 42, 0.3));
 }

@@ -205,14 +205,19 @@ const initDashboard = () => {
   });
 
   document.addEventListener("click", (event) => {
-    const readerClose = event.target.closest('[data-role="reader-modal-close"]');
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+
+    const readerClose = target.closest('[data-role="reader-modal-close"]');
     if (readerClose) {
       event.preventDefault();
       closeReaderModal();
       return;
     }
 
-    const readerTriggerBtn = event.target.closest('[data-role="open-reader"]');
+    const readerTriggerBtn = target.closest('[data-role="open-reader"]');
     if (readerTriggerBtn) {
       event.preventDefault();
       openReaderModal(readerTriggerBtn);

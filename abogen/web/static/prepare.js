@@ -234,16 +234,20 @@ document.addEventListener("DOMContentLoaded", () => {
   const activeStepInput = form.querySelector('[data-role="active-step-input"]');
   const wizard = document.querySelector('[data-role="prepare-wizard"]');
   if (wizard) {
-    const stepOrder = ["chapters", "speakers"];
-    const indicatorOrder = ["setup", ...stepOrder];
-    const indicator = wizard.querySelector('[data-role="wizard-indicator"]');
-    const indicatorSteps = indicator ? Array.from(indicator.querySelectorAll('[data-role="wizard-step"]')) : [];
-    const navButtons = Array.from(wizard.querySelectorAll('[data-role="prepare-step-nav"] [data-step-target]'));
-    const nextButtons = Array.from(wizard.querySelectorAll('[data-role="step-next"]'));
-    const prevButtons = Array.from(wizard.querySelectorAll('[data-role="step-prev"]'));
-    const panels = new Map();
-    const initialStep = wizard.dataset.initialStep || "chapters";
-    const speakerModeSelect = form.querySelector("#speaker_mode");
+  const stepOrder = ["chapters", "speakers"];
+  const indicatorOrder = ["setup", ...stepOrder];
+  const indicator = wizard.querySelector('[data-role="wizard-indicator"]');
+  const indicatorSteps = indicator ? Array.from(indicator.querySelectorAll('[data-role="wizard-step"]')) : [];
+  const navButtons = Array.from(wizard.querySelectorAll('[data-role="prepare-step-nav"] [data-step-target]'));
+  const nextButtons = Array.from(wizard.querySelectorAll('[data-role="step-next"]'));
+  const prevButtons = Array.from(wizard.querySelectorAll('[data-role="step-prev"]'));
+  const panels = new Map();
+  const initialStep = wizard.dataset.initialStep || "chapters";
+  const speakerModeSelect = form.querySelector("#speaker_mode");
+  const speakerIndicator = indicator ? indicator.querySelector('[data-step-key="speakers"]') : null;
+  const chapterActions = wizard.querySelector('[data-role="chapter-actions"]');
+  const continueButton = chapterActions ? chapterActions.querySelector('[data-chapter-action="continue"]') : null;
+  const finalizeButton = chapterActions ? chapterActions.querySelector('[data-chapter-action="finalize"]') : null;
     stepOrder.forEach((step) => {
       const panel = wizard.querySelector(`[data-step-panel="${step}"]`);
       if (panel) {
@@ -311,23 +315,27 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     const setStep = (step) => {
-      if (!panels.has(step)) {
+      let targetStep = step;
+      if (targetStep === "speakers" && shouldSkipSpeakersStep()) {
+        targetStep = "chapters";
+      }
+      if (!panels.has(targetStep)) {
         return;
       }
-      currentStep = step;
-      wizard.dataset.activeStep = step;
+      currentStep = targetStep;
+      wizard.dataset.activeStep = targetStep;
       if (activeStepInput) {
-        activeStepInput.value = step;
+        activeStepInput.value = targetStep;
       }
       panels.forEach((panel, key) => {
-        const isActive = key === step;
+        const isActive = key === targetStep;
         panel.hidden = !isActive;
         panel.setAttribute("aria-hidden", isActive ? "false" : "true");
       });
       navButtons.forEach((button) => {
         const target = button.dataset.stepTarget;
         if (!target) return;
-        const isActive = target === step;
+        const isActive = target === targetStep;
         button.classList.toggle("is-active", isActive);
         if (button.dataset.state === "locked" && !unlockedSteps.has(target)) {
           button.disabled = true;
@@ -337,7 +345,46 @@ document.addEventListener("DOMContentLoaded", () => {
           button.removeAttribute("aria-disabled");
         }
       });
-      updateIndicator(step);
+      updateIndicator(targetStep);
+    };
+
+    const updateSpeakerControls = () => {
+      const skipSpeakers = shouldSkipSpeakersStep();
+      if (wizard) {
+        wizard.dataset.speakerStep = skipSpeakers ? "disabled" : "enabled";
+      }
+      if (speakerIndicator) {
+        if (skipSpeakers) {
+          speakerIndicator.hidden = true;
+          speakerIndicator.setAttribute("aria-hidden", "true");
+        } else {
+          speakerIndicator.hidden = false;
+          speakerIndicator.removeAttribute("aria-hidden");
+        }
+      }
+      if (continueButton) {
+        if (skipSpeakers) {
+          continueButton.hidden = true;
+          continueButton.setAttribute("aria-hidden", "true");
+          continueButton.setAttribute("tabindex", "-1");
+        } else {
+          continueButton.hidden = false;
+          continueButton.removeAttribute("aria-hidden");
+          continueButton.removeAttribute("tabindex");
+        }
+      }
+      if (finalizeButton) {
+        if (skipSpeakers) {
+          finalizeButton.hidden = false;
+          finalizeButton.removeAttribute("aria-hidden");
+        } else {
+          finalizeButton.hidden = true;
+          finalizeButton.setAttribute("aria-hidden", "true");
+        }
+      }
+      if (skipSpeakers && currentStep === "speakers") {
+        setStep("chapters");
+      }
     };
 
     const submitForAnalysis = () => {
@@ -399,7 +446,23 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
 
+    if (speakerModeSelect) {
+      speakerModeSelect.addEventListener("change", () => {
+        updateSpeakerControls();
+      });
+    }
+
+    if (finalizeButton) {
+      finalizeButton.addEventListener("click", (event) => {
+        if (shouldSkipSpeakersStep()) {
+          event.preventDefault();
+          submitFinalize();
+        }
+      });
+    }
+
     setStep(currentStep);
+    updateSpeakerControls();
   }
 
   const voiceModal = document.querySelector('[data-role="voice-modal"]');
