@@ -229,246 +229,46 @@ document.addEventListener("DOMContentLoaded", () => {
     updatePreviewVoice(select);
   });
 
-  const finalizeAction = form.getAttribute("action");
-  const analyzeUrl = form.dataset.analyzeUrl || "";
   const activeStepInput = form.querySelector('[data-role="active-step-input"]');
-  const wizard = document.querySelector('[data-role="prepare-wizard"]');
-  if (wizard) {
-  const stepOrder = ["chapters", "speakers"];
-  const indicatorOrder = ["setup", ...stepOrder];
-  const indicator = wizard.querySelector('[data-role="wizard-indicator"]');
-  const indicatorSteps = indicator ? Array.from(indicator.querySelectorAll('[data-role="wizard-step"]')) : [];
-  const navButtons = Array.from(wizard.querySelectorAll('[data-role="prepare-step-nav"] [data-step-target]'));
-  const nextButtons = Array.from(wizard.querySelectorAll('[data-role="step-next"]'));
-  const prevButtons = Array.from(wizard.querySelectorAll('[data-role="step-prev"]'));
-  const panels = new Map();
-  const initialStep = wizard.dataset.initialStep || "chapters";
-  const speakerModeSelect = form.querySelector("#speaker_mode");
-  const speakerIndicator = indicator ? indicator.querySelector('[data-step-key="speakers"]') : null;
-  const speakerPanel = wizard.querySelector('[data-speaker-panel="true"]');
-  const chapterActions = wizard.querySelector('[data-role="chapter-actions"]');
-  const continueButton = chapterActions ? chapterActions.querySelector('[data-chapter-action="continue"]') : null;
-  const finalizeButton = chapterActions ? chapterActions.querySelector('[data-chapter-action="finalize"]') : null;
-    stepOrder.forEach((step) => {
-      const panel = wizard.querySelector(`[data-step-panel="${step}"]`);
-      if (panel) {
-        panels.set(step, panel);
-        const isInitial = step === initialStep;
-        panel.hidden = !isInitial;
-        panel.setAttribute("aria-hidden", isInitial ? "false" : "true");
-      }
-    });
-
-    const unlockedSteps = new Set(["chapters"]);
-    if (initialStep === "speakers") {
-      unlockedSteps.add("speakers");
-    }
-    let currentStep = initialStep;
-
-    const shouldSkipSpeakersStep = () => {
-      const modeValue = (speakerModeSelect?.value || "").toLowerCase();
-      if (!modeValue) {
-        return true;
-      }
-      return modeValue !== "multi";
-    };
-
-    const submitFinalize = () => {
-      if (!form.reportValidity()) {
-        return;
-      }
-      if (activeStepInput) {
-        activeStepInput.value = currentStep;
-      }
-      if (finalizeAction) {
-        form.action = finalizeAction;
-      }
-      form.submit();
-    };
-
-    const updateIndicator = (activeStep) => {
-      const activeIndex = indicatorOrder.indexOf(activeStep);
-      indicatorSteps.forEach((item) => {
-        const key = item.dataset.stepKey;
-        if (!key) return;
-        const index = indicatorOrder.indexOf(key);
-        item.classList.remove("is-active", "is-complete");
-        if (index < activeIndex) {
-          item.classList.add("is-complete");
-        } else if (index === activeIndex) {
-          item.classList.add("is-active");
-        }
-      });
-    };
-
-    const unlockStep = (step) => {
-      if (unlockedSteps.has(step)) {
-        return;
-      }
-      unlockedSteps.add(step);
-      navButtons.forEach((button) => {
-        if (button.dataset.stepTarget === step) {
-          button.disabled = false;
-          button.removeAttribute("aria-disabled");
-          button.dataset.state = "unlocked";
-        }
-      });
-    };
-
-    const setStep = (step) => {
-      let targetStep = step;
-      if (targetStep === "speakers" && shouldSkipSpeakersStep()) {
-        targetStep = "chapters";
-      }
-      if (!panels.has(targetStep)) {
-        return;
-      }
-      currentStep = targetStep;
-      wizard.dataset.activeStep = targetStep;
-      if (activeStepInput) {
-        activeStepInput.value = targetStep;
-      }
-      panels.forEach((panel, key) => {
-        const isActive = key === targetStep;
-        panel.hidden = !isActive;
-        panel.setAttribute("aria-hidden", isActive ? "false" : "true");
-      });
-      navButtons.forEach((button) => {
-        const target = button.dataset.stepTarget;
-        if (!target) return;
-        const isActive = target === targetStep;
-        button.classList.toggle("is-active", isActive);
-        if (button.dataset.state === "locked" && !unlockedSteps.has(target)) {
-          button.disabled = true;
-          button.setAttribute("aria-disabled", "true");
-        } else {
-          button.disabled = false;
-          button.removeAttribute("aria-disabled");
-        }
-      });
-      updateIndicator(targetStep);
-    };
-
-    const updateSpeakerControls = () => {
-      const skipSpeakers = shouldSkipSpeakersStep();
-      if (wizard) {
-        wizard.dataset.speakerStep = skipSpeakers ? "disabled" : "enabled";
-      }
-      if (speakerIndicator) {
-        speakerIndicator.hidden = skipSpeakers;
-        if (skipSpeakers) {
-          speakerIndicator.setAttribute("aria-hidden", "true");
-        } else {
-          speakerIndicator.removeAttribute("aria-hidden");
-        }
-      }
-      if (!skipSpeakers) {
-        unlockStep("speakers");
-      }
-      if (speakerPanel) {
-        speakerPanel.dataset.speakerEnabled = skipSpeakers ? "false" : "true";
-      }
-      if (continueButton) {
-        if (skipSpeakers) {
-          continueButton.hidden = true;
-          continueButton.setAttribute("aria-hidden", "true");
-          continueButton.setAttribute("tabindex", "-1");
-        } else {
-          continueButton.hidden = false;
-          continueButton.removeAttribute("aria-hidden");
-          continueButton.removeAttribute("tabindex");
-        }
-      }
-      if (finalizeButton) {
-        if (skipSpeakers) {
-          finalizeButton.hidden = false;
-          finalizeButton.removeAttribute("aria-hidden");
-        } else {
-          finalizeButton.hidden = true;
-          finalizeButton.setAttribute("aria-hidden", "true");
-        }
-      }
-      if (skipSpeakers && currentStep === "speakers") {
-        setStep("chapters");
-      }
-    };
-
-    const submitForAnalysis = () => {
-      if (!analyzeUrl) {
-        unlockStep("speakers");
-        setStep("speakers");
-        return;
-      }
-      if (!form.reportValidity()) {
-        return;
-      }
+  const analysisButtons = Array.from(form.querySelectorAll('[data-role="submit-speaker-analysis"]'));
+  analysisButtons.forEach((button) => {
+    button.addEventListener("click", () => {
       if (activeStepInput) {
         activeStepInput.value = "speakers";
       }
-      if (finalizeAction) {
-        form.setAttribute("data-finalize-action", finalizeAction);
-      }
-      form.action = analyzeUrl;
-      form.submit();
-      if (finalizeAction) {
-        window.setTimeout(() => {
-          form.action = finalizeAction;
-        }, 0);
-      }
-    };
-
-    navButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        if (button.disabled) {
-          return;
-        }
-        const target = button.dataset.stepTarget;
-        if (!target) return;
-        unlockStep(target);
-        setStep(target);
-      });
     });
+  });
 
-    nextButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        const target = button.dataset.stepTarget || "speakers";
-        if (target === "speakers") {
-          if (shouldSkipSpeakersStep()) {
-            submitFinalize();
-            return;
-          }
-          submitForAnalysis();
-          return;
-        }
-        unlockStep(target);
-        setStep(target);
-      });
-    });
+  const speakerModeSelect = form.querySelector("#speaker_mode");
+  const analysisToggleButtons = Array.from(form.querySelectorAll('[data-step-toggle="analysis"]'));
+  const finalizeToggleButtons = Array.from(form.querySelectorAll('[data-step-toggle="finalize"]'));
 
-    prevButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        const target = button.dataset.stepTarget || "chapters";
-        setStep(target);
-      });
-    });
-
-    if (speakerModeSelect) {
-      speakerModeSelect.addEventListener("change", () => {
-        updateSpeakerControls();
-      });
+  const setButtonVisibility = (button, isVisible) => {
+    if (!button) return;
+    if (isVisible) {
+      button.hidden = false;
+      button.removeAttribute("aria-hidden");
+      button.removeAttribute("tabindex");
+    } else {
+      button.hidden = true;
+      button.setAttribute("aria-hidden", "true");
+      button.setAttribute("tabindex", "-1");
     }
+  };
 
-    if (finalizeButton) {
-      finalizeButton.addEventListener("click", (event) => {
-        if (shouldSkipSpeakersStep()) {
-          event.preventDefault();
-          submitFinalize();
-        }
-      });
+  const updateStepButtons = () => {
+    if (!speakerModeSelect) {
+      return;
     }
+    const modeValue = (speakerModeSelect.value || "").toLowerCase();
+    const isMulti = modeValue === "multi";
+    analysisToggleButtons.forEach((button) => setButtonVisibility(button, isMulti));
+    finalizeToggleButtons.forEach((button) => setButtonVisibility(button, !isMulti));
+  };
 
-    setStep(currentStep);
-    updateSpeakerControls();
+  if (speakerModeSelect) {
+    updateStepButtons();
+    speakerModeSelect.addEventListener("change", updateStepButtons);
   }
 
   const voiceModal = document.querySelector('[data-role="voice-modal"]');

@@ -2613,14 +2613,25 @@ def _render_prepare_page(
             if request.method == "POST"
             else request.args.get("step")
         ) or "chapters"
+
+    normalized_step = (active_step or "chapters").strip().lower()
+    if normalized_step not in {"chapters", "speakers"}:
+        normalized_step = "chapters"
+
+    is_multi = pending.speaker_mode == "multi"
+    if normalized_step == "speakers" and not is_multi:
+        normalized_step = "chapters"
+
+    template_name = "prepare_speakers.html" if normalized_step == "speakers" else "prepare_chapters.html"
+
     return render_template(
-        "prepare_job.html",
+        template_name,
         pending=pending,
         options=_template_options(),
         settings=_load_settings(),
         error=error,
         notice=notice,
-        active_step=active_step,
+        active_step=normalized_step,
     )
 
 
