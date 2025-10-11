@@ -10,10 +10,12 @@
     <header class="modal__header wizard-card__header">
       <div class="wizard-card__headline">
         <nav class="step-indicator" aria-label="Audiobook workflow">
-          <a class="step-indicator__item is-complete" href="{{ url_for('web.index') }}">
+          <button type="button"
+                  class="step-indicator__item is-complete"
+                  data-role="open-upload-modal">
             <span class="step-indicator__index">1</span>
             <span class="step-indicator__label">Upload &amp; settings</span>
-          </a>
+          </button>
           <a class="step-indicator__item is-active"
              aria-current="step"
              href="{{ url_for('web.prepare_job', pending_id=pending.id, step='chapters') }}">
@@ -90,11 +92,15 @@
                            {% if is_enabled %}checked{% endif %}>
                     <span>Chapter {{ loop.index }} · {{ chapter.title }}</span>
                   </label>
-                  <p class="chapter-card__snippet">
+                  <p class="chapter-card__snippet"
+                     data-role="chapter-snippet"
+                     {% if not is_enabled %}hidden aria-hidden="true"{% else %}aria-hidden="false"{% endif %}>
                     {{ excerpt }}{% if raw_excerpt|length > 240 %}…{% endif %}
                   </p>
                 </header>
-                <div class="chapter-card__details" data-role="chapter-details">
+                <div class="chapter-card__details"
+                     data-role="chapter-details"
+                     {% if not is_enabled %}hidden aria-hidden="true"{% else %}aria-hidden="false"{% endif %}>
                   <div class="chapter-card__field">
                     <label for="chapter-{{ loop.index0 }}-title">Title</label>
                     <input type="text" id="chapter-{{ loop.index0 }}-title" name="chapter-{{ loop.index0 }}-title" value="{{ chapter.title }}">
@@ -165,12 +171,15 @@
     <form method="post" action="{{ url_for('web.cancel_pending_job', pending_id=pending.id) }}" id="cancel-form"></form>
   </div>
 </section>
+{% include "partials/upload_modal.html" with pending=pending, readonly=True, active_step='chapters' %}
 {% endblock %}
 
 {% block scripts %}
   {{ super() }}
+  <script id="voice-sample-texts" type="application/json">{{ options.sample_voice_texts | tojson }}</script>
   <script id="voice-catalog-data" type="application/json">{{ options.voice_catalog | tojson }}</script>
   <script id="voice-language-map" type="application/json">{{ options.languages | tojson }}</script>
   <script type="module" src="{{ url_for('static', filename='speakers.js') }}"></script>
   <script type="module" src="{{ url_for('static', filename='prepare.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='dashboard.js') }}"></script>
 {% endblock %}

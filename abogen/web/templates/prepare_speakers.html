@@ -14,10 +14,12 @@
     <header class="modal__header wizard-card__header">
       <div class="wizard-card__headline">
         <nav class="step-indicator" aria-label="Audiobook workflow">
-          <a class="step-indicator__item is-complete" href="{{ url_for('web.index') }}">
+          <button type="button"
+                  class="step-indicator__item is-complete"
+                  data-role="open-upload-modal">
             <span class="step-indicator__index">1</span>
             <span class="step-indicator__label">Upload &amp; settings</span>
-          </a>
+          </button>
           <a class="step-indicator__item is-complete"
              href="{{ url_for('web.prepare_job', pending_id=pending.id, step='chapters') }}">
             <span class="step-indicator__index">2</span>
@@ -409,12 +411,15 @@
     </div>
   </div>
 </section>
+{% include "partials/upload_modal.html" with pending=pending, readonly=True, active_step='speakers' %}
 {% endblock %}
 
 {% block scripts %}
   {{ super() }}
+  <script id="voice-sample-texts" type="application/json">{{ options.sample_voice_texts | tojson }}</script>
   <script id="voice-catalog-data" type="application/json">{{ options.voice_catalog | tojson }}</script>
   <script id="voice-language-map" type="application/json">{{ options.languages | tojson }}</script>
   <script type="module" src="{{ url_for('static', filename='speakers.js') }}"></script>
   <script type="module" src="{{ url_for('static', filename='prepare.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='dashboard.js') }}"></script>
 {% endblock %}

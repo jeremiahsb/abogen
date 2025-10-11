@@ -26,6 +26,21 @@ const stopCurrentPlayback = () => {
   }
 };
 
+const resolvePreviewText = (button) => {
+  const source = (button.dataset.previewSource || "").toLowerCase();
+  if (source === "pronunciation") {
+    const container = button.closest(".speaker-list__item");
+    if (container) {
+      const input = container.querySelector('[data-role="speaker-pronunciation"]');
+      const fallback = (container.dataset.defaultPronunciation || "").trim();
+      const value = (input?.value || "").trim() || fallback;
+      button.dataset.previewText = value;
+      return value;
+    }
+  }
+  return (button.dataset.previewText || "").trim();
+};
+
 audioElement.addEventListener("ended", () => {
   stopCurrentPlayback();
 });
@@ -37,7 +52,7 @@ audioElement.addEventListener("pause", () => {
 });
 
 const playPreview = async (button) => {
-  const text = (button.dataset.previewText || "").trim();
+  const text = resolvePreviewText(button);
   const voice = (button.dataset.voice || "").trim();
   const language = (button.dataset.language || "a").trim() || "a";
   const speedRaw = button.dataset.speed || "1";

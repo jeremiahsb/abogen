@@ -188,6 +188,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const enabled = row.querySelector('[data-role=chapter-enabled]');
     const inputs = Array.from(row.querySelectorAll("input[type=text], select, textarea"));
     const warning = row.querySelector('[data-role=chapter-warning]');
+    const snippet = row.querySelector('[data-role="chapter-snippet"]');
+    const details = row.querySelector('[data-role="chapter-details"]');
     const isChecked = enabled ? enabled.checked : true;
     row.dataset.disabled = isChecked ? "false" : "true";
 
@@ -211,6 +213,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const select = row.querySelector("select[data-role=voice-select]");
     toggleFormula(select);
+
+    if (snippet) {
+      snippet.hidden = !isChecked;
+      snippet.setAttribute("aria-hidden", isChecked ? "false" : "true");
+    }
+
+    if (details) {
+      details.hidden = !isChecked;
+      details.setAttribute("aria-hidden", isChecked ? "false" : "true");
+    }
 
     if (warning) {
       warning.hidden = isChecked;
@@ -337,7 +349,15 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
     const speakerItems = Array.from(form.querySelectorAll(".speaker-list__item"));
-    speakerItems.forEach((item) => initialiseSpeakerItem(item));
+    speakerItems.forEach((item) => {
+      initialiseSpeakerItem(item);
+      const pronunciationInput = item.querySelector('[data-role="speaker-pronunciation"]');
+      if (pronunciationInput) {
+        const sync = () => syncPronunciationPreview(item);
+        pronunciationInput.addEventListener("input", sync);
+        pronunciationInput.addEventListener("change", sync);
+      }
+    });
 
   const activeStepInput = form.querySelector('[data-role="active-step-input"]');
   const analysisButtons = Array.from(form.querySelectorAll('[data-role="submit-speaker-analysis"]'));
