@@ -355,22 +355,18 @@ document.addEventListener("DOMContentLoaded", () => {
         wizard.dataset.speakerStep = skipSpeakers ? "disabled" : "enabled";
       }
       if (speakerIndicator) {
+        speakerIndicator.hidden = skipSpeakers;
         if (skipSpeakers) {
-          speakerIndicator.hidden = true;
           speakerIndicator.setAttribute("aria-hidden", "true");
-          speakerIndicator.style.display = "none";
         } else {
-          speakerIndicator.hidden = false;
           speakerIndicator.removeAttribute("aria-hidden");
-          speakerIndicator.style.removeProperty("display");
         }
       }
+      if (!skipSpeakers) {
+        unlockStep("speakers");
+      }
       if (speakerPanel) {
-        if (skipSpeakers) {
-          speakerPanel.style.display = "none";
-        } else {
-          speakerPanel.style.removeProperty("display");
-        }
+        speakerPanel.dataset.speakerEnabled = skipSpeakers ? "false" : "true";
       }
       if (continueButton) {
         if (skipSpeakers) {

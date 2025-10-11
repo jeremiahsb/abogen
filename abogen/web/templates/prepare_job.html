@@ -10,6 +10,7 @@
 {% endif %}
 {% set is_chapters = wizard_step == 'chapters' %}
 {% set is_speakers = wizard_step == 'speakers' %}
+{% set hide_speakers_panel = not is_speakers %}
 <section class="card" data-role="prepare-wizard" data-initial-step="{{ wizard_step }}" data-speaker-step="{{ 'enabled' if is_multi_speaker else 'disabled' }}">
   <div class="step-indicator" aria-label="Audiobook workflow" data-role="wizard-indicator">
     <span class="step-indicator__item is-complete" data-role="wizard-step" data-step-key="setup">
@@ -20,7 +21,7 @@
       <span class="step-indicator__index">2</span>
       <span class="step-indicator__label">Chapters</span>
     </span>
-  <span class="step-indicator__item{% if is_speakers %} is-active{% endif %}" data-role="wizard-step" data-step-key="speakers" {% if not is_multi_speaker %}hidden aria-hidden="true" style="display:none;"{% endif %}>
+  <span class="step-indicator__item{% if is_speakers %} is-active{% endif %}" data-role="wizard-step" data-step-key="speakers" {% if not is_multi_speaker %}hidden aria-hidden="true"{% endif %}>
       <span class="step-indicator__index">3</span>
       <span class="step-indicator__label">Speakers</span>
     </span>
@@ -170,7 +171,11 @@
         </div>
       </section>
 
-  <section class="prepare-step" data-step-panel="speakers" data-speaker-panel="true" {% if not is_multi_speaker %}style="display:none;"{% endif %} hidden>
+  <section class="prepare-step"
+           data-step-panel="speakers"
+           data-speaker-panel="true"
+           {% if hide_speakers_panel %}hidden aria-hidden="true"{% endif %}
+           data-speaker-enabled="{{ 'true' if is_multi_speaker else 'false' }}">
         <header class="prepare-step__header">
           <h2>Step 3 · Select speakers</h2>
           <p class="hint">Assign voices, audition samples, and finalize your roster.</p>

@@ -1,35 +1,12 @@
+import { initReaderUI } from "./reader.js";
+
 const initDashboard = () => {
   const uploadModal = document.querySelector('[data-role="upload-modal"]');
   const openModalButtons = document.querySelectorAll('[data-role="open-upload-modal"]');
-  const readerModal = document.querySelector('[data-role="reader-modal"]');
-  const readerFrame = readerModal?.querySelector('[data-role="reader-frame"]') || null;
-  const readerHint = readerModal?.querySelector('[data-role="reader-modal-hint"]') || null;
-  const readerTitle = readerModal?.querySelector('#reader-modal-title') || null;
-  const defaultReaderHint = readerHint?.textContent || "";
   const scope = uploadModal || document;
   const sourceFileInput = scope.querySelector('#source_file');
   const dropzone = document.querySelector('[data-role="upload-dropzone"]');
   const dropzoneFilename = document.querySelector('[data-role="upload-dropzone-filename"]');
-
-  const readerButtonRegistry = new WeakSet();
-
-  const bindReaderButtons = (root) => {
-    const context = root instanceof Element ? root : document;
-    const buttons = context.querySelectorAll('[data-role="open-reader"]');
-    buttons.forEach((button) => {
-      if (!(button instanceof HTMLElement)) {
-        return;
-      }
-      if (readerButtonRegistry.has(button)) {
-        return;
-      }
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        openReaderModal(button);
-      });
-      readerButtonRegistry.add(button);
-    });
-  };
 
   const parseJSONScript = (id) => {
     const element = document.getElementById(id);
@@ -121,7 +98,6 @@ const initDashboard = () => {
   };
 
   let lastTrigger = null;
-  let readerTrigger = null;
   let previewAbortController = null;
   let previewObjectUrl = null;
   let suppressPauseStatus = false;
@@ -150,54 +126,6 @@ const initDashboard = () => {
     }
   };
 
-  const openReaderModal = (trigger) => {
-    const url = trigger?.dataset.readerUrl || "";
-    if (!url) return;
-    if (!readerModal || !readerFrame) {
-      window.open(url, "_blank", "noopener,noreferrer");
-      return;
-    }
-    readerTrigger = trigger || null;
-    const bookTitle = trigger?.dataset.bookTitle || "";
-    if (readerTitle) {
-      readerTitle.textContent = bookTitle ? `${bookTitle} · reader` : "Read & listen";
-    }
-    if (readerHint) {
-      readerHint.textContent = bookTitle ? `Preview ${bookTitle} directly in your browser.` : defaultReaderHint;
-    }
-    closeUploadModal();
-    readerModal.hidden = false;
-    readerModal.dataset.open = "true";
-    document.body.classList.add("modal-open");
-    readerFrame.src = url;
-    try {
-      readerFrame.focus({ preventScroll: true });
-    } catch (error) {
-      // Ignore focus errors when the browser blocks iframe focus
-    }
-  };
-
-  const closeReaderModal = () => {
-    if (!readerModal) return;
-    if (readerModal.hidden) return;
-    readerModal.hidden = true;
-    delete readerModal.dataset.open;
-    document.body.classList.remove("modal-open");
-    if (readerFrame) {
-      readerFrame.src = "about:blank";
-    }
-    if (readerHint) {
-      readerHint.textContent = defaultReaderHint;
-    }
-    if (readerTitle) {
-      readerTitle.textContent = "Read & listen";
-    }
-    if (readerTrigger && readerTrigger instanceof HTMLElement) {
-      readerTrigger.focus({ preventScroll: true });
-    }
-    readerTrigger = null;
-  };
-
   openModalButtons.forEach((button) => {
     button.addEventListener("click", (event) => {
       event.preventDefault();
@@ -221,55 +149,10 @@ const initDashboard = () => {
         closeUploadModal();
         return;
       }
-      if (readerModal && !readerModal.hidden) {
-        closeReaderModal();
-      }
     }
   });
 
-  const resolveEventMatch = (event, selector) => {
-    const target = event.target;
-    if (target instanceof Element) {
-      const match = target.closest(selector);
-      if (match) {
-        return match;
-      }
-    }
-    if (typeof event.composedPath === "function") {
-      const path = event.composedPath();
-      for (const node of path) {
-        if (node instanceof Element) {
-          if (node.matches(selector)) {
-            return node;
-          }
-          const match = node.closest(selector);
-          if (match) {
-            return match;
-          }
-        }
-      }
-    }
-    const fallback = target?.parentElement;
-    if (fallback instanceof Element) {
-      return fallback.closest(selector);
-    }
-    return null;
-  };
-
-  document.addEventListener("click", (event) => {
-    const readerClose = resolveEventMatch(event, '[data-role="reader-modal-close"]');
-    if (readerClose) {
-      event.preventDefault();
-      closeReaderModal();
-      return;
-    }
-
-    const readerTriggerBtn = resolveEventMatch(event, '[data-role="open-reader"]');
-    if (readerTriggerBtn instanceof HTMLElement) {
-      event.preventDefault();
-      openReaderModal(readerTriggerBtn);
-    }
-  });
+  initReaderUI({ onBeforeOpen: closeUploadModal });
 
   if (sourceFileInput) {
     sourceFileInput.addEventListener("change", updateDropzoneFilename);
@@ -654,17 +537,6 @@ const initDashboard = () => {
   window.addEventListener("beforeunload", () => {
     cancelPreviewRequest();
     stopPreviewAudio();
-  });
-
-  bindReaderButtons();
-
-  document.addEventListener("htmx:afterSwap", (event) => {
-    const fragment = event?.detail?.target;
-    if (fragment instanceof Element) {
-      bindReaderButtons(fragment);
-    } else {
-      bindReaderButtons();
-    }
   });
 };
 
