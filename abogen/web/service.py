@@ -24,7 +24,7 @@ def _create_set_event() -> threading.Event:
     return event
 
 
-STATE_VERSION = 5
+STATE_VERSION = 6
 
 
 _JOB_LOGGER = logging.getLogger("abogen.jobs")
@@ -133,8 +133,9 @@ class Job:
     analysis_requested: bool = False
     speaker_voice_languages: List[str] = field(default_factory=list)
     applied_speaker_config: Optional[str] = None
-    speaker_voice_languages: List[str] = field(default_factory=list)
-    applied_speaker_config: Optional[str] = None
+    entity_summary: Dict[str, Any] = field(default_factory=dict)
+    manual_overrides: List[Dict[str, Any]] = field(default_factory=list)
+    pronunciation_overrides: List[Dict[str, Any]] = field(default_factory=list)
 
     def add_log(self, message: str, level: str = "info") -> None:
         entry = JobLog(timestamp=time.time(), message=message, level=level)
@@ -197,6 +198,9 @@ class Job:
             "analysis_requested": self.analysis_requested,
             "speaker_voice_languages": list(self.speaker_voice_languages),
             "applied_speaker_config": self.applied_speaker_config,
+            "entity_summary": dict(self.entity_summary),
+            "manual_overrides": [dict(entry) for entry in self.manual_overrides],
+            "pronunciation_overrides": [dict(entry) for entry in self.pronunciation_overrides],
         }
 
 
@@ -239,6 +243,10 @@ class PendingJob:
     analysis_requested: bool = False
     speaker_voice_languages: List[str] = field(default_factory=list)
     applied_speaker_config: Optional[str] = None
+    entity_summary: Dict[str, Any] = field(default_factory=dict)
+    manual_overrides: List[Dict[str, Any]] = field(default_factory=list)
+    pronunciation_overrides: List[Dict[str, Any]] = field(default_factory=list)
+    entity_cache_key: Optional[str] = None
 
 
 class ConversionService:
@@ -311,6 +319,9 @@ class ConversionService:
         speaker_analysis: Optional[Mapping[str, Any]] = None,
         speaker_analysis_threshold: int = 3,
         analysis_requested: bool = False,
+        entity_summary: Optional[Mapping[str, Any]] = None,
+        manual_overrides: Optional[Iterable[Mapping[str, Any]]] = None,
+        pronunciation_overrides: Optional[Iterable[Mapping[str, Any]]] = None,
     ) -> Job:
         job_id = uuid.uuid4().hex
         normalized_metadata = self._normalize_metadata_tags(metadata_tags)
@@ -354,6 +365,9 @@ class ConversionService:
             speaker_analysis=dict(speaker_analysis or {}),
             speaker_analysis_threshold=int(speaker_analysis_threshold or 3),
             analysis_requested=bool(analysis_requested),
+            entity_summary=dict(entity_summary or {}),
+            manual_overrides=[dict(entry) for entry in manual_overrides] if manual_overrides else [],
+            pronunciation_overrides=[dict(entry) for entry in pronunciation_overrides] if pronunciation_overrides else [],
         )
         with self._lock:
             self._jobs[job_id] = job
@@ -505,6 +519,9 @@ class ConversionService:
                 speaker_analysis=job.speaker_analysis,
                 speaker_analysis_threshold=job.speaker_analysis_threshold,
                 analysis_requested=job.analysis_requested,
+                entity_summary=job.entity_summary,
+                manual_overrides=job.manual_overrides,
+                pronunciation_overrides=job.pronunciation_overrides,
             )
 
             new_job.speaker_voice_languages = list(job.speaker_voice_languages)
@@ -727,6 +744,9 @@ class ConversionService:
             "speaker_analysis": dict(job.speaker_analysis),
             "speaker_analysis_threshold": job.speaker_analysis_threshold,
             "analysis_requested": job.analysis_requested,
+            "entity_summary": dict(job.entity_summary),
+            "manual_overrides": [dict(entry) for entry in job.manual_overrides],
+            "pronunciation_overrides": [dict(entry) for entry in job.pronunciation_overrides],
         }
 
     def _persist_state(self) -> None:
@@ -844,6 +864,11 @@ class ConversionService:
             payload.get("speaker_analysis_threshold", job.speaker_analysis_threshold or 3)
         )
         job.analysis_requested = bool(payload.get("analysis_requested", job.analysis_requested))
+        job.entity_summary = payload.get("entity_summary", {})
+        job.manual_overrides = [dict(entry) for entry in payload.get("manual_overrides", []) if isinstance(entry, Mapping)]
+        job.pronunciation_overrides = [
+            dict(entry) for entry in payload.get("pronunciation_overrides", []) if isinstance(entry, Mapping)
+        ]
         job.pause_event.set()
         return job
 

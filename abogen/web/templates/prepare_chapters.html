@@ -27,15 +27,15 @@
             </a>
             {% if is_multi_speaker %}
             <a class="step-indicator__item"
-               href="{{ url_for('web.prepare_job', pending_id=pending.id, step='speakers') }}">
+               href="{{ url_for('web.prepare_job', pending_id=pending.id, step='entities') }}">
               <span class="step-indicator__index">3</span>
-              <span class="step-indicator__label">Speakers</span>
+              <span class="step-indicator__label">Entities</span>
             </a>
             {% endif %}
           </nav>
           <p class="modal__eyebrow">Step 2 of {{ total_steps }}</p>
           <h2 class="modal__title" id="prepare-chapters-title">Select chapters</h2>
-          <p class="hint">Choose which chapters to convert. We'll analyse speakers automatically when you continue.</p>
+          <p class="hint">Choose which chapters to convert. We'll analyse entities automatically when you continue.</p>
         </div>
         <div class="wizard-card__aside">
           <p class="wizard-card__filename" title="{{ pending.original_filename }}">{{ pending.original_filename }}</p>
@@ -168,7 +168,7 @@
                     data-step-toggle="analysis"
                     formaction="{{ url_for('web.analyze_pending_job', pending_id=pending.id) }}"
                     formmethod="post">
-              Continue to speakers
+              Continue to entities
             </button>
             {% endif %}
             <button type="submit" class="button" data-step-toggle="finalize"{% if is_multi_speaker %} hidden aria-hidden="true"{% endif %}>

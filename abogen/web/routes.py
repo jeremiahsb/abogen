@@ -50,6 +50,18 @@ from abogen.utils import (
     load_numpy_kpipeline,
     save_config,
 )
+from abogen.entity_analysis import (
+    extract_entities,
+    merge_override,
+    normalize_token as normalize_entity_token,
+    search_tokens as search_entity_tokens,
+)
+from abogen.pronunciation_store import (
+    delete_override as delete_pronunciation_override,
+    load_overrides as load_pronunciation_overrides,
+    save_override as save_pronunciation_override,
+    search_overrides as search_pronunciation_overrides,
+)
 from abogen.voice_profiles import (
     delete_profile,
     duplicate_profile,
@@ -958,6 +970,318 @@ def _prepare_speaker_metadata(
     return chunk_list, roster, analysis_payload, applied_languages, updated_config
 
 
+def _collect_pronunciation_overrides(pending: PendingJob) -> List[Dict[str, Any]]:
+    language = pending.language or "en"
+    collected: Dict[str, Dict[str, Any]] = {}
+
+    summary = pending.entity_summary or {}
+    for group in ("people", "entities"):
+        entries = summary.get(group)
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, Mapping):
+                continue
+            override_payload = entry.get("override")
+            if not isinstance(override_payload, Mapping):
+                continue
+            token_value = str(entry.get("label") or override_payload.get("token") or "").strip()
+            pronunciation_value = str(override_payload.get("pronunciation") or "").strip()
+            if not token_value or not pronunciation_value:
+                continue
+            normalized = normalize_entity_token(entry.get("normalized") or token_value)
+            if not normalized:
+                continue
+            collected[normalized] = {
+                "token": token_value,
+                "normalized": normalized,
+                "pronunciation": pronunciation_value,
+                "voice": str(override_payload.get("voice") or "").strip() or None,
+                "notes": str(override_payload.get("notes") or "").strip() or None,
+                "context": str(override_payload.get("context") or "").strip() or None,
+                "source": f"{group}-override",
+                "language": language,
+            }
+
+    if isinstance(pending.speakers, Mapping):
+        for speaker_payload in pending.speakers.values():
+            if not isinstance(speaker_payload, Mapping):
+                continue
+            token_value = str(speaker_payload.get("label") or "").strip()
+            pronunciation_value = str(speaker_payload.get("pronunciation") or "").strip()
+            if not token_value or not pronunciation_value:
+                continue
+            normalized = normalize_entity_token(token_value)
+            if not normalized:
+                continue
+            collected[normalized] = {
+                "token": token_value,
+                "normalized": normalized,
+                "pronunciation": pronunciation_value,
+                "voice": str(
+                    speaker_payload.get("resolved_voice")
+                    or speaker_payload.get("voice")
+                    or pending.voice
+                ).strip()
+                or None,
+                "notes": None,
+                "context": None,
+                "source": "speaker",
+                "language": language,
+            }
+
+    for manual_entry in pending.manual_overrides or []:
+        if not isinstance(manual_entry, Mapping):
+            continue
+        token_value = str(manual_entry.get("token") or "").strip()
+        pronunciation_value = str(manual_entry.get("pronunciation") or "").strip()
+        if not token_value or not pronunciation_value:
+            continue
+        normalized = manual_entry.get("normalized") or normalize_entity_token(token_value)
+        if not normalized:
+            continue
+        collected[normalized] = {
+            "token": token_value,
+            "normalized": normalized,
+            "pronunciation": pronunciation_value,
+            "voice": str(manual_entry.get("voice") or "").strip() or None,
+            "notes": str(manual_entry.get("notes") or "").strip() or None,
+            "context": str(manual_entry.get("context") or "").strip() or None,
+            "source": str(manual_entry.get("source") or "manual"),
+            "language": language,
+        }
+
+    return list(collected.values())
+
+
+def _sync_pronunciation_overrides(pending: PendingJob) -> None:
+    pending.pronunciation_overrides = _collect_pronunciation_overrides(pending)
+
+    if not pending.pronunciation_overrides:
+        return
+
+    summary = pending.entity_summary or {}
+    manual_map: Dict[str, Mapping[str, Any]] = {}
+    for override in pending.manual_overrides or []:
+        if not isinstance(override, Mapping):
+            continue
+        normalized = override.get("normalized") or normalize_entity_token(override.get("token") or "")
+        pronunciation_value = str(override.get("pronunciation") or "").strip()
+        if not normalized or not pronunciation_value:
+            continue
+        manual_map[normalized] = override
+    for group in ("people", "entities"):
+        entries = summary.get(group)
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            normalized = normalize_entity_token(entry.get("normalized") or entry.get("label") or "")
+            manual_override = manual_map.get(normalized)
+            if manual_override:
+                entry["override"] = {
+                    "token": manual_override.get("token"),
+                    "pronunciation": manual_override.get("pronunciation"),
+                    "voice": manual_override.get("voice"),
+                    "notes": manual_override.get("notes"),
+                    "context": manual_override.get("context"),
+                    "source": manual_override.get("source"),
+                }
+
+
+def _refresh_entity_summary(pending: PendingJob, chapters: Iterable[Mapping[str, Any]]) -> None:
+    language = pending.language or "en"
+    result = extract_entities(chapters, language=language)
+    summary = dict(result.summary)
+    tokens: List[str] = []
+    for group in ("people", "entities"):
+        entries = summary.get(group)
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, Mapping):
+                continue
+            token_value = str(entry.get("normalized") or entry.get("label") or "").strip()
+            if token_value:
+                tokens.append(token_value)
+
+    overrides_from_store = load_pronunciation_overrides(language=language, tokens=tokens)
+    merged_summary = merge_override(summary, overrides_from_store)
+    if result.errors:
+        merged_summary["errors"] = list(result.errors)
+    merged_summary["cache_key"] = result.cache_key
+    pending.entity_summary = merged_summary
+    pending.entity_cache_key = result.cache_key
+    _sync_pronunciation_overrides(pending)
+
+
+def _find_manual_override(pending: PendingJob, identifier: str) -> Optional[Dict[str, Any]]:
+    for entry in pending.manual_overrides or []:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("id") == identifier or entry.get("normalized") == identifier:
+            return entry
+    return None
+
+
+def _upsert_manual_override(pending: PendingJob, payload: Mapping[str, Any]) -> Dict[str, Any]:
+    token_value = str(payload.get("token") or "").strip()
+    if not token_value:
+        raise ValueError("Token is required")
+    pronunciation_value = str(payload.get("pronunciation") or "").strip()
+    voice_value = str(payload.get("voice") or "").strip()
+    notes_value = str(payload.get("notes") or "").strip()
+    context_value = str(payload.get("context") or "").strip()
+    normalized = payload.get("normalized") or normalize_entity_token(token_value)
+    if not normalized:
+        raise ValueError("Token is required")
+
+    existing = _find_manual_override(pending, payload.get("id", "")) or _find_manual_override(pending, normalized)
+    timestamp = time.time()
+    language = pending.language or "en"
+
+    if existing:
+        existing.update(
+            {
+                "token": token_value,
+                "normalized": normalized,
+                "pronunciation": pronunciation_value,
+                "voice": voice_value,
+                "notes": notes_value,
+                "context": context_value,
+                "updated_at": timestamp,
+            }
+        )
+        manual_entry = existing
+    else:
+        manual_entry = {
+            "id": payload.get("id") or uuid.uuid4().hex,
+            "token": token_value,
+            "normalized": normalized,
+            "pronunciation": pronunciation_value,
+            "voice": voice_value,
+            "notes": notes_value,
+            "context": context_value,
+            "language": language,
+            "source": payload.get("source") or "manual",
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        }
+        if isinstance(pending.manual_overrides, list):
+            pending.manual_overrides.append(manual_entry)
+        else:
+            pending.manual_overrides = [manual_entry]
+
+    save_pronunciation_override(
+        language=language,
+        token=token_value,
+        pronunciation=pronunciation_value or None,
+        voice=voice_value or None,
+        notes=notes_value or None,
+        context=context_value or None,
+    )
+
+    _sync_pronunciation_overrides(pending)
+    return dict(manual_entry)
+
+
+def _delete_manual_override(pending: PendingJob, override_id: str) -> bool:
+    if not override_id:
+        return False
+    entries = pending.manual_overrides or []
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("id") == override_id:
+            token_value = entry.get("token") or ""
+            language = pending.language or "en"
+            delete_pronunciation_override(language=language, token=token_value)
+            entries.pop(index)
+            pending.manual_overrides = entries
+            _sync_pronunciation_overrides(pending)
+            return True
+    return False
+
+
+def _search_manual_override_candidates(pending: PendingJob, query: str, *, limit: int = 15) -> List[Dict[str, Any]]:
+    normalized_query = (query or "").strip()
+    summary_index = (pending.entity_summary or {}).get("index", {})
+    matches = search_entity_tokens(summary_index, normalized_query, limit=limit)
+    registry: Dict[str, Dict[str, Any]] = {}
+
+    for entry in matches:
+        normalized = normalize_entity_token(entry.get("normalized") or entry.get("token") or "")
+        if not normalized:
+            continue
+        registry.setdefault(
+            normalized,
+            {
+                "token": entry.get("token"),
+                "normalized": normalized,
+                "category": entry.get("category") or "entity",
+                "count": entry.get("count", 0),
+                "samples": entry.get("samples", []),
+                "source": "entity",
+            },
+        )
+
+    language = pending.language or "en"
+    store_matches = search_pronunciation_overrides(language=language, query=normalized_query, limit=limit)
+    for entry in store_matches:
+        normalized = entry.get("normalized")
+        if not normalized:
+            continue
+        registry.setdefault(
+            normalized,
+            {
+                "token": entry.get("token"),
+                "normalized": normalized,
+                "category": "history",
+                "count": entry.get("usage_count", 0),
+                "samples": [entry.get("context")] if entry.get("context") else [],
+                "source": "history",
+                "pronunciation": entry.get("pronunciation"),
+                "voice": entry.get("voice"),
+            },
+        )
+
+    for entry in pending.manual_overrides or []:
+        if not isinstance(entry, Mapping):
+            continue
+        normalized = entry.get("normalized")
+        if not normalized:
+            continue
+        registry.setdefault(
+            normalized,
+            {
+                "token": entry.get("token"),
+                "normalized": normalized,
+                "category": "manual",
+                "count": 0,
+                "samples": [entry.get("context")] if entry.get("context") else [],
+                "source": "manual",
+                "pronunciation": entry.get("pronunciation"),
+                "voice": entry.get("voice"),
+            },
+        )
+
+    ordered = sorted(registry.values(), key=lambda item: (-int(item.get("count") or 0), item.get("token") or ""))
+    if limit:
+        return ordered[:limit]
+    return ordered
+
+
+def _pending_entities_payload(pending: PendingJob) -> Dict[str, Any]:
+    return {
+        "summary": pending.entity_summary or {},
+        "manual_overrides": pending.manual_overrides or [],
+        "pronunciation_overrides": pending.pronunciation_overrides or [],
+        "cache_key": pending.entity_cache_key,
+        "language": pending.language or "en",
+    }
+
+
 def _apply_prepare_form(
     pending: PendingJob, form: Mapping[str, Any]
 ) -> tuple[
@@ -1141,6 +1465,8 @@ def _apply_prepare_form(
 
     enabled_overrides = [entry for entry in overrides if entry.get("enabled")]
 
+    _sync_pronunciation_overrides(pending)
+
     return (
         chunk_level_literal,
         overrides,
@@ -1259,6 +1585,13 @@ def _ensure_at_least_one_chapter_enabled(chapters: List[Dict[str, Any]]) -> None
 
 def _service() -> ConversionService:
     return current_app.extensions["conversion_service"]
+
+
+def _require_pending_job(pending_id: str) -> PendingJob:
+    pending = _service().get_pending_job(pending_id)
+    if not pending:
+        abort(404)
+    return cast(PendingJob, pending)
 
 
 def _build_voice_catalog() -> List[Dict[str, str]]:
@@ -2101,6 +2434,74 @@ def api_speaker_preview() -> ResponseReturnValue:
     return response
 
 
+@api_bp.get("/pending/<pending_id>/entities")
+def api_pending_entities(pending_id: str) -> ResponseReturnValue:
+    pending = _require_pending_job(pending_id)
+    refresh_flag = (request.args.get("refresh") or "").strip().lower()
+    expected_cache = (request.args.get("cache_key") or "").strip()
+    refresh_requested = refresh_flag in {"1", "true", "yes", "force"}
+    if expected_cache and expected_cache != (pending.entity_cache_key or ""):
+        refresh_requested = True
+    if refresh_requested or not pending.entity_summary:
+        _refresh_entity_summary(pending, pending.chapters)
+        _service().store_pending_job(pending)
+    return jsonify(_pending_entities_payload(pending))
+
+
+@api_bp.post("/pending/<pending_id>/entities/refresh")
+def api_refresh_pending_entities(pending_id: str) -> ResponseReturnValue:
+    pending = _require_pending_job(pending_id)
+    _refresh_entity_summary(pending, pending.chapters)
+    _service().store_pending_job(pending)
+    return jsonify(_pending_entities_payload(pending))
+
+
+@api_bp.get("/pending/<pending_id>/manual-overrides")
+def api_list_manual_overrides(pending_id: str) -> ResponseReturnValue:
+    pending = _require_pending_job(pending_id)
+    return jsonify(
+        {
+            "overrides": pending.manual_overrides or [],
+            "pronunciation_overrides": pending.pronunciation_overrides or [],
+            "language": pending.language or "en",
+        }
+    )
+
+
+@api_bp.post("/pending/<pending_id>/manual-overrides")
+def api_upsert_manual_override(pending_id: str) -> ResponseReturnValue:
+    pending = _require_pending_job(pending_id)
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, Mapping):
+        abort(400, "Invalid override payload")
+    try:
+        override = _upsert_manual_override(pending, payload)
+    except ValueError as exc:
+        abort(400, str(exc))
+    _service().store_pending_job(pending)
+    return jsonify({"override": override, **_pending_entities_payload(pending)})
+
+
+@api_bp.delete("/pending/<pending_id>/manual-overrides/<override_id>")
+def api_delete_manual_override(pending_id: str, override_id: str) -> ResponseReturnValue:
+    pending = _require_pending_job(pending_id)
+    deleted = _delete_manual_override(pending, override_id)
+    if not deleted:
+        abort(404)
+    _service().store_pending_job(pending)
+    return jsonify({"deleted": True, **_pending_entities_payload(pending)})
+
+
+@api_bp.get("/pending/<pending_id>/manual-overrides/search")
+def api_search_manual_override_candidates(pending_id: str) -> ResponseReturnValue:
+    pending = _require_pending_job(pending_id)
+    query = (request.args.get("q") or request.args.get("query") or "").strip()
+    limit_param = request.args.get("limit")
+    limit_value = _coerce_int(limit_param, 15, minimum=1, maximum=50) if limit_param is not None else 15
+    results = _search_manual_override_candidates(pending, query, limit=limit_value)
+    return jsonify({"query": query, "limit": limit_value, "results": results})
+
+
 @web_bp.post("/jobs")
 def enqueue_job() -> ResponseReturnValue:
     service = _service()
@@ -2310,6 +2711,8 @@ def enqueue_job() -> ResponseReturnValue:
         analysis_requested=initial_analysis,
     )
 
+    _refresh_entity_summary(pending, pending.chapters)
+
     service.store_pending_job(pending)
     pending.applied_speaker_config = selected_speaker_config or None
     if config_languages:
@@ -2323,20 +2726,14 @@ def enqueue_job() -> ResponseReturnValue:
 
 @web_bp.get("/jobs/prepare/<pending_id>")
 def prepare_job(pending_id: str) -> str:
-    pending = _service().get_pending_job(pending_id)
-    if not pending:
-        abort(404)
-    pending = cast(PendingJob, pending)
+    pending = _require_pending_job(pending_id)
     return _render_prepare_page(pending, active_step="chapters")
 
 
 @web_bp.post("/jobs/prepare/<pending_id>/analyze")
 def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
     service = _service()
-    pending = service.get_pending_job(pending_id)
-    if not pending:
-        abort(404)
-    pending = cast(PendingJob, pending)
+    pending = _require_pending_job(pending_id)
 
     (
         chunk_level_literal,
@@ -2412,21 +2809,20 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
     if selected_total:
         pending.total_characters = selected_total
 
+    _sync_pronunciation_overrides(pending)
+
     service.store_pending_job(pending)
 
-    notice_message = "Speaker analysis updated."
+    notice_message = "Entity insights updated."
     if persist_config_requested and config_name:
-        notice_message = "Speaker analysis updated and configuration saved."
-    return _render_prepare_page(pending, notice=notice_message, active_step="speakers")
+        notice_message = "Entity insights updated and configuration saved."
+    return _render_prepare_page(pending, notice=notice_message, active_step="entities")
 
 
 @web_bp.post("/jobs/prepare/<pending_id>")
 def finalize_job(pending_id: str) -> ResponseReturnValue:
     service = _service()
-    pending = service.get_pending_job(pending_id)
-    if not pending:
-        abort(404)
-    pending = cast(PendingJob, pending)
+    pending = _require_pending_job(pending_id)
 
     (
         chunk_level_literal,
@@ -2443,7 +2839,7 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
         return _render_prepare_page(
             pending,
             error=" ".join(errors),
-            active_step=request.form.get("active_step") or "speakers",
+            active_step=request.form.get("active_step") or "entities",
         )
 
     if pending.speaker_mode != "multi":
@@ -2458,12 +2854,14 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
         )
 
     active_step = (request.form.get("active_step") or "chapters").strip().lower()
+    if active_step == "speakers":
+        active_step = "entities"
 
     raw_chunks = build_chunks_for_chapters(enabled_overrides, level=chunk_level_literal)
     analysis_chunks = build_chunks_for_chapters(enabled_overrides, level="sentence")
     is_multi = pending.speaker_mode == "multi"
     analysis_requested = bool(getattr(pending, "analysis_requested", False))
-    should_force_speakers = is_multi and active_step != "speakers"
+    should_force_entities = is_multi and active_step != "entities"
 
     if analysis_requested:
         existing_roster: Optional[Mapping[str, Any]] = pending.speakers
@@ -2477,7 +2875,7 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
 
     config_name = pending.applied_speaker_config or selected_config
     speaker_config_payload = get_config(config_name) if config_name else None
-    run_analysis = is_multi and (should_force_speakers or analysis_requested)
+    run_analysis = is_multi and (should_force_entities or analysis_requested)
     processed_chunks, roster, analysis_payload, config_languages, updated_config = _prepare_speaker_metadata(
         chapters=enabled_overrides,
         chunks=raw_chunks,
@@ -2511,15 +2909,17 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
     if selected_total:
         pending.total_characters = selected_total
 
-    if should_force_speakers:
-        notice_message = "Review speaker assignments before queuing."
+    _sync_pronunciation_overrides(pending)
+
+    if should_force_entities:
+        notice_message = "Review entity settings before queuing."
         if persist_config_requested and config_key:
-            notice_message = "Configuration saved. Review speaker assignments before queuing."
+            notice_message = "Configuration saved. Review entity settings before queuing."
         service.store_pending_job(pending)
         return _render_prepare_page(
             pending,
             notice=notice_message,
-            active_step="speakers",
+            active_step="entities",
         )
 
     total_characters = selected_total or pending.total_characters
@@ -2559,6 +2959,9 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
         speaker_analysis=pending.speaker_analysis,
         speaker_analysis_threshold=pending.speaker_analysis_threshold,
         analysis_requested=getattr(pending, "analysis_requested", False),
+        entity_summary=pending.entity_summary,
+        manual_overrides=pending.manual_overrides,
+        pronunciation_overrides=pending.pronunciation_overrides,
     )
 
     if config_languages:
@@ -2620,14 +3023,16 @@ def _render_prepare_page(
         ) or "chapters"
 
     normalized_step = (active_step or "chapters").strip().lower()
-    if normalized_step not in {"chapters", "speakers"}:
+    if normalized_step == "speakers":
+        normalized_step = "entities"
+    if normalized_step not in {"chapters", "entities"}:
         normalized_step = "chapters"
 
     is_multi = pending.speaker_mode == "multi"
-    if normalized_step == "speakers" and not is_multi:
+    if normalized_step == "entities" and not is_multi:
         normalized_step = "chapters"
 
-    template_name = "prepare_speakers.html" if normalized_step == "speakers" else "prepare_chapters.html"
+    template_name = "prepare_entities.html" if normalized_step == "entities" else "prepare_chapters.html"
 
     return render_template(
         template_name,

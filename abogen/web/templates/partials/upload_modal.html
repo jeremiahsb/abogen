@@ -42,9 +42,9 @@
   {% set narrator_voice = options.voices[0] %}
 {% endif %}
 {% set speed_display = '%.2f'|format(narrator_speed) %}
-{% set step1_state = 'is-active' if modal_step in ['settings', 'upload'] else ('is-complete' if modal_step in ['chapters', 'speakers'] else '') %}
-{% set step2_state = 'is-active' if modal_step == 'chapters' else ('is-complete' if modal_step == 'speakers' else '') %}
-{% set step3_state = 'is-active' if modal_step == 'speakers' else '' %}
+{% set step1_state = 'is-active' if modal_step in ['settings', 'upload'] else ('is-complete' if modal_step in ['chapters', 'entities'] else '') %}
+{% set step2_state = 'is-active' if modal_step == 'chapters' else ('is-complete' if modal_step == 'entities' else '') %}
+{% set step3_state = 'is-active' if modal_step == 'entities' else '' %}
 <div class="modal" data-role="upload-modal" hidden>
   <div class="modal__overlay" data-role="upload-modal-close" tabindex="-1"></div>
   <div class="modal__content card card--modal wizard-card" role="dialog" aria-modal="true" aria-labelledby="upload-modal-title">
@@ -62,7 +62,7 @@
           {% if is_multi %}
           <span class="step-indicator__item {{ step3_state }}">
             <span class="step-indicator__index">3</span>
-            <span class="step-indicator__label">Speakers</span>
+            <span class="step-indicator__label">Entities</span>
           </span>
           {% endif %}
         </nav>
@@ -177,7 +177,7 @@
         </section>
 
         <section class="form-section">
-          <h3 class="form-section__title">Speakers &amp; casting</h3>
+          <h3 class="form-section__title">Entities &amp; casting</h3>
           <div class="form-section__layout">
             <div class="field-grid field-grid--two">
               <div class="field field--stack">
@@ -212,7 +212,7 @@
               <div class="field">
                 <label for="speaker_analysis_threshold">Speaker analysis minimum mentions</label>
                 <input type="number" min="1" max="25" id="speaker_analysis_threshold" name="speaker_analysis_threshold" value="{{ analysis_threshold_value }}" {{ 'disabled' if readonly else '' }}>
-                <p class="hint">Speakers appearing less often fall back to the narrator voice.</p>
+                <p class="hint">Entities appearing less often fall back to the narrator voice.</p>
               </div>
             </div>
             <div class="field">

@@ -450,7 +450,7 @@ document.addEventListener("DOMContentLoaded", () => {
   analysisButtons.forEach((button) => {
     button.addEventListener("click", () => {
       if (activeStepInput) {
-        activeStepInput.value = "speakers";
+  activeStepInput.value = "entities";
       }
     });
   });
@@ -1080,6 +1080,613 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     renderVoiceList(elements);
+  }
+
+  const entitySummaryData = parseJSONScript("entity-summary-data") || {};
+  const entityCacheKeyData = parseJSONScript("entity-cache-key");
+  const manualOverridesSeed = parseJSONScript("manual-overrides-data") || [];
+  const pronunciationOverridesSeed = parseJSONScript("pronunciation-overrides-data") || [];
+
+  const entityTabs = form.querySelector('[data-role="entity-tabs"]');
+  const entitiesUrl = form.dataset.entitiesUrl || "";
+  const manualUpsertUrl = form.dataset.manualUpsertUrl || "";
+  const manualDeleteUrlTemplate = form.dataset.manualDeleteUrlTemplate || "";
+  const manualSearchUrl = form.dataset.manualSearchUrl || "";
+  const baseVoice = form.dataset.baseVoice || form.dataset.voice || "";
+  const languageCode = form.dataset.language || "en";
+  const defaultSpeed = form.dataset.speed || "1.0";
+  const useGpuDefault = form.dataset.useGpu || "true";
+
+  const entityState = {
+    summary: entitySummaryData && typeof entitySummaryData === "object" ? entitySummaryData : {},
+    cacheKey: typeof entityCacheKeyData === "string" ? entityCacheKeyData : "",
+    manualOverrides: Array.isArray(manualOverridesSeed) ? [...manualOverridesSeed] : [],
+    pronunciationOverrides: Array.isArray(pronunciationOverridesSeed) ? [...pronunciationOverridesSeed] : [],
+  };
+
+  let highlightedOverrideId = "";
+  const pendingOverrideSaves = new Map();
+
+  if (entityTabs) {
+    const tabButtons = Array.from(entityTabs.querySelectorAll('[data-role="entity-tab"]'));
+    const tabPanels = new Map(
+      Array.from(entityTabs.querySelectorAll('[data-role="entity-panel"]')).map((panel) => [panel.dataset.panel || "", panel])
+    );
+
+    const entitySummaryContainer = entityTabs.querySelector('[data-role="entity-summary"]');
+    const entityStatsNode = entitySummaryContainer?.querySelector('[data-role="entity-stats"]');
+    const entityListNode = entitySummaryContainer?.querySelector('[data-role="entity-list"]');
+    const entityRowTemplate = entitySummaryContainer?.querySelector('template[data-role="entity-row-template"]');
+    const entitiesRefreshButton = entitySummaryContainer?.querySelector('[data-role="entities-refresh"]');
+
+    const manualOverridesRoot = entityTabs.querySelector('[data-role="manual-overrides"]');
+    const manualOverrideList = manualOverridesRoot?.querySelector('[data-role="manual-override-list"]');
+    const manualOverrideTemplate = manualOverridesRoot?.querySelector('template[data-role="manual-override-template"]');
+    const manualOverrideResultsList = manualOverridesRoot?.querySelector('[data-role="manual-override-results"]');
+    const manualOverrideQueryInput = manualOverridesRoot?.querySelector('[data-role="manual-override-query"]');
+    const manualOverrideSearchButton = manualOverridesRoot?.querySelector('[data-role="manual-override-search"]');
+    const manualOverrideAddCustomButton = manualOverridesRoot?.querySelector('[data-role="manual-override-add-custom"]');
+    const manualOverridesEmpty = manualOverridesRoot?.querySelector('[data-role="manual-overrides-empty"]');
+
+    const cloneTemplate = (template) => {
+      if (!template) return null;
+      if (template.content && template.content.firstElementChild) {
+        return template.content.firstElementChild.cloneNode(true);
+      }
+      return template.cloneNode(true);
+    };
+
+    const formatMentions = (value) => {
+      const count = Number(value || 0);
+      return `${count.toLocaleString()} mention${count === 1 ? "" : "s"}`;
+    };
+
+    function activateEntityTab(panelKey) {
+      tabButtons.forEach((button) => {
+        const isActive = button.dataset.panel === panelKey;
+        button.classList.toggle("is-active", isActive);
+        button.setAttribute("aria-selected", isActive ? "true" : "false");
+      });
+      tabPanels.forEach((panel, key) => {
+        if (!panel) return;
+        const isActive = key === panelKey;
+        panel.classList.toggle("is-active", isActive);
+        panel.hidden = !isActive;
+        panel.setAttribute("aria-hidden", isActive ? "false" : "true");
+      });
+    }
+
+    function populateVoiceOptions(select, selectedVoice) {
+      if (!select) return;
+      const narratorLabel = baseVoice ? `Use narrator voice (${baseVoice})` : "Use narrator voice";
+      select.innerHTML = "";
+      const narratorOption = document.createElement("option");
+      narratorOption.value = "";
+      narratorOption.textContent = narratorLabel;
+      if (!selectedVoice) {
+        narratorOption.selected = true;
+      }
+      select.appendChild(narratorOption);
+      voiceCatalog.forEach((voice) => {
+        const option = document.createElement("option");
+        option.value = voice.id;
+        option.textContent = `${voice.display_name} · ${voice.language_label} · ${voice.gender}`;
+        if (selectedVoice === voice.id) {
+          option.selected = true;
+        }
+        select.appendChild(option);
+      });
+      if (selectedVoice) {
+        const hasMatch = Array.from(select.options).some((option) => option.value === selectedVoice);
+        if (!hasMatch) {
+          const fallback = document.createElement("option");
+          fallback.value = selectedVoice;
+          fallback.textContent = selectedVoice;
+          fallback.selected = true;
+          select.appendChild(fallback);
+        }
+      }
+    }
+
+    function renderEntitySummary() {
+      if (!entityListNode) return;
+      const summary = entityState.summary || {};
+      const stats = summary.stats || {};
+      const errors = Array.isArray(summary.errors) ? summary.errors : [];
+      if (entityStatsNode) {
+        if (errors.length) {
+          entityStatsNode.textContent = errors.join(" · ");
+        } else if (stats.processed) {
+          const parts = [];
+          if (typeof stats.chapters === "number") {
+            parts.push(`${stats.chapters} chapter${stats.chapters === 1 ? "" : "s"}`);
+          }
+          if (typeof stats.tokens === "number") {
+            parts.push(`${stats.tokens.toLocaleString()} tokens processed`);
+          }
+          entityStatsNode.textContent = parts.length ? parts.join(" · ") : "Entity analysis up to date.";
+        } else {
+          entityStatsNode.textContent = "Entity analysis will populate once you continue from chapters.";
+        }
+      }
+
+      entityListNode.innerHTML = "";
+      const entries = Array.isArray(summary.entities) ? summary.entities : [];
+      if (!entries.length) {
+        const emptyItem = document.createElement("li");
+        emptyItem.className = "entity-summary__empty";
+        emptyItem.textContent = "No entities detected yet.";
+        entityListNode.appendChild(emptyItem);
+        return;
+      }
+
+      entries.slice(0, 120).forEach((entity) => {
+        const item = cloneTemplate(entityRowTemplate);
+        if (!item) return;
+        const normalized = entity.normalized || entity.label || entity.token || "";
+        const tokenLabel = entity.label || entity.token || normalized || "Untitled entity";
+        item.dataset.entityId = entity.id || normalized || tokenLabel;
+
+        const labelEl = item.querySelector('[data-role="entity-label"]');
+        if (labelEl) {
+          labelEl.textContent = tokenLabel;
+        }
+
+        const kindEl = item.querySelector('[data-role="entity-kind"]');
+        if (kindEl) {
+          const kind = entity.kind || entity.category || "";
+          kindEl.textContent = kind;
+          kindEl.hidden = !kind;
+        }
+
+        const countEl = item.querySelector('[data-role="entity-count"]');
+        if (countEl) {
+          countEl.textContent = formatMentions(entity.count);
+        }
+
+        const samplesContainer = item.querySelector('[data-role="entity-samples"]');
+        if (samplesContainer) {
+          samplesContainer.innerHTML = "";
+          const samples = Array.isArray(entity.samples) ? entity.samples : [];
+          if (!samples.length) {
+            const hint = document.createElement("p");
+            hint.className = "hint";
+            hint.textContent = "No sample sentences captured yet.";
+            samplesContainer.appendChild(hint);
+          } else {
+            const list = document.createElement("ul");
+            list.className = "entity-summary__samples-list";
+            samples.slice(0, 3).forEach((sample) => {
+              const text = typeof sample === "string" ? sample : sample?.excerpt;
+              if (!text) return;
+              const entry = document.createElement("li");
+              entry.textContent = text;
+              list.appendChild(entry);
+            });
+            samplesContainer.appendChild(list);
+          }
+        }
+
+        const button = item.querySelector('[data-role="entity-add-override"]');
+        if (button) {
+          const hasOverride = entityState.manualOverrides.some((entry) => {
+            const candidate = entry?.normalized || entry?.token || "";
+            return candidate && candidate.toLowerCase() === normalized.toLowerCase();
+          });
+          button.dataset.entityToken = entity.label || entity.token || "";
+          button.dataset.entityNormalized = normalized;
+          const sampleContext = Array.isArray(entity.samples) && entity.samples.length
+            ? typeof entity.samples[0] === "string"
+              ? entity.samples[0]
+              : entity.samples[0]?.excerpt || ""
+            : "";
+          if (sampleContext) {
+            button.dataset.entityContext = sampleContext;
+          }
+          button.textContent = hasOverride ? "Edit manual override" : "Add manual override";
+        }
+
+        entityListNode.appendChild(item);
+      });
+    }
+
+    function renderManualOverrides() {
+      if (!manualOverrideList) return;
+      manualOverrideList.innerHTML = "";
+      const overrides = Array.isArray(entityState.manualOverrides) ? entityState.manualOverrides : [];
+      if (!overrides.length) {
+        if (manualOverridesEmpty) {
+          manualOverridesEmpty.hidden = false;
+        }
+        return;
+      }
+
+      if (manualOverridesEmpty) {
+        manualOverridesEmpty.hidden = true;
+      }
+
+      overrides.forEach((override) => {
+        const node = cloneTemplate(manualOverrideTemplate);
+        if (!node) return;
+        const overrideId = override.id || override.normalized || override.token || "";
+        node.dataset.overrideId = overrideId;
+        node.dataset.token = override.token || "";
+        node.dataset.normalized = override.normalized || "";
+        node.dataset.context = override.context || "";
+
+        const labelEl = node.querySelector('[data-role="override-label"]');
+        if (labelEl) {
+          labelEl.textContent = override.token || override.normalized || "Manual override";
+        }
+
+        const notesEl = node.querySelector('[data-role="override-notes"]');
+        if (notesEl) {
+          const notes = override.notes || override.context || "";
+          if (notes) {
+            notesEl.textContent = notes;
+          } else {
+            notesEl.hidden = true;
+          }
+        }
+
+        const pronInput = node.querySelector('[data-role="manual-override-pronunciation"]');
+        if (pronInput) {
+          pronInput.value = override.pronunciation || "";
+          pronInput.placeholder = override.token || override.normalized || "";
+          pronInput.dataset.overrideId = overrideId;
+        }
+
+        const voiceSelect = node.querySelector('[data-role="manual-override-voice"]');
+        if (voiceSelect) {
+          populateVoiceOptions(voiceSelect, override.voice || "");
+          voiceSelect.dataset.overrideId = overrideId;
+        }
+
+        const previewButton = node.querySelector('[data-role="speaker-preview"]');
+        if (previewButton) {
+          const previewVoice = override.voice || voiceSelect?.value || baseVoice || "";
+          const previewText = override.pronunciation || override.token || "";
+          previewButton.dataset.overrideId = overrideId;
+          previewButton.dataset.previewText = previewText;
+          previewButton.dataset.voice = previewVoice;
+          previewButton.dataset.language = languageCode;
+          previewButton.dataset.speed = defaultSpeed;
+          previewButton.dataset.useGpu = useGpuDefault;
+        }
+
+        const deleteButton = node.querySelector('[data-role="manual-override-delete"]');
+        if (deleteButton) {
+          deleteButton.dataset.overrideId = overrideId;
+        }
+
+        const metaEl = node.querySelector('[data-role="manual-override-meta"]');
+        if (metaEl) {
+          const parts = [];
+          if (override.source) {
+            parts.push(`Source: ${override.source}`);
+          }
+          if (override.updated_at) {
+            const timestamp = Number(override.updated_at) * 1000;
+            if (!Number.isNaN(timestamp)) {
+              parts.push(`Updated ${new Date(timestamp).toLocaleString()}`);
+            }
+          }
+          metaEl.textContent = parts.join(" · ");
+        }
+
+        manualOverrideList.appendChild(node);
+        if (highlightedOverrideId && highlightedOverrideId === overrideId) {
+          node.classList.add("is-highlighted");
+          setTimeout(() => node.classList.remove("is-highlighted"), 2400);
+          node.scrollIntoView({ behavior: "smooth", block: "center" });
+          highlightedOverrideId = "";
+        }
+      });
+    }
+
+    function applyEntityPayload(payload, options = {}) {
+      if (payload && typeof payload === "object") {
+        if (payload.summary) {
+          entityState.summary = payload.summary;
+        }
+        if (Array.isArray(payload.manual_overrides)) {
+          entityState.manualOverrides = payload.manual_overrides;
+        }
+        if (Array.isArray(payload.pronunciation_overrides)) {
+          entityState.pronunciationOverrides = payload.pronunciation_overrides;
+        }
+        if (typeof payload.cache_key === "string") {
+          entityState.cacheKey = payload.cache_key;
+        }
+      }
+      if (options.highlightId) {
+        highlightedOverrideId = options.highlightId;
+      }
+      renderEntitySummary();
+      renderManualOverrides();
+    }
+
+    function collectOverridePayload(overrideId) {
+      if (!overrideId || !manualOverrideList) return null;
+      const selectorId = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(overrideId) : overrideId.replace(/["\\]/g, "\\$&");
+      const node = manualOverrideList.querySelector(`[data-override-id="${selectorId}"]`);
+      if (!node) return null;
+      const pronInput = node.querySelector('[data-role="manual-override-pronunciation"]');
+      const voiceSelect = node.querySelector('[data-role="manual-override-voice"]');
+      return {
+        id: overrideId,
+        token: node.dataset.token || "",
+        normalized: node.dataset.normalized || "",
+        pronunciation: pronInput?.value?.trim() || "",
+        voice: voiceSelect?.value || "",
+        notes: "",
+        context: node.dataset.context || "",
+      };
+    }
+
+    async function saveManualOverride(overrideId) {
+      const payload = collectOverridePayload(overrideId);
+      if (!payload || !manualUpsertUrl) return;
+      try {
+        const response = await fetch(manualUpsertUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          throw new Error(`Override save failed with status ${response.status}`);
+        }
+        const data = await response.json();
+        applyEntityPayload(data, { highlightId: data.override?.id || payload.id });
+      } catch (error) {
+        console.error("Failed to save manual override", error);
+      }
+    }
+
+    function scheduleManualOverrideSave(overrideId) {
+      if (!overrideId) return;
+      if (pendingOverrideSaves.has(overrideId)) {
+        clearTimeout(pendingOverrideSaves.get(overrideId));
+      }
+      const timer = setTimeout(() => {
+        pendingOverrideSaves.delete(overrideId);
+        saveManualOverride(overrideId);
+      }, 400);
+      pendingOverrideSaves.set(overrideId, timer);
+    }
+
+    async function deleteManualOverride(overrideId) {
+      if (!overrideId || !manualDeleteUrlTemplate) return;
+      const targetUrl = manualDeleteUrlTemplate.replace("__OVERRIDE_ID__", encodeURIComponent(overrideId));
+      try {
+        const response = await fetch(targetUrl, { method: "DELETE" });
+        if (!response.ok) {
+          throw new Error(`Override delete failed with status ${response.status}`);
+        }
+        const data = await response.json();
+        applyEntityPayload(data);
+      } catch (error) {
+        console.error("Failed to delete manual override", error);
+      }
+    }
+
+    async function performEntitiesRefresh(force = false) {
+      if (!entitiesUrl) return;
+      try {
+        const url = new URL(entitiesUrl, window.location.origin);
+        if (force) {
+          url.searchParams.set("refresh", "1");
+        }
+        if (entityState.cacheKey) {
+          url.searchParams.set("cache_key", entityState.cacheKey);
+        }
+        const response = await fetch(url.toString(), { method: "GET" });
+        if (!response.ok) {
+          throw new Error(`Entity refresh failed with status ${response.status}`);
+        }
+        const data = await response.json();
+        applyEntityPayload(data);
+      } catch (error) {
+        console.error("Failed to refresh entity summary", error);
+      }
+    }
+
+    async function performManualOverrideSearch(query) {
+      if (!manualSearchUrl || !manualOverrideResultsList) return;
+      manualOverrideResultsList.innerHTML = "";
+      try {
+        const url = new URL(manualSearchUrl, window.location.origin);
+        if (query) {
+          url.searchParams.set("q", query);
+        }
+        const response = await fetch(url.toString(), { method: "GET" });
+        if (!response.ok) {
+          throw new Error(`Search failed with status ${response.status}`);
+        }
+        const data = await response.json();
+        const results = Array.isArray(data.results) ? data.results : [];
+        if (!results.length) {
+          const emptyItem = document.createElement("li");
+          emptyItem.className = "manual-overrides__results-empty";
+          emptyItem.textContent = query ? "No matches found." : "Start typing to search tokens.";
+          manualOverrideResultsList.appendChild(emptyItem);
+          return;
+        }
+        results.forEach((entry) => {
+          const item = document.createElement("li");
+          item.className = "manual-overrides__result";
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "button button--ghost button--small";
+          button.dataset.role = "manual-override-result";
+          button.dataset.token = entry.token || entry.normalized || "";
+          if (entry.normalized) {
+            button.dataset.normalized = entry.normalized;
+          }
+          if (entry.context) {
+            button.dataset.context = entry.context;
+          } else if (Array.isArray(entry.samples) && entry.samples.length) {
+            const sample = entry.samples[0];
+            button.dataset.context = typeof sample === "string" ? sample : sample?.excerpt || "";
+          }
+          if (entry.pronunciation) {
+            button.dataset.pronunciation = entry.pronunciation;
+          }
+          if (entry.voice) {
+            button.dataset.voice = entry.voice;
+          }
+          button.dataset.source = entry.source || "search";
+          button.textContent = entry.token || entry.normalized || "Unnamed token";
+          item.appendChild(button);
+          manualOverrideResultsList.appendChild(item);
+        });
+      } catch (error) {
+        console.error("Failed to search manual override candidates", error);
+      }
+    }
+
+    async function createOverrideFromData(data) {
+      if (!data || !manualUpsertUrl) return;
+      const token = (data.token || "").trim();
+      if (!token) return;
+      const payload = {
+        token,
+        normalized: (data.normalized || "").trim(),
+        context: data.context || "",
+        pronunciation: data.pronunciation || "",
+        voice: data.voice || "",
+        source: data.source || "manual",
+      };
+      try {
+        const response = await fetch(manualUpsertUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          throw new Error(`Override creation failed with status ${response.status}`);
+        }
+        const body = await response.json();
+        const highlighted = body.override?.id || payload.normalized || payload.token;
+        applyEntityPayload(body, { highlightId: highlighted });
+        activateEntityTab("manual");
+        if (manualOverrideResultsList) {
+          manualOverrideResultsList.innerHTML = "";
+        }
+      } catch (error) {
+        console.error("Failed to create manual override", error);
+      }
+    }
+
+    tabButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        activateEntityTab(button.dataset.panel || "people");
+      });
+    });
+
+    if (entitiesRefreshButton) {
+      entitiesRefreshButton.addEventListener("click", () => {
+        performEntitiesRefresh(true);
+      });
+    }
+
+    if (entityListNode) {
+      entityListNode.addEventListener("click", (event) => {
+        const trigger = event.target.closest('[data-role="entity-add-override"]');
+        if (!trigger) return;
+        event.preventDefault();
+        createOverrideFromData({
+          token: trigger.dataset.entityToken || "",
+          normalized: trigger.dataset.entityNormalized || "",
+          context: trigger.dataset.entityContext || "",
+          source: "entity",
+        });
+      });
+    }
+
+    if (manualOverrideSearchButton) {
+      manualOverrideSearchButton.addEventListener("click", () => {
+        const query = manualOverrideQueryInput?.value?.trim() || "";
+        performManualOverrideSearch(query);
+      });
+    }
+
+    if (manualOverrideQueryInput) {
+      manualOverrideQueryInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          performManualOverrideSearch(manualOverrideQueryInput.value.trim());
+        }
+      });
+    }
+
+    if (manualOverrideAddCustomButton) {
+      manualOverrideAddCustomButton.addEventListener("click", () => {
+        const token = window.prompt("Enter the token to override:");
+        if (!token) return;
+        createOverrideFromData({ token: token.trim(), source: "manual" });
+      });
+    }
+
+    if (manualOverrideResultsList) {
+      manualOverrideResultsList.addEventListener("click", (event) => {
+        const resultButton = event.target.closest('[data-role="manual-override-result"]');
+        if (!resultButton) return;
+        event.preventDefault();
+        createOverrideFromData({
+          token: resultButton.dataset.token || "",
+          normalized: resultButton.dataset.normalized || "",
+          context: resultButton.dataset.context || "",
+          pronunciation: resultButton.dataset.pronunciation || "",
+          voice: resultButton.dataset.voice || "",
+          source: resultButton.dataset.source || "search",
+        });
+      });
+    }
+
+    if (manualOverrideList) {
+      manualOverrideList.addEventListener("input", (event) => {
+        const input = event.target.closest('[data-role="manual-override-pronunciation"]');
+        if (!input) return;
+        const overrideId = input.dataset.overrideId || input.closest('[data-override-id]')?.dataset.overrideId;
+        const container = input.closest(".manual-override");
+        const previewButton = container?.querySelector('[data-role="speaker-preview"]');
+        if (previewButton) {
+          previewButton.dataset.previewText = input.value.trim() || input.placeholder || "";
+        }
+        if (overrideId) {
+          scheduleManualOverrideSave(overrideId);
+        }
+      });
+
+      manualOverrideList.addEventListener("change", (event) => {
+        const select = event.target.closest('[data-role="manual-override-voice"]');
+        if (!select) return;
+        const overrideId = select.dataset.overrideId || select.closest('[data-override-id]')?.dataset.overrideId;
+        const container = select.closest(".manual-override");
+        const previewButton = container?.querySelector('[data-role="speaker-preview"]');
+        if (previewButton) {
+          previewButton.dataset.voice = select.value || baseVoice || select.dataset.defaultVoice || "";
+        }
+        if (overrideId) {
+          scheduleManualOverrideSave(overrideId);
+        }
+      });
+
+      manualOverrideList.addEventListener("click", (event) => {
+        const deleteButton = event.target.closest('[data-role="manual-override-delete"]');
+        if (!deleteButton) return;
+        event.preventDefault();
+        const overrideId = deleteButton.dataset.overrideId;
+        if (!overrideId) return;
+        deleteManualOverride(overrideId);
+      });
+    }
+
+    const initialTab = tabButtons.find((button) => button.classList.contains("is-active"));
+    activateEntityTab(initialTab?.dataset.panel || "people");
+    renderEntitySummary();
+    renderManualOverrides();
   }
 
   form.addEventListener("click", (event) => {
