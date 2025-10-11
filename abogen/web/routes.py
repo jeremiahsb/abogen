@@ -501,6 +501,7 @@ def _build_speaker_roster(
         payload = speakers.get(speaker_id, {})
         if speaker_id == "narrator":
             continue
+        if isinstance(payload, Mapping) and payload.get("suppressed"):
             continue
         previous = existing_map.get(speaker_id)
         roster[speaker_id] = {
@@ -864,7 +865,11 @@ def _prepare_speaker_metadata(
     ordered_ids = [
         sid
         for sid, meta in sorted(
-            ((sid, meta) for sid, meta in speakers_payload.items() if sid != "narrator"),
+            (
+                (sid, meta)
+                for sid, meta in speakers_payload.items()
+                if sid != "narrator" and isinstance(meta, Mapping) and not meta.get("suppressed")
+            ),
             key=lambda item: item[1].get("count", 0),
             reverse=True,
         )

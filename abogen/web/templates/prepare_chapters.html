@@ -8,26 +8,30 @@
 <section class="wizard-page" data-step="chapters">
   <div class="wizard-card card card--modal">
     <header class="modal__header wizard-card__header">
-      <div class="modal__heading">
-        <p class="modal__eyebrow">Step 2 of 3</p>
-        <h2 class="modal__title">Select chapters</h2>
-        <p class="hint">Choose which chapters to convert and tweak conversion options. We'll analyse speakers automatically when you continue.</p>
-      </div>
-      <div class="wizard-card__aside">
-        <div class="step-indicator" aria-label="Audiobook workflow">
-          <span class="step-indicator__item is-complete">
+      <div class="wizard-card__headline">
+        <nav class="step-indicator" aria-label="Audiobook workflow">
+          <a class="step-indicator__item is-complete" href="{{ url_for('web.index') }}">
             <span class="step-indicator__index">1</span>
             <span class="step-indicator__label">Upload &amp; settings</span>
-          </span>
-          <span class="step-indicator__item is-active">
+          </a>
+          <a class="step-indicator__item is-active"
+             aria-current="step"
+             href="{{ url_for('web.prepare_job', pending_id=pending.id, step='chapters') }}">
             <span class="step-indicator__index">2</span>
             <span class="step-indicator__label">Chapters</span>
-          </span>
-          <span class="step-indicator__item" {% if not is_multi_speaker %}hidden aria-hidden="true"{% endif %}>
+          </a>
+          {% if is_multi_speaker %}
+          <a class="step-indicator__item"
+             href="{{ url_for('web.prepare_job', pending_id=pending.id, step='speakers') }}">
             <span class="step-indicator__index">3</span>
             <span class="step-indicator__label">Speakers</span>
-          </span>
-        </div>
+          </a>
+          {% endif %}
+        </nav>
+        <h2 class="modal__title">Select chapters</h2>
+        <p class="hint">Choose which chapters to convert. We'll analyse speakers automatically when you continue.</p>
+      </div>
+      <div class="wizard-card__aside">
         <p class="wizard-card__filename" title="{{ pending.original_filename }}">{{ pending.original_filename }}</p>
       </div>
     </header>
@@ -35,8 +39,18 @@
           action="{{ url_for('web.finalize_job', pending_id=pending.id) }}"
           class="prepare-form"
           id="prepare-form"
+          data-speaker-mode="{{ pending.speaker_mode }}"
           data-analyze-url="{{ url_for('web.analyze_pending_job', pending_id=pending.id) }}">
       <input type="hidden" name="active_step" value="chapters" data-role="active-step-input">
+      <div class="wizard-hidden-inputs" aria-hidden="true">
+        <input type="hidden" name="chunk_level" value="{{ pending.chunk_level }}">
+        <input type="hidden" name="speaker_mode" value="{{ pending.speaker_mode }}">
+        <input type="hidden" name="speaker_analysis_threshold" value="{{ pending.speaker_analysis_threshold }}">
+        <input type="hidden" name="chapter_intro_delay" value="{{ '%.2f'|format(pending.chapter_intro_delay) }}">
+        {% if pending.generate_epub3 %}
+          <input type="hidden" name="generate_epub3" value="true">
+        {% endif %}
+      </div>
 
       <div class="modal__body wizard-card__body">
         {% if error %}
@@ -62,23 +76,32 @@
               {% elif chapter.voice_formula %}
                 {% set selected_option = 'formula' %}
               {% endif %}
-              <article class="chapter-card" data-role="chapter-row">
-                <header class="chapter-card__header">
-                  <div class="chapter-card__title">
-                    <label class="chapter-card__checkbox">
-                      <input type="checkbox" name="chapter-{{ loop.index0 }}-enabled" data-role="chapter-enabled" {% if is_enabled %}checked{% endif %}>
-                      <span>Chapter {{ loop.index }} · {{ chapter.title }}</span>
-                    </label>
-                  </div>
+              {% set raw_excerpt = (chapter.text or '') | replace('\r', ' ') | replace('\n', ' ') %}
+              {% set excerpt = raw_excerpt[:240] %}
+              <article class="chapter-card"
+                       data-role="chapter-row"
+                       data-disabled="{{ 'false' if is_enabled else 'true' }}"
+                       data-expanded="{{ 'true' if is_enabled else 'false' }}">
+                <header class="chapter-card__summary">
+                  <label class="chapter-card__checkbox">
+                    <input type="checkbox"
+                           name="chapter-{{ loop.index0 }}-enabled"
+                           data-role="chapter-enabled"
+                           {% if is_enabled %}checked{% endif %}>
+                    <span>Chapter {{ loop.index }} · {{ chapter.title }}</span>
+                  </label>
+                  <p class="chapter-card__snippet">
+                    {{ excerpt }}{% if raw_excerpt|length > 240 %}…{% endif %}
+                  </p>
                 </header>
-                <div class="chapter-card__body">
+                <div class="chapter-card__details" data-role="chapter-details">
                   <div class="chapter-card__field">
                     <label for="chapter-{{ loop.index0 }}-title">Title</label>
                     <input type="text" id="chapter-{{ loop.index0 }}-title" name="chapter-{{ loop.index0 }}-title" value="{{ chapter.title }}">
                   </div>
                   <div class="chapter-card__preview">
                     <details>
-                      <summary>Preview text</summary>
+                      <summary>Preview full text</summary>
                       <pre>{{ chapter.text[:2000] }}{% if chapter.text|length > 2000 %}…{% endif %}</pre>
                     </details>
                   </div>
@@ -100,7 +123,13 @@
                       {% endif %}
                       <option value="formula" {% if selected_option == 'formula' %}selected{% endif %}>Custom formula…</option>
                     </select>
-                    <input type="text" name="chapter-{{ loop.index0 }}-formula" class="chapter-card__formula" data-role="formula-input" placeholder="af_nova*0.4+am_liam*0.6" value="{{ chapter.voice_formula or '' }}" {% if selected_option != 'formula' %}hidden aria-hidden="true"{% else %}aria-hidden="false"{% endif %}>
+                    <input type="text"
+                           name="chapter-{{ loop.index0 }}-formula"
+                           class="chapter-card__formula"
+                           data-role="formula-input"
+                           placeholder="af_nova*0.4+am_liam*0.6"
+                           value="{{ chapter.voice_formula or '' }}"
+                           {% if selected_option != 'formula' %}hidden aria-hidden="true"{% else %}aria-hidden="false"{% endif %}>
                   </div>
                   <p class="chapter-card__notice" data-role="chapter-warning" hidden>
                     If this chapter mentions newsletter sign-ups or marketing content, double-check any references so listeners aren't sent to an outdated link.
@@ -110,48 +139,10 @@
             {% endfor %}
           </div>
         </section>
-
-        <section class="form-section">
-          <h3 class="form-section__title">Conversion defaults</h3>
-          <div class="field-grid field-grid--two">
-            <div class="field">
-              <label for="chunk_level">Chunk granularity</label>
-              <select id="chunk_level" name="chunk_level">
-                {% for option in options.chunk_levels %}
-                  <option value="{{ option.value }}" {% if pending.chunk_level == option.value %}selected{% endif %}>{{ option.label }}</option>
-                {% endfor %}
-              </select>
-              <p class="hint">Paragraphs work well for long-form narration; sentences give finer subtitle sync.</p>
-            </div>
-            <div class="field">
-              <label for="speaker_mode">Speaker mode</label>
-              <select id="speaker_mode" name="speaker_mode">
-                {% for option in options.speaker_modes %}
-                  <option value="{{ option.value }}" {% if pending.speaker_mode == option.value %}selected{% endif %}>{{ option.label }}</option>
-                {% endfor %}
-              </select>
-            </div>
-          </div>
-          <div class="field-grid field-grid--two">
-            <div class="field">
-              <label for="speaker_analysis_threshold">Speaker analysis minimum mentions</label>
-              <input type="number" min="1" max="25" id="speaker_analysis_threshold" name="speaker_analysis_threshold" value="{{ pending.speaker_analysis_threshold }}">
-              <p class="hint">Only speakers that appear at least this many times will keep unique voices in multi-speaker mode.</p>
-            </div>
-            <div class="field">
-              <label for="chapter_intro_delay">Pause after chapter titles (seconds)</label>
-              <input type="number" step="0.1" min="0" id="chapter_intro_delay" name="chapter_intro_delay" value="{{ '%.2f'|format(pending.chapter_intro_delay) }}">
-              <p class="hint">Set to 0 to disable the pause after speaking each chapter title.</p>
-            </div>
-          </div>
-          <label class="toggle-pill">
-            <input type="checkbox" name="generate_epub3" value="true" {% if pending.generate_epub3 %}checked{% endif %}>
-            <span>Generate EPUB 3 (experimental)</span>
-          </label>
-        </section>
       </div>
       <footer class="modal__footer wizard-card__footer">
         <div class="wizard-card__footer-actions">
+          <a class="button button--ghost" href="{{ url_for('web.index') }}">Previous</a>
           <button type="submit" class="button button--ghost" form="cancel-form">Cancel</button>
         </div>
         <div class="wizard-card__footer-actions">

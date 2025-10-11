@@ -18,6 +18,113 @@ document.addEventListener("DOMContentLoaded", () => {
   const languageMap = parseJSONScript("voice-language-map") || {};
   const voiceCatalogMap = new Map(voiceCatalog.map((voice) => [voice.id, voice]));
 
+  const sampleIndexState = new WeakMap();
+
+  const readSpeakerSamples = (speakerItem) => {
+    if (!speakerItem) return [];
+    const template = speakerItem.querySelector('template[data-role="speaker-samples"]');
+    if (!template) return [];
+    let parsed = [];
+    try {
+      const raw = template.innerHTML || "[]";
+      const data = JSON.parse(raw);
+      if (Array.isArray(data)) {
+        parsed = data;
+      }
+    } catch (error) {
+      console.warn("Unable to parse speaker samples", error);
+      return [];
+    }
+
+    const seen = new Set();
+    const normalised = [];
+    for (const entry of parsed) {
+      let excerpt = "";
+      let genderHint = "";
+      if (typeof entry === "string") {
+        excerpt = entry;
+      } else if (entry && typeof entry === "object") {
+        excerpt = String(entry.excerpt || "");
+        genderHint = typeof entry.gender_hint === "string" ? entry.gender_hint : "";
+      }
+      const key = excerpt.trim();
+      if (!key || seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      normalised.push({ excerpt: key, genderHint });
+    }
+    return normalised;
+  };
+
+  const getPronunciationText = (container) => {
+    if (!container) return "";
+    const input = container.querySelector('[data-role="speaker-pronunciation"]');
+    const raw = input?.value?.trim();
+    if (raw) {
+      return raw;
+    }
+    return (container.dataset.defaultPronunciation || "").trim();
+  };
+
+  const syncPronunciationPreview = (container) => {
+    if (!container) return;
+    const text = getPronunciationText(container);
+    const previewButtons = container.querySelectorAll('[data-role="speaker-preview"][data-preview-source]');
+    previewButtons.forEach((button) => {
+      const source = button.dataset.previewSource;
+      if (["pronunciation", "generated", "mix"].includes(source)) {
+        button.dataset.previewText = text;
+      }
+    });
+  };
+
+  const setSpeakerSample = (speakerItem, index) => {
+    if (!speakerItem) return;
+    const samples = readSpeakerSamples(speakerItem);
+    if (!samples.length) return;
+    const maxIndex = samples.length;
+    const normalisedIndex = ((index % maxIndex) + maxIndex) % maxIndex;
+    sampleIndexState.set(speakerItem, normalisedIndex);
+    const sample = samples[normalisedIndex];
+    const article = speakerItem.querySelector('[data-role="speaker-sample"]');
+    if (!article) return;
+    const textNode = article.querySelector('[data-role="sample-text"]');
+    const hintNode = article.querySelector('[data-role="sample-hint"]');
+    if (textNode) {
+      textNode.textContent = sample.excerpt;
+    }
+    if (hintNode) {
+      if (sample.genderHint) {
+        hintNode.hidden = false;
+        hintNode.textContent = sample.genderHint;
+      } else {
+        hintNode.hidden = true;
+        hintNode.textContent = "";
+      }
+    }
+    const previewButton = article.querySelector('[data-role="speaker-preview"][data-preview-source="sample"]');
+    if (previewButton) {
+      previewButton.dataset.previewText = sample.excerpt;
+    }
+    const voiceBrowserButton = article.querySelector('[data-role="open-voice-browser"]');
+    if (voiceBrowserButton) {
+      voiceBrowserButton.dataset.sampleIndex = String(normalisedIndex);
+    }
+  };
+
+  const initialiseSpeakerItem = (speakerItem) => {
+    syncPronunciationPreview(speakerItem);
+    const samples = readSpeakerSamples(speakerItem);
+    if (samples.length) {
+      setSpeakerSample(speakerItem, 0);
+      const nextButton = speakerItem.querySelector('[data-role="speaker-next-sample"]');
+      if (nextButton) {
+        nextButton.disabled = samples.length <= 1;
+      }
+    }
+  };
+
   const formatCustomMixLabel = (formula) => {
     if (!formula) return "Custom mix";
     const segments = formula
@@ -228,6 +335,9 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     updatePreviewVoice(select);
   });
+
+    const speakerItems = Array.from(form.querySelectorAll(".speaker-list__item"));
+    speakerItems.forEach((item) => initialiseSpeakerItem(item));
 
   const activeStepInput = form.querySelector('[data-role="active-step-input"]');
   const analysisButtons = Array.from(form.querySelectorAll('[data-role="submit-speaker-analysis"]'));
@@ -690,7 +800,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!voiceModal) return;
     modalState.speakerItem = speakerItem;
     const select = speakerItem.querySelector('[data-role="speaker-voice"]');
-    const previewTrigger = speakerItem.querySelector('[data-role="speaker-preview"]');
+  const previewTrigger = speakerItem.querySelector('[data-role="speaker-preview"][data-preview-source="pronunciation"]');
     const formulaInput = speakerItem.querySelector('[data-role="speaker-formula"]');
     modalState.defaultVoice = select?.dataset.defaultVoice || previewTrigger?.dataset.voice || "";
     modalState.mix = formulaInput?.value ? parseFormula(formulaInput.value) : new Map();
@@ -698,36 +808,32 @@ document.addEventListener("DOMContentLoaded", () => {
       modalState.mix.set(select.value, 1);
     }
     modalState.mix = normaliseMix(modalState.mix);
+
     modalState.previewSettings = {
       language: previewTrigger?.dataset.language || "a",
       speed: previewTrigger?.dataset.speed || "1",
       useGpu: previewTrigger?.dataset.useGpu || "true",
     };
 
-    const samplesTemplate = speakerItem.querySelector('template[data-role="speaker-samples"]');
-    let samples = [];
-    if (samplesTemplate) {
-      try {
-        const raw = samplesTemplate.innerHTML || "[]";
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          samples = parsed
-            .map((entry) => (typeof entry === "string" ? entry : entry?.excerpt))
-            .filter((value) => typeof value === "string" && value.trim().length);
-        }
-      } catch (error) {
-        console.warn("Unable to parse speaker samples", error);
+    const samples = readSpeakerSamples(speakerItem);
+    let excerpts = samples.map((sample) => sample.excerpt);
+    const storedIndex = sampleIndexState.get(speakerItem) || 0;
+    let effectiveIndex = Number.isFinite(sampleIndex) ? sampleIndex : 0;
+    if (!Number.isFinite(effectiveIndex) || effectiveIndex < 0 || effectiveIndex >= excerpts.length) {
+      effectiveIndex = storedIndex;
+    }
+    if (excerpts.length && effectiveIndex > 0 && effectiveIndex < excerpts.length) {
+      const [selected] = excerpts.splice(effectiveIndex, 1);
+      excerpts.unshift(selected);
+    }
+    if (!excerpts.length) {
+      const sampleButton = speakerItem.querySelector('[data-role="speaker-preview"][data-preview-source="sample"]');
+      const previewText = sampleButton?.dataset.previewText?.trim();
+      if (previewText) {
+        excerpts = [previewText];
       }
     }
-    if (previewTrigger?.dataset.previewText) {
-      samples.unshift(previewTrigger.dataset.previewText);
-    }
-    const uniqueSamples = Array.from(new Set(samples));
-    if (sampleIndex > 0 && sampleIndex < uniqueSamples.length) {
-      const [picked] = uniqueSamples.splice(sampleIndex, 1);
-      uniqueSamples.unshift(picked);
-    }
-    modalState.samples = uniqueSamples;
+    modalState.samples = Array.from(new Set(excerpts));
     modalState.recommended = new Set(
       Array.from(speakerItem.querySelectorAll('[data-role="recommended-voice"]')).map((btn) => btn.dataset.voice).filter(Boolean)
     );
@@ -896,6 +1002,16 @@ document.addEventListener("DOMContentLoaded", () => {
       const container = genderOption.closest('[data-role="speaker-gender"]');
       setGenderForSpeaker(container, genderOption.dataset.value);
       hideGenderMenus();
+      return;
+    }
+
+    const nextSampleButton = event.target.closest('[data-role="speaker-next-sample"]');
+    if (nextSampleButton) {
+      event.preventDefault();
+      const container = nextSampleButton.closest(".speaker-list__item");
+      if (!container) return;
+      const currentIndex = sampleIndexState.get(container) || 0;
+      setSpeakerSample(container, currentIndex + 1);
       return;
     }
 

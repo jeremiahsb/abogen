@@ -12,29 +12,30 @@
 <section class="wizard-page" data-step="speakers">
   <div class="wizard-card card card--modal">
     <header class="modal__header wizard-card__header">
-      <div class="modal__heading">
-        <p class="modal__eyebrow">Step 3 of 3</p>
+      <div class="wizard-card__headline">
+        <nav class="step-indicator" aria-label="Audiobook workflow">
+          <a class="step-indicator__item is-complete" href="{{ url_for('web.index') }}">
+            <span class="step-indicator__index">1</span>
+            <span class="step-indicator__label">Upload &amp; settings</span>
+          </a>
+          <a class="step-indicator__item is-complete"
+             href="{{ url_for('web.prepare_job', pending_id=pending.id, step='chapters') }}">
+            <span class="step-indicator__index">2</span>
+            <span class="step-indicator__label">Chapters</span>
+          </a>
+          {% if is_multi_speaker %}
+          <a class="step-indicator__item is-active"
+             aria-current="step"
+             href="{{ url_for('web.prepare_job', pending_id=pending.id, step='speakers') }}">
+            <span class="step-indicator__index">3</span>
+            <span class="step-indicator__label">Speakers</span>
+          </a>
+          {% endif %}
+        </nav>
         <h2 class="modal__title">Select speakers</h2>
         <p class="hint">Assign voices, audition samples, and finalise your roster before queueing the conversion.</p>
       </div>
       <div class="wizard-card__aside">
-        <div class="step-indicator" aria-label="Audiobook workflow">
-          <span class="step-indicator__item is-complete">
-            <span class="step-indicator__index">1</span>
-            <span class="step-indicator__label">Upload &amp; settings</span>
-          </span>
-          <span class="step-indicator__item is-complete">
-            <span class="step-indicator__index">2</span>
-            <span class="step-indicator__label">Chapters</span>
-          </span>
-          <span class="step-indicator__item is-active" {% if not is_multi_speaker %}hidden aria-hidden="true"{% endif %}>
-            <span class="step-indicator__index">3</span>
-            <span class="step-indicator__label">Speakers</span>
-          </span>
-        </div>
-        <div class="wizard-card__links">
-          <a class="button button--ghost" href="{{ url_for('web.prepare_job', pending_id=pending.id, step='chapters') }}">Back to chapters</a>
-        </div>
         <p class="wizard-card__filename" title="{{ pending.original_filename }}">{{ pending.original_filename }}</p>
       </div>
     </header>
@@ -43,6 +44,7 @@
           action="{{ url_for('web.finalize_job', pending_id=pending.id) }}"
           class="prepare-form"
           id="prepare-form"
+          data-speaker-mode="{{ pending.speaker_mode }}"
           data-analyze-url="{{ url_for('web.analyze_pending_job', pending_id=pending.id) }}">
       <input type="hidden" name="active_step" value="speakers" data-role="active-step-input">
 
@@ -128,8 +130,7 @@
           <p class="hint">Set pronunciations, lock specific voices, and audition sample paragraphs to hear casting choices.</p>
           <ul class="speaker-list">
             {% for speaker_id, speaker in pending.speakers.items() %}
-            {% set spoken_name = speaker.pronunciation or speaker.label %}
-            {% set preview_text = recommended_template | replace("{{name}}", spoken_name) %}
+            {% set pronunciation_text = speaker.pronunciation or speaker.label %}
             {% set selected_voice = speaker.resolved_voice or speaker.voice %}
             {% set seen = namespace(values=[]) %}
             {% set sample_quotes = speaker.sample_quotes or [] %}
@@ -137,14 +138,17 @@
             {% set current_gender = speaker.gender or detected_gender %}
             {% set gender_label = 'Either' if current_gender == 'either' else (current_gender|title if current_gender != 'unknown' else 'Unknown') %}
             {% set detected_label = 'Either' if detected_gender == 'either' else (detected_gender|title if detected_gender != 'unknown' else 'Unknown') %}
-            <li class="speaker-list__item" data-speaker-id="{{ speaker_id }}">
+      <li class="speaker-list__item"
+        data-speaker-id="{{ speaker_id }}"
+        data-default-pronunciation="{{ pronunciation_text }}">
               <div class="speaker-line speaker-list__header">
                 <span class="speaker-list__name">{{ speaker.label }}</span>
                 <button type="button"
                         class="icon-button speaker-list__preview"
                         data-role="speaker-preview"
                         data-speaker-id="{{ speaker_id }}"
-                        data-preview-text="{{ preview_text|e }}"
+                        data-preview-source="pronunciation"
+                        data-preview-text="{{ pronunciation_text|e }}"
                         data-language="{{ pending.language }}"
                         data-voice="{{ selected_voice or pending.voice }}"
                         data-speed="{{ '%.2f'|format(pending.speed) }}"
@@ -186,7 +190,8 @@
                 <input type="text"
                        id="speaker-{{ speaker_id }}-pronunciation"
                        name="speaker-{{ speaker_id }}-pronunciation"
-                       value="{{ speaker.pronunciation or '' }}"
+                       value="{{ pronunciation_text }}"
+                       data-role="speaker-pronunciation"
                        placeholder="{{ speaker.label }}">
               </label>
               <div class="speaker-list__controls">
@@ -243,7 +248,8 @@
                           data-role="speaker-preview"
                           data-preview-kind="generated"
                           data-speaker-id="{{ speaker_id }}"
-                          data-preview-text="{{ preview_text|e }}"
+                          data-preview-source="generated"
+                          data-preview-text="{{ pronunciation_text|e }}"
                           data-language="{{ pending.language }}"
                           data-voice="{{ speaker.voice_formula or selected_voice or pending.voice }}"
                           data-speed="{{ '%.2f'|format(pending.speed) }}"
@@ -259,9 +265,9 @@
                     <button type="button"
                             class="button button--ghost button--small"
                             data-role="speaker-preview"
-                            data-preview-context="mix"
+                            data-preview-source="mix"
                             data-speaker-id="{{ speaker_id }}"
-                            data-preview-text="{{ preview_text|e }}"
+                            data-preview-text="{{ pronunciation_text|e }}"
                             data-language="{{ pending.language }}"
                             data-voice="{{ speaker.voice_formula or selected_voice or pending.voice }}"
                             data-speed="{{ '%.2f'|format(pending.speed) }}"
@@ -276,20 +282,19 @@
               <details class="speaker-list__samples" {% if not sample_quotes %}data-state="empty"{% endif %}>
                 <summary>Sample paragraphs</summary>
                 {% if sample_quotes %}
-                  {% for quote in sample_quotes %}
-                  {% set excerpt = quote.excerpt if quote is mapping else quote %}
-                  {% set gender_hint = quote.gender_hint if quote is mapping else '' %}
-                  <article class="speaker-sample" data-sample-index="{{ loop.index0 }}">
-                    <p>{{ excerpt }}</p>
-                    {% if gender_hint %}
-                    <p class="hint">{{ gender_hint }}</p>
-                    {% endif %}
+                  {% set first_sample = sample_quotes[0] if sample_quotes|length > 0 else None %}
+                  {% set first_excerpt = first_sample.excerpt if first_sample is mapping else first_sample %}
+                  {% set first_hint = first_sample.gender_hint if first_sample is mapping else '' %}
+                  <article class="speaker-sample" data-role="speaker-sample">
+                    <p data-role="sample-text">{{ first_excerpt }}</p>
+                    <p class="hint" data-role="sample-hint" {% if not first_hint %}hidden{% endif %}>{{ first_hint }}</p>
                     <div class="speaker-sample__actions">
                       <button type="button"
                               class="button button--ghost button--small"
                               data-role="speaker-preview"
+                              data-preview-source="sample"
                               data-speaker-id="{{ speaker_id }}"
-                              data-preview-text="{{ quote|e }}"
+                              data-preview-text="{{ first_excerpt }}"
                               data-language="{{ pending.language }}"
                               data-voice="{{ selected_voice or pending.voice }}"
                               data-speed="{{ '%.2f'|format(pending.speed) }}"
@@ -300,12 +305,18 @@
                               class="button button--ghost button--small"
                               data-role="open-voice-browser"
                               data-speaker-id="{{ speaker_id }}"
-                              data-sample-index="{{ loop.index0 }}">
+                              data-sample-index="0">
                         Preview in voice browser
                       </button>
+                      {% if sample_quotes|length > 1 %}
+                      <button type="button"
+                              class="button button--ghost button--small"
+                              data-role="speaker-next-sample">
+                        Show another example
+                      </button>
+                      {% endif %}
                     </div>
                   </article>
-                  {% endfor %}
                 {% else %}
                   <p class="hint">No paragraphs captured yet. Continue from Step 2 to gather dialogue samples automatically.</p>
                 {% endif %}
@@ -336,6 +347,7 @@
 
       <footer class="modal__footer wizard-card__footer">
         <div class="wizard-card__footer-actions">
+          <a class="button button--ghost" href="{{ url_for('web.prepare_job', pending_id=pending.id, step='chapters') }}">Previous</a>
           <button type="submit" class="button button--ghost" form="cancel-form">Cancel</button>
         </div>
         <div class="wizard-card__footer-actions">
