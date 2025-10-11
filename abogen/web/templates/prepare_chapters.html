@@ -33,7 +33,6 @@
             </a>
             {% endif %}
           </nav>
-          <p class="modal__eyebrow">Step 2 of {{ total_steps }}</p>
           <h2 class="modal__title" id="prepare-chapters-title">Select chapters</h2>
           <p class="hint">Choose which chapters to convert. We'll analyse entities automatically when you continue.</p>
         </div>
@@ -82,8 +81,6 @@
               {% elif chapter.voice_formula %}
                 {% set selected_option = 'formula' %}
               {% endif %}
-              {% set raw_excerpt = (chapter.text or '') | replace('\r', ' ') | replace('\n', ' ') %}
-              {% set excerpt = raw_excerpt[:240] %}
               <article class="chapter-card"
                        data-role="chapter-row"
                        data-disabled="{{ 'false' if is_enabled else 'true' }}"
@@ -106,10 +103,6 @@
                 </header>
        <div class="chapter-card__details"
          data-role="chapter-details">
-                  <p class="chapter-card__snippet"
-                     data-role="chapter-snippet">
-                    {{ excerpt }}{% if raw_excerpt|length > 240 %}…{% endif %}
-                  </p>
                   <div class="chapter-card__field">
                     <label for="chapter-{{ loop.index0 }}-title">Title</label>
                     <input type="text" id="chapter-{{ loop.index0 }}-title" name="chapter-{{ loop.index0 }}-title" value="{{ chapter.title }}">
@@ -146,9 +139,6 @@
                            value="{{ chapter.voice_formula or '' }}"
                            {% if selected_option != 'formula' %}hidden aria-hidden="true"{% else %}aria-hidden="false"{% endif %}>
                   </div>
-                  <p class="chapter-card__notice" data-role="chapter-warning" hidden>
-                    If this chapter mentions newsletter sign-ups or marketing content, double-check any references so listeners aren't sent to an outdated link.
-                  </p>
                 </div>
               </article>
             {% endfor %}

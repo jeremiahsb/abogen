@@ -263,8 +263,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const updateRowState = (row) => {
     const enabled = row.querySelector('[data-role=chapter-enabled]');
-    const inputs = Array.from(row.querySelectorAll("input[type=text], select, textarea"));
-    const warning = row.querySelector('[data-role=chapter-warning]');
+  const inputs = Array.from(row.querySelectorAll("input[type=text], select, textarea"));
     const toggle = row.querySelector('[data-role="chapter-toggle"]');
     const isChecked = enabled ? enabled.checked : true;
     row.dataset.disabled = isChecked ? "false" : "true";
@@ -299,10 +298,6 @@ document.addEventListener("DOMContentLoaded", () => {
       toggle.setAttribute("aria-disabled", isChecked ? "false" : "true");
     }
 
-    if (warning) {
-      warning.hidden = isChecked;
-      warning.setAttribute("aria-hidden", isChecked ? "true" : "false");
-    }
   };
 
   const toggleFormula = (select) => {
