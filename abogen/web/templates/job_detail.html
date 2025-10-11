@@ -39,9 +39,15 @@
       <p>Started: {{ job.started_at|datetimeformat }}</p>
       <p>Finished: {{ job.finished_at|datetimeformat }}</p>
       <p>Characters: {{ job.processed_characters }} / {{ job.total_characters or '—' }}</p>
-      {% if job.result.audio_path %}
-      <p><a class="button" href="{{ url_for('web.download_job', job_id=job.id) }}">Download audio</a></p>
-      {% endif %}
+  {% set flags = downloads or {} %}
+  {% if flags.get('m4b') %}
+  <p><a class="button" href="{{ url_for('web.download_job_m4b', job_id=job.id) }}">Download M4B</a></p>
+  {% elif flags.get('audio') %}
+  <p><a class="button" href="{{ url_for('web.download_job', job_id=job.id) }}">Download audio</a></p>
+  {% endif %}
+  {% if flags.get('epub3') %}
+  <p><a class="button button--ghost" href="{{ url_for('web.download_job_epub3', job_id=job.id) }}">Download EPUB 3</a></p>
+  {% endif %}
       {% if job.status in [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.PAUSED] %}
       <form action="{{ url_for('web.cancel_job', job_id=job.id) }}" method="post">
         <button type="submit" class="button button--ghost">Cancel job</button>

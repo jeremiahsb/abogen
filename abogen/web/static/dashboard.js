@@ -11,6 +11,26 @@ const initDashboard = () => {
   const dropzone = document.querySelector('[data-role="upload-dropzone"]');
   const dropzoneFilename = document.querySelector('[data-role="upload-dropzone-filename"]');
 
+  const readerButtonRegistry = new WeakSet();
+
+  const bindReaderButtons = (root) => {
+    const context = root instanceof Element ? root : document;
+    const buttons = context.querySelectorAll('[data-role="open-reader"]');
+    buttons.forEach((button) => {
+      if (!(button instanceof HTMLElement)) {
+        return;
+      }
+      if (readerButtonRegistry.has(button)) {
+        return;
+      }
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        openReaderModal(button);
+      });
+      readerButtonRegistry.add(button);
+    });
+  };
+
   const parseJSONScript = (id) => {
     const element = document.getElementById(id);
     if (!element) return null;
@@ -131,9 +151,12 @@ const initDashboard = () => {
   };
 
   const openReaderModal = (trigger) => {
-    if (!readerModal || !readerFrame) return;
     const url = trigger?.dataset.readerUrl || "";
     if (!url) return;
+    if (!readerModal || !readerFrame) {
+      window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
     readerTrigger = trigger || null;
     const bookTitle = trigger?.dataset.bookTitle || "";
     if (readerTitle) {
@@ -215,13 +238,6 @@ const initDashboard = () => {
     if (readerClose) {
       event.preventDefault();
       closeReaderModal();
-      return;
-    }
-
-    const readerTriggerBtn = target.closest('[data-role="open-reader"]');
-    if (readerTriggerBtn) {
-      event.preventDefault();
-      openReaderModal(readerTriggerBtn);
     }
   });
 
@@ -608,6 +624,17 @@ const initDashboard = () => {
   window.addEventListener("beforeunload", () => {
     cancelPreviewRequest();
     stopPreviewAudio();
+  });
+
+  bindReaderButtons();
+
+  document.addEventListener("htmx:afterSwap", (event) => {
+    const fragment = event?.detail?.target;
+    if (fragment instanceof Element) {
+      bindReaderButtons(fragment);
+    } else {
+      bindReaderButtons();
+    }
   });
 };
 

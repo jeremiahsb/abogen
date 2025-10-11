@@ -13,7 +13,7 @@ import zipfile
 from datetime import datetime
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, cast
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Set, Tuple, cast
 from xml.etree import ElementTree as ET
 
 from flask import (
@@ -340,42 +340,121 @@ def _read_epub_bytes(epub_path: Path, raw_href: str) -> bytes:
         return archive.read(normalized)
 
 
+def _iter_job_result_paths(job: Job) -> List[Path]:
+    result = getattr(job, "result", None)
+    if result is None:
+        return []
+    resolved_seen: Set[Path] = set()
+    collected: List[Path] = []
+
+    def _remember(candidate: Optional[Path]) -> None:
+        if not candidate:
+            return
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            return
+        if resolved in resolved_seen:
+            return
+        resolved_seen.add(resolved)
+        collected.append(candidate)
+
+    artifacts = getattr(result, "artifacts", None)
+    if isinstance(artifacts, Mapping):
+        for value in artifacts.values():
+            candidate = _coerce_path(value)
+            if candidate and candidate.exists() and candidate.is_file():
+                _remember(candidate)
+
+    for attr in ("audio_path", "epub_path"):
+        candidate = _coerce_path(getattr(result, attr, None))
+        if candidate and candidate.exists() and candidate.is_file():
+            _remember(candidate)
+
+    return collected
+
+
+def _iter_job_artifact_dirs(job: Job) -> List[Path]:
+    result = getattr(job, "result", None)
+    if result is None:
+        return []
+    artifacts = getattr(result, "artifacts", None)
+    directories: List[Path] = []
+    if isinstance(artifacts, Mapping):
+        for value in artifacts.values():
+            candidate = _coerce_path(value)
+            if candidate and candidate.exists() and candidate.is_dir():
+                directories.append(candidate)
+    return directories
+
+
+def _normalize_suffixes(suffixes: Iterable[str]) -> List[str]:
+    normalized: List[str] = []
+    for suffix in suffixes:
+        if not suffix:
+            continue
+        cleaned = suffix.lower().strip()
+        if not cleaned:
+            continue
+        if not cleaned.startswith("."):
+            cleaned = f".{cleaned.lstrip('.')}"
+        normalized.append(cleaned)
+    return normalized
+
+
+def _find_job_file(job: Job, suffixes: Iterable[str]) -> Optional[Path]:
+    ordered_suffixes = _normalize_suffixes(suffixes)
+    if not ordered_suffixes:
+        return None
+    files = _iter_job_result_paths(job)
+    for suffix in ordered_suffixes:
+        for candidate in files:
+            if candidate.suffix.lower() == suffix:
+                return candidate
+    directories = _iter_job_artifact_dirs(job)
+    for suffix in ordered_suffixes:
+        pattern = f"*{suffix}"
+        for directory in directories:
+            try:
+                match = next((path for path in directory.rglob(pattern) if path.is_file()), None)
+            except OSError:
+                match = None
+            if match:
+                return match
+    return None
+
+
 def _locate_job_epub(job: Job) -> Optional[Path]:
-    result = getattr(job, "result", None)
-    if result is not None:
-        primary = _coerce_path(getattr(result, "epub_path", None))
-        if primary and primary.exists():
-            return primary
-        artifacts = getattr(result, "artifacts", None)
-        if isinstance(artifacts, Mapping):
-            for value in artifacts.values():
-                candidate = _coerce_path(value)
-                if candidate and candidate.suffix.lower() == ".epub" and candidate.exists():
-                    return candidate
+    path = _find_job_file(job, [".epub"])
+    if path:
+        return path
     return None
 
 
-def _locate_job_audio(job: Job) -> Optional[Path]:
-    result = getattr(job, "result", None)
-    candidates: List[Path] = []
-    if result is not None:
-        primary = _coerce_path(getattr(result, "audio_path", None))
-        if primary:
-            candidates.append(primary)
-        artifacts = getattr(result, "artifacts", None)
-        if isinstance(artifacts, Mapping):
-            for value in artifacts.values():
-                candidate = _coerce_path(value)
-                if candidate:
-                    candidates.append(candidate)
+def _locate_job_m4b(job: Job) -> Optional[Path]:
+    return _find_job_file(job, [".m4b"])
 
-    for candidate in candidates:
-        if candidate and candidate.exists() and candidate.suffix.lower() in {".mp3", ".wav", ".flac", ".ogg", ".opus", ".m4a"}:
-            return candidate
-    for candidate in candidates:
-        if candidate and candidate.exists():
-            return candidate
-    return None
+
+def _locate_job_audio(job: Job, preferred_suffixes: Optional[Iterable[str]] = None) -> Optional[Path]:
+    suffix_order: List[str] = []
+    if preferred_suffixes:
+        suffix_order.extend(preferred_suffixes)
+    suffix_order.extend([".m4b", ".mp3", ".flac", ".opus", ".ogg", ".m4a", ".wav"])
+    path = _find_job_file(job, suffix_order)
+    if path:
+        return path
+    files = _iter_job_result_paths(job)
+    return files[0] if files else None
+
+
+def _job_download_flags(job: Job) -> Dict[str, bool]:
+    if job.status != JobStatus.COMPLETED:
+        return {"audio": False, "m4b": False, "epub3": False}
+    return {
+        "audio": _locate_job_audio(job) is not None,
+        "m4b": _locate_job_m4b(job) is not None,
+        "epub3": _locate_job_epub(job) is not None,
+    }
 def _build_narrator_roster(
     voice: str,
     voice_profile: Optional[str],
@@ -2481,12 +2560,14 @@ def _render_jobs_panel() -> str:
     active_jobs = [job for job in jobs if job.status in active_statuses]
     active_jobs.sort(key=lambda job: ((job.queue_position or 10_000), -job.created_at))
     finished_jobs = [job for job in jobs if job.status not in active_statuses]
+    download_flags = {job.id: _job_download_flags(job) for job in jobs}
     return render_template(
         "partials/jobs.html",
         active_jobs=active_jobs,
         finished_jobs=finished_jobs[:5],
         total_finished=len(finished_jobs),
         JobStatus=JobStatus,
+        download_flags=download_flags,
     )
 
 
@@ -2524,6 +2605,7 @@ def job_detail(job_id: str) -> str:
         job=job,
         options=_template_options(),
         JobStatus=JobStatus,
+        downloads=_job_download_flags(job),
     )
 
 
@@ -2692,6 +2774,40 @@ def download_job(job_id: str) -> ResponseReturnValue:
         mimetype=mime_type or "application/octet-stream",
         as_attachment=True,
         download_name=audio_path.name,
+    )
+
+
+@web_bp.get("/jobs/<job_id>/download/m4b")
+def download_job_m4b(job_id: str) -> ResponseReturnValue:
+    job = _service().get_job(job_id)
+    if job is None or job.status != JobStatus.COMPLETED:
+        abort(404)
+    audio_path = _locate_job_m4b(job)
+    if not audio_path:
+        abort(404)
+    mime_type, _ = mimetypes.guess_type(str(audio_path))
+    return send_file(
+        audio_path,
+        mimetype=mime_type or "audio/mpeg",
+        as_attachment=True,
+        download_name=audio_path.name,
+    )
+
+
+@web_bp.get("/jobs/<job_id>/download/epub3")
+def download_job_epub3(job_id: str) -> ResponseReturnValue:
+    job = _service().get_job(job_id)
+    if job is None or job.status != JobStatus.COMPLETED:
+        abort(404)
+    epub_path = _locate_job_epub(job)
+    if not epub_path:
+        abort(404)
+    return send_file(
+        epub_path,
+        mimetype="application/epub+zip",
+        as_attachment=True,
+        download_name=epub_path.name,
+        conditional=True,
     )
 
 

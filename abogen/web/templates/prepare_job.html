@@ -20,7 +20,7 @@
       <span class="step-indicator__index">2</span>
       <span class="step-indicator__label">Chapters</span>
     </span>
-  <span class="step-indicator__item{% if is_speakers %} is-active{% endif %}" data-role="wizard-step" data-step-key="speakers" {% if not is_multi_speaker %}hidden aria-hidden="true"{% endif %}>
+  <span class="step-indicator__item{% if is_speakers %} is-active{% endif %}" data-role="wizard-step" data-step-key="speakers" {% if not is_multi_speaker %}hidden aria-hidden="true" style="display:none;"{% endif %}>
       <span class="step-indicator__index">3</span>
       <span class="step-indicator__label">Speakers</span>
     </span>
@@ -170,7 +170,7 @@
         </div>
       </section>
 
-  <section class="prepare-step" data-step-panel="speakers" data-speaker-panel="true" hidden>
+  <section class="prepare-step" data-step-panel="speakers" data-speaker-panel="true" {% if not is_multi_speaker %}style="display:none;"{% endif %} hidden>
         <header class="prepare-step__header">
           <h2>Step 3 · Select speakers</h2>
           <p class="hint">Assign voices, audition samples, and finalize your roster.</p>

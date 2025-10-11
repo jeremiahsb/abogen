@@ -72,8 +72,16 @@
             {% if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED] %}
               <button type="button" class="button button--ghost" hx-post="{{ url_for('web.retry_job', job_id=job.id) }}" hx-target="#jobs-panel" hx-swap="innerHTML">Retry</button>
             {% endif %}
-            {% if job.status == JobStatus.COMPLETED and job.result.audio_path %}
-              <a class="button button--ghost" href="{{ url_for('web.download_job', job_id=job.id) }}">Download</a>
+            {% set flags = download_flags.get(job.id, {}) %}
+            {% if job.status == JobStatus.COMPLETED %}
+              {% if flags.get('m4b') %}
+                <a class="button button--ghost" href="{{ url_for('web.download_job_m4b', job_id=job.id) }}">Download M4B</a>
+              {% elif flags.get('audio') %}
+                <a class="button button--ghost" href="{{ url_for('web.download_job', job_id=job.id) }}">Download Audio</a>
+              {% endif %}
+              {% if flags.get('epub3') %}
+                <a class="button button--ghost" href="{{ url_for('web.download_job_epub3', job_id=job.id) }}">Download EPUB 3</a>
+              {% endif %}
             {% endif %}
             {% set reader_source = None %}
             {% if job.status == JobStatus.COMPLETED and job.result %}

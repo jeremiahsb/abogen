@@ -245,6 +245,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const initialStep = wizard.dataset.initialStep || "chapters";
   const speakerModeSelect = form.querySelector("#speaker_mode");
   const speakerIndicator = indicator ? indicator.querySelector('[data-step-key="speakers"]') : null;
+  const speakerPanel = wizard.querySelector('[data-speaker-panel="true"]');
   const chapterActions = wizard.querySelector('[data-role="chapter-actions"]');
   const continueButton = chapterActions ? chapterActions.querySelector('[data-chapter-action="continue"]') : null;
   const finalizeButton = chapterActions ? chapterActions.querySelector('[data-chapter-action="finalize"]') : null;
@@ -357,9 +358,18 @@ document.addEventListener("DOMContentLoaded", () => {
         if (skipSpeakers) {
           speakerIndicator.hidden = true;
           speakerIndicator.setAttribute("aria-hidden", "true");
+          speakerIndicator.style.display = "none";
         } else {
           speakerIndicator.hidden = false;
           speakerIndicator.removeAttribute("aria-hidden");
+          speakerIndicator.style.removeProperty("display");
+        }
+      }
+      if (speakerPanel) {
+        if (skipSpeakers) {
+          speakerPanel.style.display = "none";
+        } else {
+          speakerPanel.style.removeProperty("display");
         }
       }
       if (continueButton) {
