@@ -7,42 +7,46 @@
 {% set analysis_speakers = analysis.get('speakers', {}) %}
 {% set speaker_configs = options.speaker_configs or [] %}
 {% set recommended_template = options.speaker_pronunciation_sentence or "This is {{name}} speaking." %}
+{% set total_steps = 3 if is_multi_speaker else 2 %}
 
 {% block content %}
-<section class="wizard-page" data-step="speakers">
-  <div class="wizard-card card card--modal">
-    <header class="modal__header wizard-card__header">
-      <div class="wizard-card__headline">
-        <nav class="step-indicator" aria-label="Audiobook workflow">
-          <button type="button"
-                  class="step-indicator__item is-complete"
-                  data-role="open-upload-modal">
-            <span class="step-indicator__index">1</span>
-            <span class="step-indicator__label">Upload &amp; settings</span>
-          </button>
-          <a class="step-indicator__item is-complete"
-             href="{{ url_for('web.prepare_job', pending_id=pending.id, step='chapters') }}">
-            <span class="step-indicator__index">2</span>
-            <span class="step-indicator__label">Chapters</span>
-          </a>
-          {% if is_multi_speaker %}
-          <a class="step-indicator__item is-active"
-             aria-current="step"
-             href="{{ url_for('web.prepare_job', pending_id=pending.id, step='speakers') }}">
-            <span class="step-indicator__index">3</span>
-            <span class="step-indicator__label">Speakers</span>
-          </a>
-          {% endif %}
-        </nav>
-        <h2 class="modal__title">Select speakers</h2>
-        <p class="hint">Assign voices, audition samples, and finalise your roster before queueing the conversion.</p>
-      </div>
-      <div class="wizard-card__aside">
-        <p class="wizard-card__filename" title="{{ pending.original_filename }}">{{ pending.original_filename }}</p>
-      </div>
-    </header>
+<section class="wizard-page wizard-page--modal" data-step="speakers">
+  <div class="modal modal--wizard" data-role="wizard-modal" data-open="true">
+    <div class="modal__overlay" aria-hidden="true"></div>
+    <div class="modal__content card card--modal wizard-card" role="dialog" aria-modal="true" aria-labelledby="prepare-speakers-title">
+      <header class="modal__header wizard-card__header">
+        <div class="wizard-card__headline">
+          <nav class="step-indicator" aria-label="Audiobook workflow">
+            <button type="button"
+                    class="step-indicator__item is-complete"
+                    data-role="open-upload-modal">
+              <span class="step-indicator__index">1</span>
+              <span class="step-indicator__label">Upload &amp; settings</span>
+            </button>
+            <a class="step-indicator__item is-complete"
+               href="{{ url_for('web.prepare_job', pending_id=pending.id, step='chapters') }}">
+              <span class="step-indicator__index">2</span>
+              <span class="step-indicator__label">Chapters</span>
+            </a>
+            {% if is_multi_speaker %}
+            <a class="step-indicator__item is-active"
+               aria-current="step"
+               href="{{ url_for('web.prepare_job', pending_id=pending.id, step='speakers') }}">
+              <span class="step-indicator__index">3</span>
+              <span class="step-indicator__label">Speakers</span>
+            </a>
+            {% endif %}
+          </nav>
+          <p class="modal__eyebrow">Step 3 of {{ total_steps }}</p>
+          <h2 class="modal__title" id="prepare-speakers-title">Select speakers</h2>
+          <p class="hint">Assign voices, audition samples, and finalise your roster before queueing the conversion.</p>
+        </div>
+        <div class="wizard-card__aside">
+          <p class="wizard-card__filename" title="{{ pending.original_filename }}">{{ pending.original_filename }}</p>
+        </div>
+      </header>
 
-    <form method="post"
+      <form method="post"
           action="{{ url_for('web.finalize_job', pending_id=pending.id) }}"
           class="prepare-form"
           id="prepare-form"
@@ -78,7 +82,7 @@
         {% endfor %}
       </div>
 
-      <div class="modal__body wizard-card__body">
+        <div class="modal__body wizard-card__body">
         {% if error %}
           <div class="alert alert--error">{{ error }}</div>
         {% endif %}
@@ -345,21 +349,21 @@
         {% else %}
         <p class="hint">No additional speakers detected yet. The narrator voice will be used for all dialogue.</p>
         {% endif %}
-      </div>
-
-      <footer class="modal__footer wizard-card__footer">
-        <div class="wizard-card__footer-actions">
-          <a class="button button--ghost" href="{{ url_for('web.prepare_job', pending_id=pending.id, step='chapters') }}">Previous</a>
-          <button type="submit" class="button button--ghost" form="cancel-form">Cancel</button>
         </div>
-        <div class="wizard-card__footer-actions">
-          <button type="submit" class="button">Queue conversion</button>
-        </div>
-      </footer>
-    </form>
-    <form method="post" action="{{ url_for('web.cancel_pending_job', pending_id=pending.id) }}" id="cancel-form"></form>
 
-    <div class="modal" data-role="voice-modal" hidden>
+        <footer class="modal__footer wizard-card__footer">
+          <div class="wizard-card__footer-actions">
+            <a class="button button--ghost" href="{{ url_for('web.prepare_job', pending_id=pending.id, step='chapters') }}">Previous</a>
+            <button type="submit" class="button button--ghost" form="cancel-form">Cancel</button>
+          </div>
+          <div class="wizard-card__footer-actions">
+            <button type="submit" class="button">Queue conversion</button>
+          </div>
+        </footer>
+      </form>
+      <form method="post" action="{{ url_for('web.cancel_pending_job', pending_id=pending.id) }}" id="cancel-form"></form>
+
+      <div class="modal" data-role="voice-modal" hidden>
       <div class="modal__overlay" data-role="voice-modal-close" tabindex="-1"></div>
       <div class="modal__content voice-browser" role="dialog" aria-modal="true" aria-labelledby="voice-modal-title">
         <header class="voice-browser__header">
@@ -407,8 +411,8 @@
             </section>
           </section>
         </div>
+        </div>
       </div>
-    </div>
   </div>
 </section>
 {% with pending=pending, readonly=True, active_step='speakers' %}

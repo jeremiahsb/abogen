@@ -8,6 +8,7 @@
 {% elif settings_dict %}
   {% set is_multi = settings_dict.get('speaker_mode', 'single') == 'multi' %}
 {% endif %}
+{% set total_steps = 3 if is_multi else 2 %}
 {% set language_value = pending.language if pending else settings_dict.get('language', '') %}
 {% if not language_value %}
   {% set sorted_languages = options.languages|dictsort %}
@@ -65,7 +66,7 @@
           </span>
           {% endif %}
         </nav>
-        <p class="modal__eyebrow">Step 1 of 3</p>
+  <p class="modal__eyebrow">Step 1 of {{ total_steps }}</p>
         <h2 class="modal__title" id="upload-modal-title">Upload &amp; settings</h2>
         <p class="hint">Choose your source file or paste text, then set the defaults used for chapter analysis and speaker casting.</p>
       </div>

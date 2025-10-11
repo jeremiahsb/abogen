@@ -102,6 +102,15 @@ const initDashboard = () => {
   let previewObjectUrl = null;
   let suppressPauseStatus = false;
 
+  const dispatchUploadModalEvent = (type, detail = {}) => {
+    const eventName = `upload-modal:${type}`;
+    if (uploadModal) {
+      uploadModal.dispatchEvent(new CustomEvent(eventName, { detail, bubbles: true }));
+      return;
+    }
+    document.dispatchEvent(new CustomEvent(eventName, { detail }));
+  };
+
   const openUploadModal = (trigger) => {
     if (!uploadModal) return;
     lastTrigger = trigger || null;
@@ -112,6 +121,7 @@ const initDashboard = () => {
     if (focusTarget instanceof HTMLElement) {
       focusTarget.focus({ preventScroll: true });
     }
+    dispatchUploadModalEvent("open", { trigger: lastTrigger });
   };
 
   const closeUploadModal = () => {
@@ -124,6 +134,7 @@ const initDashboard = () => {
     if (lastTrigger && lastTrigger instanceof HTMLElement) {
       lastTrigger.focus({ preventScroll: true });
     }
+    dispatchUploadModalEvent("close", { trigger: lastTrigger });
   };
 
   openModalButtons.forEach((button) => {

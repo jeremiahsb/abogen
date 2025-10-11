@@ -2,6 +2,55 @@ document.addEventListener("DOMContentLoaded", () => {
   const form = document.querySelector(".prepare-form");
   if (!form) return;
 
+  const wizardModal = document.querySelector('[data-role="wizard-modal"]');
+  const uploadModal = document.querySelector('[data-role="upload-modal"]');
+  const wizardPreviousButtons = Array.from(document.querySelectorAll('[data-role="wizard-previous"]'));
+  const openUploadTriggers = Array.from(document.querySelectorAll('[data-role="open-upload-modal"]'));
+
+  const showWizardModal = () => {
+    if (!wizardModal) return;
+    wizardModal.hidden = false;
+    wizardModal.dataset.open = "true";
+    wizardModal.removeAttribute("aria-hidden");
+    document.body.classList.add("modal-open");
+  };
+
+  const hideWizardModal = () => {
+    if (!wizardModal) return;
+    wizardModal.hidden = true;
+    delete wizardModal.dataset.open;
+    wizardModal.setAttribute("aria-hidden", "true");
+  };
+
+  const triggerUploadModal = () => {
+    const existingTrigger = openUploadTriggers.find((button) => button !== null);
+    if (existingTrigger) {
+      existingTrigger.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      return;
+    }
+    if (!uploadModal) return;
+    uploadModal.hidden = false;
+    uploadModal.dataset.open = "true";
+    document.body.classList.add("modal-open");
+    const focusTarget = uploadModal.querySelector("#source_file") || uploadModal.querySelector("#source_text") || uploadModal;
+    if (focusTarget instanceof HTMLElement) {
+      focusTarget.focus({ preventScroll: true });
+    }
+  };
+
+  showWizardModal();
+
+  document.addEventListener("upload-modal:open", hideWizardModal);
+  document.addEventListener("upload-modal:close", showWizardModal);
+
+  wizardPreviousButtons.forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      hideWizardModal();
+      triggerUploadModal();
+    });
+  });
+
   const parseJSONScript = (id) => {
     const el = document.getElementById(id);
     if (!el) return null;
@@ -184,12 +233,39 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const chapterRows = Array.from(form.querySelectorAll("[data-role=chapter-row]"));
 
+  const setRowExpansion = (row, expanded) => {
+    if (!row) return;
+    const details = row.querySelector('[data-role="chapter-details"]');
+    const toggle = row.querySelector('[data-role="chapter-toggle"]');
+    const isExpanded = Boolean(expanded);
+    row.dataset.expanded = isExpanded ? "true" : "false";
+    if (details) {
+      details.hidden = !isExpanded;
+      details.setAttribute("aria-hidden", isExpanded ? "false" : "true");
+    }
+    if (toggle) {
+      toggle.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+      toggle.setAttribute("aria-label", isExpanded ? "Hide chapter details" : "Show chapter details");
+    }
+  };
+
+  const toggleRowExpansion = (row, force) => {
+    if (!row) return;
+    const current = row.dataset.expanded === "true";
+    const next = typeof force === "boolean" ? force : !current;
+    setRowExpansion(row, next);
+  };
+
+  const isRowEnabled = (row) => {
+    const checkbox = row?.querySelector('[data-role="chapter-enabled"]');
+    return checkbox ? checkbox.checked : true;
+  };
+
   const updateRowState = (row) => {
     const enabled = row.querySelector('[data-role=chapter-enabled]');
     const inputs = Array.from(row.querySelectorAll("input[type=text], select, textarea"));
     const warning = row.querySelector('[data-role=chapter-warning]');
-    const snippet = row.querySelector('[data-role="chapter-snippet"]');
-    const details = row.querySelector('[data-role="chapter-details"]');
+    const toggle = row.querySelector('[data-role="chapter-toggle"]');
     const isChecked = enabled ? enabled.checked : true;
     row.dataset.disabled = isChecked ? "false" : "true";
 
@@ -214,14 +290,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const select = row.querySelector("select[data-role=voice-select]");
     toggleFormula(select);
 
-    if (snippet) {
-      snippet.hidden = !isChecked;
-      snippet.setAttribute("aria-hidden", isChecked ? "false" : "true");
+    if (!isChecked) {
+      setRowExpansion(row, false);
     }
 
-    if (details) {
-      details.hidden = !isChecked;
-      details.setAttribute("aria-hidden", isChecked ? "false" : "true");
+    if (toggle) {
+      toggle.disabled = !isChecked;
+      toggle.setAttribute("aria-disabled", isChecked ? "false" : "true");
     }
 
     if (warning) {
@@ -248,6 +323,7 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   chapterRows.forEach((row) => {
+    setRowExpansion(row, row.dataset.expanded === "true");
     const enabled = row.querySelector('[data-role=chapter-enabled]');
     if (enabled) {
       enabled.addEventListener("change", () => updateRowState(row));
@@ -257,6 +333,16 @@ document.addEventListener("DOMContentLoaded", () => {
     if (select) {
       select.addEventListener("change", () => toggleFormula(select));
       toggleFormula(select);
+    }
+    const toggleButton = row.querySelector('[data-role="chapter-toggle"]');
+    if (toggleButton) {
+      toggleButton.addEventListener("click", () => {
+        if (!isRowEnabled(row)) {
+          setRowExpansion(row, false);
+          return;
+        }
+        toggleRowExpansion(row);
+      });
     }
   });
 

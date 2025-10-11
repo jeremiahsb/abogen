@@ -3,46 +3,50 @@
 {% block title %}Prepare · {{ pending.original_filename }}{% endblock %}
 
 {% set is_multi_speaker = pending.speaker_mode == 'multi' %}
+{% set total_steps = 3 if is_multi_speaker else 2 %}
 
 {% block content %}
-<section class="wizard-page" data-step="chapters">
-  <div class="wizard-card card card--modal">
-    <header class="modal__header wizard-card__header">
-      <div class="wizard-card__headline">
-        <nav class="step-indicator" aria-label="Audiobook workflow">
-          <button type="button"
-                  class="step-indicator__item is-complete"
-                  data-role="open-upload-modal">
-            <span class="step-indicator__index">1</span>
-            <span class="step-indicator__label">Upload &amp; settings</span>
-          </button>
-          <a class="step-indicator__item is-active"
-             aria-current="step"
-             href="{{ url_for('web.prepare_job', pending_id=pending.id, step='chapters') }}">
-            <span class="step-indicator__index">2</span>
-            <span class="step-indicator__label">Chapters</span>
-          </a>
-          {% if is_multi_speaker %}
-          <a class="step-indicator__item"
-             href="{{ url_for('web.prepare_job', pending_id=pending.id, step='speakers') }}">
-            <span class="step-indicator__index">3</span>
-            <span class="step-indicator__label">Speakers</span>
-          </a>
-          {% endif %}
-        </nav>
-        <h2 class="modal__title">Select chapters</h2>
-        <p class="hint">Choose which chapters to convert. We'll analyse speakers automatically when you continue.</p>
-      </div>
-      <div class="wizard-card__aside">
-        <p class="wizard-card__filename" title="{{ pending.original_filename }}">{{ pending.original_filename }}</p>
-      </div>
-    </header>
-    <form method="post"
-          action="{{ url_for('web.finalize_job', pending_id=pending.id) }}"
-          class="prepare-form"
-          id="prepare-form"
-          data-speaker-mode="{{ pending.speaker_mode }}"
-          data-analyze-url="{{ url_for('web.analyze_pending_job', pending_id=pending.id) }}">
+<section class="wizard-page wizard-page--modal" data-step="chapters">
+  <div class="modal modal--wizard" data-role="wizard-modal" data-open="true">
+    <div class="modal__overlay" aria-hidden="true"></div>
+    <div class="modal__content card card--modal wizard-card" role="dialog" aria-modal="true" aria-labelledby="prepare-chapters-title">
+      <header class="modal__header wizard-card__header">
+        <div class="wizard-card__headline">
+          <nav class="step-indicator" aria-label="Audiobook workflow">
+            <button type="button"
+                    class="step-indicator__item is-complete"
+                    data-role="open-upload-modal">
+              <span class="step-indicator__index">1</span>
+              <span class="step-indicator__label">Upload &amp; settings</span>
+            </button>
+            <a class="step-indicator__item is-active"
+               aria-current="step"
+               href="{{ url_for('web.prepare_job', pending_id=pending.id, step='chapters') }}">
+              <span class="step-indicator__index">2</span>
+              <span class="step-indicator__label">Chapters</span>
+            </a>
+            {% if is_multi_speaker %}
+            <a class="step-indicator__item"
+               href="{{ url_for('web.prepare_job', pending_id=pending.id, step='speakers') }}">
+              <span class="step-indicator__index">3</span>
+              <span class="step-indicator__label">Speakers</span>
+            </a>
+            {% endif %}
+          </nav>
+          <p class="modal__eyebrow">Step 2 of {{ total_steps }}</p>
+          <h2 class="modal__title" id="prepare-chapters-title">Select chapters</h2>
+          <p class="hint">Choose which chapters to convert. We'll analyse speakers automatically when you continue.</p>
+        </div>
+        <div class="wizard-card__aside">
+          <p class="wizard-card__filename" title="{{ pending.original_filename }}">{{ pending.original_filename }}</p>
+        </div>
+      </header>
+      <form method="post"
+            action="{{ url_for('web.finalize_job', pending_id=pending.id) }}"
+            class="prepare-form"
+            id="prepare-form"
+            data-speaker-mode="{{ pending.speaker_mode }}"
+            data-analyze-url="{{ url_for('web.analyze_pending_job', pending_id=pending.id) }}">
       <input type="hidden" name="active_step" value="chapters" data-role="active-step-input">
       <div class="wizard-hidden-inputs" aria-hidden="true">
         <input type="hidden" name="chunk_level" value="{{ pending.chunk_level }}">
@@ -54,7 +58,7 @@
         {% endif %}
       </div>
 
-      <div class="modal__body wizard-card__body">
+        <div class="modal__body wizard-card__body">
         {% if error %}
           <div class="alert alert--error">{{ error }}</div>
         {% endif %}
@@ -83,8 +87,8 @@
               <article class="chapter-card"
                        data-role="chapter-row"
                        data-disabled="{{ 'false' if is_enabled else 'true' }}"
-                       data-expanded="{{ 'true' if is_enabled else 'false' }}">
-                <header class="chapter-card__summary">
+                       data-expanded="false">
+                <header class="chapter-card__summary" data-role="chapter-summary">
                   <label class="chapter-card__checkbox">
                     <input type="checkbox"
                            name="chapter-{{ loop.index0 }}-enabled"
@@ -92,15 +96,20 @@
                            {% if is_enabled %}checked{% endif %}>
                     <span>Chapter {{ loop.index }} · {{ chapter.title }}</span>
                   </label>
+                  <button type="button"
+                          class="chapter-card__toggle"
+                          data-role="chapter-toggle"
+                          aria-expanded="false"
+                          aria-label="Toggle chapter details">
+                    <span class="chapter-card__toggle-icon" aria-hidden="true">&#9662;</span>
+                  </button>
+                </header>
+       <div class="chapter-card__details"
+         data-role="chapter-details">
                   <p class="chapter-card__snippet"
-                     data-role="chapter-snippet"
-                     {% if not is_enabled %}hidden aria-hidden="true"{% else %}aria-hidden="false"{% endif %}>
+                     data-role="chapter-snippet">
                     {{ excerpt }}{% if raw_excerpt|length > 240 %}…{% endif %}
                   </p>
-                </header>
-                <div class="chapter-card__details"
-                     data-role="chapter-details"
-                     {% if not is_enabled %}hidden aria-hidden="true"{% else %}aria-hidden="false"{% endif %}>
                   <div class="chapter-card__field">
                     <label for="chapter-{{ loop.index0 }}-title">Title</label>
                     <input type="text" id="chapter-{{ loop.index0 }}-title" name="chapter-{{ loop.index0 }}-title" value="{{ chapter.title }}">
@@ -145,30 +154,31 @@
             {% endfor %}
           </div>
         </section>
-      </div>
-      <footer class="modal__footer wizard-card__footer">
-        <div class="wizard-card__footer-actions">
-          <a class="button button--ghost" href="{{ url_for('web.index') }}">Previous</a>
-          <button type="submit" class="button button--ghost" form="cancel-form">Cancel</button>
         </div>
-        <div class="wizard-card__footer-actions">
-          {% if is_multi_speaker %}
-          <button type="submit"
-                  class="button"
-                  data-role="submit-speaker-analysis"
-                  data-step-toggle="analysis"
-                  formaction="{{ url_for('web.analyze_pending_job', pending_id=pending.id) }}"
-                  formmethod="post">
-            Continue to speakers
-          </button>
-          {% endif %}
-          <button type="submit" class="button" data-step-toggle="finalize"{% if is_multi_speaker %} hidden aria-hidden="true"{% endif %}>
-            Queue conversion
-          </button>
-        </div>
-      </footer>
-    </form>
-    <form method="post" action="{{ url_for('web.cancel_pending_job', pending_id=pending.id) }}" id="cancel-form"></form>
+        <footer class="modal__footer wizard-card__footer">
+          <div class="wizard-card__footer-actions">
+            <button type="button" class="button button--ghost" data-role="wizard-previous">Previous</button>
+            <button type="submit" class="button button--ghost" form="cancel-form">Cancel</button>
+          </div>
+          <div class="wizard-card__footer-actions">
+            {% if is_multi_speaker %}
+            <button type="submit"
+                    class="button"
+                    data-role="submit-speaker-analysis"
+                    data-step-toggle="analysis"
+                    formaction="{{ url_for('web.analyze_pending_job', pending_id=pending.id) }}"
+                    formmethod="post">
+              Continue to speakers
+            </button>
+            {% endif %}
+            <button type="submit" class="button" data-step-toggle="finalize"{% if is_multi_speaker %} hidden aria-hidden="true"{% endif %}>
+              Queue conversion
+            </button>
+          </div>
+        </footer>
+      </form>
+      <form method="post" action="{{ url_for('web.cancel_pending_job', pending_id=pending.id) }}" id="cancel-form"></form>
+    </div>
   </div>
 </section>
 {% with pending=pending, readonly=True, active_step='chapters' %}
