@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}abogen · Find Books{% endblock %}
+
+{% block content %}
+<section class="card">
+  <div class="card__title">Find Books</div>
+  <p class="card__subtitle">Browse curated public-domain ebooks, then download and queue them for conversion.</p>
+  <div class="card__body">
+    <article class="resource-tile">
+      <h2>Standard Ebooks</h2>
+      <p>Discover meticulously produced public-domain ebooks with consistent typography, metadata, and clean EPUB sources.</p>
+      <p>
+        <a class="button" href="https://standardebooks.org/ebooks" target="_blank" rel="noopener">
+          Visit standardebooks.org
+        </a>
+      </p>
+      <p class="hint">Opens in a new tab so you can grab EPUB downloads and drag them into abogen.</p>
+    </article>
+
+    <article class="resource-tile">
+      <h2>Project Gutenberg</h2>
+      <p>The world’s largest public-domain ebook library, offering thousands of EPUB and plain-text editions sourced from volunteer transcriptions.</p>
+      <p>
+        <a class="button" href="https://gutenberg.org/ebooks/" target="_blank" rel="noopener">
+          Visit gutenberg.org
+        </a>
+      </p>
+      <p class="hint">Download the EPUB version for best results, then import it into abogen.</p>
+    </article>
+  </div>
+</section>
+{% endblock %}

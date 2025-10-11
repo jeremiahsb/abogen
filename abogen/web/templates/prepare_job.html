@@ -49,7 +49,9 @@
     {% endif %}
 
     <div class="prepare-steps" data-role="prepare-step-panels">
-      <section class="prepare-step" data-step-panel="chapters">
+      <section class="prepare-step"
+               data-step-panel="chapters"
+               {% if not is_chapters %}hidden aria-hidden="true"{% endif %}>
         <header class="prepare-step__header">
           <h2>Step 2 · Select chapters</h2>
           <p class="hint">Choose which chapters to convert and tweak conversion options. We'll analyse speakers automatically when you continue.</p>
@@ -73,9 +75,6 @@
                   <input type="checkbox" name="chapter-{{ loop.index0 }}-enabled" data-role="chapter-enabled" {% if is_enabled %}checked{% endif %}>
                   <span>Chapter {{ loop.index }} · {{ chapter.title }}</span>
                 </label>
-              </div>
-              <div class="chapter-card__metrics">
-                {{ '{:,}'.format(chapter.characters) }} characters
               </div>
             </header>
             <div class="chapter-card__body">

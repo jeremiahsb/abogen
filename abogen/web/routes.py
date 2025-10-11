@@ -1598,6 +1598,15 @@ def queue_page() -> ResponseReturnValue:
     )
 
 
+@web_bp.get("/find-books")
+def find_books_page() -> ResponseReturnValue:
+    # Potential integration target: Standard Ebooks OPDS feed
+    # https://standardebooks.org/feeds/opds
+    # Potential integration target: Project Gutenberg OPDS search
+    # https://www.gutenberg.org/ebooks/search.opds/
+    return render_template("find_books.html")
+
+
 @web_bp.route("/settings", methods=["GET", "POST"])
 def settings_page() -> ResponseReturnValue:
     options = _template_options()
