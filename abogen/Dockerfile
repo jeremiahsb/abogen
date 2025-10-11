@@ -35,7 +35,8 @@ RUN pip install --upgrade pip \
        pip install torch torchvision torchaudio --index-url "$TORCH_INDEX_URL"; \
      fi \
   && pip install --no-cache-dir . \
-    https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+    https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl \
+  && pip install --no-cache-dir "mutagen>=1.47.0"
 
 ENV ABOGEN_HOST=0.0.0.0 \
   ABOGEN_PORT=8808

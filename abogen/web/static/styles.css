@@ -1191,6 +1191,21 @@ body {
   cursor: pointer;
   transition: background 0.2s ease, color 0.2s ease;
 }
+.prepare-wizard[data-speaker-step="disabled"] [data-step-key="speakers"] {
+  display: none;
+}
+.prepare-wizard[data-speaker-step="disabled"] [data-speaker-panel="true"] {
+  display: none !important;
+}
+.prepare-wizard[data-speaker-step="enabled"] [data-chapter-action="finalize"] {
+  display: none;
+}
+.prepare-wizard[data-speaker-step="disabled"] [data-chapter-action="continue"] {
+  display: none;
+}
+.prepare-wizard[data-speaker-step="disabled"] [data-chapter-action="finalize"] {
+  display: inline-flex;
+}
 
 .field--file input[type="file"]:hover::file-selector-button,
 .field--file input[type="file"]:focus::file-selector-button,

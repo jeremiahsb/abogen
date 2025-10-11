@@ -205,8 +205,9 @@ const initDashboard = () => {
   });
 
   document.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) {
+    const rawTarget = event.target;
+    const target = rawTarget instanceof Element ? rawTarget : rawTarget?.parentElement || null;
+    if (!target) {
       return;
     }
 
