@@ -2360,8 +2360,6 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
 
     raw_chunks = build_chunks_for_chapters(enabled_overrides, level=chunk_level_literal)
     analysis_chunks = build_chunks_for_chapters(enabled_overrides, level="sentence")
-    analysis_chunks = build_chunks_for_chapters(enabled_overrides, level="sentence")
-    analysis_chunks = build_chunks_for_chapters(enabled_overrides, level="sentence")
 
     existing_roster: Optional[Mapping[str, Any]]
     if getattr(pending, "analysis_requested", False):
@@ -2445,10 +2443,15 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
             active_step="chapters",
         )
 
+    active_step = (request.form.get("active_step") or "chapters").strip().lower()
+
     raw_chunks = build_chunks_for_chapters(enabled_overrides, level=chunk_level_literal)
     analysis_chunks = build_chunks_for_chapters(enabled_overrides, level="sentence")
-    analysis_active = pending.speaker_mode == "multi" and getattr(pending, "analysis_requested", False)
-    if analysis_active:
+    is_multi = pending.speaker_mode == "multi"
+    analysis_requested = bool(getattr(pending, "analysis_requested", False))
+    should_force_speakers = is_multi and active_step != "speakers"
+
+    if analysis_requested:
         existing_roster: Optional[Mapping[str, Any]] = pending.speakers
     else:
         narrator_only: Dict[str, Any] = {}
@@ -2457,8 +2460,10 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
             if isinstance(narrator_payload, Mapping):
                 narrator_only["narrator"] = dict(narrator_payload)
         existing_roster = narrator_only or None
+
     config_name = pending.applied_speaker_config or selected_config
     speaker_config_payload = get_config(config_name) if config_name else None
+    run_analysis = is_multi and (should_force_speakers or analysis_requested)
     processed_chunks, roster, analysis_payload, config_languages, updated_config = _prepare_speaker_metadata(
         chapters=enabled_overrides,
         chunks=raw_chunks,
@@ -2468,24 +2473,42 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
         voice_profile=pending.voice_profile,
         threshold=pending.speaker_analysis_threshold,
         existing_roster=existing_roster,
-        run_analysis=analysis_active,
+        run_analysis=run_analysis,
         speaker_config=speaker_config_payload,
         apply_config=apply_config_requested or bool(speaker_config_payload),
         persist_config=persist_config_requested,
     )
+
     pending.chunks = processed_chunks
     pending.speakers = roster
-    pending.speaker_analysis = analysis_payload
+    if analysis_payload:
+        pending.speaker_analysis = analysis_payload
+    if run_analysis:
+        setattr(pending, "analysis_requested", True)
+
     if config_languages:
         pending.speaker_voice_languages = list(config_languages)
-    config_name = getattr(pending, "applied_speaker_config", None)
-    if updated_config and isinstance(config_name, str) and config_name:
+    config_key = getattr(pending, "applied_speaker_config", None)
+    if updated_config and isinstance(config_key, str) and config_key:
         configs = load_configs()
-        configs[config_name] = updated_config
+        configs[config_key] = updated_config
         save_configs(configs)
 
-    total_characters = selected_total or pending.total_characters
+    if selected_total:
+        pending.total_characters = selected_total
 
+    if should_force_speakers:
+        notice_message = "Review speaker assignments before queuing."
+        if persist_config_requested and config_key:
+            notice_message = "Configuration saved. Review speaker assignments before queuing."
+        service.store_pending_job(pending)
+        return _render_prepare_page(
+            pending,
+            notice=notice_message,
+            active_step="speakers",
+        )
+
+    total_characters = selected_total or pending.total_characters
     service.pop_pending_job(pending_id)
 
     job = service.enqueue(
@@ -2503,7 +2526,6 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
         subtitle_format=pending.subtitle_format,
         total_characters=total_characters,
         chapters=overrides,
-        metadata_tags=pending.metadata_tags,
         save_chapters_separately=pending.save_chapters_separately,
         merge_chapters_at_end=pending.merge_chapters_at_end,
         separate_chapters_format=pending.separate_chapters_format,
@@ -2511,6 +2533,7 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
         save_as_project=pending.save_as_project,
         voice_profile=pending.voice_profile,
         max_subtitle_words=pending.max_subtitle_words,
+        metadata_tags=pending.metadata_tags,
         cover_image_path=pending.cover_image_path,
         cover_image_mime=pending.cover_image_mime,
         chapter_intro_delay=pending.chapter_intro_delay,
@@ -2518,22 +2541,19 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
         chunks=processed_chunks,
         speakers=roster,
         speaker_mode=pending.speaker_mode,
-        speaker_analysis=analysis_payload,
-        speaker_analysis_threshold=pending.speaker_analysis_threshold,
         generate_epub3=pending.generate_epub3,
+        speaker_analysis=pending.speaker_analysis,
+        speaker_analysis_threshold=pending.speaker_analysis_threshold,
         analysis_requested=getattr(pending, "analysis_requested", False),
     )
+
     if config_languages:
         job.speaker_voice_languages = list(config_languages)
-    config_name = getattr(pending, "applied_speaker_config", None)
-    if updated_config and isinstance(config_name, str) and config_name:
-        job.applied_speaker_config = config_name
-        configs = load_configs()
-        configs[config_name] = updated_config
-        save_configs(configs)
-    elif isinstance(config_name, str) and config_name:
-        job.applied_speaker_config = config_name
-        job.speaker_voice_languages = job.speaker_voice_languages or list(pending.speaker_voice_languages)
+    elif pending.speaker_voice_languages:
+        job.speaker_voice_languages = list(pending.speaker_voice_languages)
+
+    if isinstance(config_key, str) and config_key:
+        job.applied_speaker_config = config_key
 
     return redirect(url_for("web.index", _anchor="queue"))
 

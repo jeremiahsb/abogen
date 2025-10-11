@@ -227,17 +227,47 @@ const initDashboard = () => {
     }
   });
 
-  document.addEventListener("click", (event) => {
-    const rawTarget = event.target;
-    const target = rawTarget instanceof Element ? rawTarget : rawTarget?.parentElement || null;
-    if (!target) {
-      return;
+  const resolveEventMatch = (event, selector) => {
+    const target = event.target;
+    if (target instanceof Element) {
+      const match = target.closest(selector);
+      if (match) {
+        return match;
+      }
     }
+    if (typeof event.composedPath === "function") {
+      const path = event.composedPath();
+      for (const node of path) {
+        if (node instanceof Element) {
+          if (node.matches(selector)) {
+            return node;
+          }
+          const match = node.closest(selector);
+          if (match) {
+            return match;
+          }
+        }
+      }
+    }
+    const fallback = target?.parentElement;
+    if (fallback instanceof Element) {
+      return fallback.closest(selector);
+    }
+    return null;
+  };
 
-    const readerClose = target.closest('[data-role="reader-modal-close"]');
+  document.addEventListener("click", (event) => {
+    const readerClose = resolveEventMatch(event, '[data-role="reader-modal-close"]');
     if (readerClose) {
       event.preventDefault();
       closeReaderModal();
+      return;
+    }
+
+    const readerTriggerBtn = resolveEventMatch(event, '[data-role="open-reader"]');
+    if (readerTriggerBtn instanceof HTMLElement) {
+      event.preventDefault();
+      openReaderModal(readerTriggerBtn);
     }
   });
 
