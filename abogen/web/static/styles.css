@@ -569,6 +569,20 @@ body {
     gap: 2rem;
   }
 
+  .wizard-card__stage {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .wizard-card__stage > form[data-wizard-form="true"] {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
   .wizard-card__footer {
     display: flex;
     justify-content: space-between;
