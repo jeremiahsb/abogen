@@ -3020,11 +3020,12 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
     if active_step == "speakers":
         active_step = "entities"
 
+    normalized_step = _normalize_wizard_step(active_step, pending)
     raw_chunks = build_chunks_for_chapters(enabled_overrides, level=chunk_level_literal)
     analysis_chunks = build_chunks_for_chapters(enabled_overrides, level="sentence")
     is_multi = pending.speaker_mode == "multi"
     analysis_requested = bool(getattr(pending, "analysis_requested", False))
-    should_force_entities = is_multi and active_step != "entities"
+    should_force_entities = is_multi and normalized_step != "entities"
 
     if analysis_requested:
         existing_roster: Optional[Mapping[str, Any]] = pending.speakers
@@ -3074,21 +3075,27 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
 
     _sync_pronunciation_overrides(pending)
 
-    if should_force_entities:
-        notice_message = "Review entity settings before queuing."
-        if persist_config_requested and config_key:
-            notice_message = "Configuration saved. Review entity settings before queuing."
+    requested_step = normalized_step
+    should_render_entities = should_force_entities or requested_step == "entities"
+    if should_render_entities:
+        notice_message = ""
+        if should_force_entities:
+            notice_message = "Review entity settings before queuing."
+            if persist_config_requested and config_key:
+                notice_message = "Configuration saved. Review entity settings before queuing."
+        elif persist_config_requested and config_key:
+            notice_message = "Configuration saved."
         service.store_pending_job(pending)
         if _wants_wizard_json():
             return _wizard_json_response(
                 pending,
                 "entities",
-                notice=notice_message,
+                notice=notice_message or None,
                 embed_scripts=False,
             )
         return _render_prepare_page(
             pending,
-            notice=notice_message,
+            notice=notice_message or None,
             active_step="entities",
         )
 
