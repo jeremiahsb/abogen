@@ -29,4 +29,6 @@
   {{ super() }}
   <script id="voice-sample-texts" type="application/json">{{ options.sample_voice_texts | tojson }}</script>
   <script type="module" src="{{ url_for('static', filename='dashboard.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='prepare.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='speakers.js') }}"></script>
 {% endblock %}
