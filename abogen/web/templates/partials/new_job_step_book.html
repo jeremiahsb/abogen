@@ -141,6 +141,7 @@
   data-step="book"
   data-pending-id="{{ pending.id if pending else '' }}"
       {% if not readonly %}enctype="multipart/form-data"{% endif %}>
+  <input type="hidden" name="pending_id" value="{{ pending.id if pending else '' }}">
   <div class="modal__body wizard-card__body upload-form__sections">
     <section class="form-section">
       <h3 class="form-section__title">Manuscript &amp; subtitles</h3>
@@ -255,7 +256,7 @@
           <p class="hint">Paragraphs work well for long-form narration; sentences give finer subtitle sync.</p>
         </div>
         <div class="field">
-          <label for="speaker_analysis_threshold">Speaker analysis minimum mentions</label>
+          <label for="speaker_analysis_threshold">Minimum mentions</label>
           <input type="number" min="1" max="25" id="speaker_analysis_threshold" name="speaker_analysis_threshold" value="{{ analysis_threshold_value }}" {{ 'disabled' if readonly else '' }}>
           <p class="hint">Entities appearing less often fall back to the narrator voice.</p>
         </div>

@@ -247,6 +247,7 @@ class PendingJob:
     manual_overrides: List[Dict[str, Any]] = field(default_factory=list)
     pronunciation_overrides: List[Dict[str, Any]] = field(default_factory=list)
     entity_cache_key: Optional[str] = None
+    wizard_max_step_index: int = 0
 
 
 class ConversionService:

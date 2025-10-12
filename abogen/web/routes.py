@@ -1509,6 +1509,94 @@ def _apply_prepare_form(
         apply_config_requested,
         persist_config_requested,
     )
+
+
+def _apply_book_step_form(
+    pending: PendingJob,
+    form: Mapping[str, Any],
+    *,
+    settings: Mapping[str, Any],
+    profiles: Mapping[str, Any],
+) -> None:
+    language_fallback = pending.language or settings.get("language", "en")
+    raw_language = (form.get("language") or language_fallback or "en").strip()
+    if raw_language:
+        pending.language = raw_language
+
+    subtitle_mode = (form.get("subtitle_mode") or pending.subtitle_mode or "Disabled").strip()
+    if subtitle_mode:
+        pending.subtitle_mode = subtitle_mode
+
+    pending.generate_epub3 = _coerce_bool(form.get("generate_epub3"), bool(pending.generate_epub3))
+
+    chunk_level_default = str(settings.get("chunk_level", "paragraph")).strip().lower()
+    raw_chunk_level = (form.get("chunk_level") or pending.chunk_level or chunk_level_default).strip().lower()
+    if raw_chunk_level not in _CHUNK_LEVEL_VALUES:
+        raw_chunk_level = chunk_level_default if chunk_level_default in _CHUNK_LEVEL_VALUES else (pending.chunk_level or "paragraph")
+    pending.chunk_level = raw_chunk_level
+
+    threshold_default = pending.speaker_analysis_threshold or settings.get("speaker_analysis_threshold", _DEFAULT_ANALYSIS_THRESHOLD)
+    raw_threshold = form.get("speaker_analysis_threshold")
+    if raw_threshold is not None:
+        pending.speaker_analysis_threshold = _coerce_int(
+            raw_threshold,
+            threshold_default,
+            minimum=1,
+            maximum=25,
+        )
+
+    raw_delay = form.get("chapter_intro_delay")
+    if raw_delay is not None:
+        try:
+            pending.chapter_intro_delay = max(0.0, float(str(raw_delay).strip() or 0.0))
+        except ValueError:
+            pass
+
+    speed_value = form.get("speed")
+    if speed_value is not None:
+        try:
+            pending.speed = float(speed_value)
+        except ValueError:
+            pass
+
+    profile_selection = (form.get("voice_profile") or pending.voice_profile or "__standard").strip()
+    custom_formula_raw = (form.get("voice_formula") or "").strip()
+    narrator_voice = (form.get("voice") or pending.voice or settings.get("default_voice") or "").strip()
+
+    if profile_selection in {"__standard", "", None}:
+        profile_name = ""
+        custom_formula = ""
+    elif profile_selection == "__formula":
+        profile_name = ""
+        custom_formula = custom_formula_raw
+    else:
+        profile_name = profile_selection
+        custom_formula = ""
+
+    profile_map = profiles if isinstance(profiles, dict) else dict(profiles)
+    voice_choice, resolved_language, selected_profile = _resolve_voice_choice(
+        pending.language,
+        narrator_voice,
+        profile_name,
+        custom_formula,
+        profile_map,
+    )
+
+    if resolved_language:
+        pending.language = resolved_language
+
+    if profile_selection == "__formula" and custom_formula_raw:
+        pending.voice = custom_formula_raw
+        pending.voice_profile = None
+    elif profile_selection not in {"__standard", "", None, "__formula"}:
+        pending.voice_profile = selected_profile or profile_selection
+        pending.voice = voice_choice
+    else:
+        pending.voice_profile = None
+        pending.voice = voice_choice or narrator_voice
+
+    pending.applied_speaker_config = (form.get("speaker_config") or "").strip() or None
+
 _SUPPLEMENT_TITLE_PATTERNS: List[tuple[re.Pattern[str], float]] = [
     (re.compile(r"\btitle\s+page\b"), 3.0),
     (re.compile(r"\bcopyright\b"), 2.4),
@@ -2617,6 +2705,24 @@ def enqueue_job() -> ResponseReturnValue:
 
     file = request.files.get("source_file")
     text_input = request.form.get("source_text", "").strip()
+    pending_id = (request.form.get("pending_id") or "").strip()
+
+    settings = _load_settings()
+    profiles = load_profiles()
+
+    if pending_id and not file and not text_input:
+        pending = service.get_pending_job(pending_id)
+        if not pending:
+            abort(404, "Pending job not found")
+        previous_language = pending.language
+        _apply_book_step_form(pending, request.form, settings=settings, profiles=profiles)
+        setattr(pending, "analysis_requested", False)
+        if pending.language != previous_language:
+            _refresh_entity_summary(pending, pending.chapters)
+        service.store_pending_job(pending)
+        if _wants_wizard_json():
+            return _wizard_json_response(pending, "chapters")
+        return redirect(url_for("web.index"))
 
     if not file and not text_input:
         return redirect(url_for("web.index"))
@@ -2695,9 +2801,6 @@ def enqueue_job() -> ResponseReturnValue:
         )
 
     _ensure_at_least_one_chapter_enabled(chapters_payload)
-
-    profiles = load_profiles()
-    settings = _load_settings()
 
     language = request.form.get("language", "a")
     base_voice = request.form.get("voice", "af_alloy")
@@ -3216,7 +3319,23 @@ def _wizard_step_payload(
         active_index = _WIZARD_STEP_ORDER.index(step)
     except ValueError:
         active_index = 0
-    completed = [slug for idx, slug in enumerate(_WIZARD_STEP_ORDER) if idx < active_index]
+    max_recorded_index = active_index
+    if pending is not None:
+        stored_index = int(getattr(pending, "wizard_max_step_index", -1))
+        if stored_index < 0:
+            stored_index = -1
+        max_recorded_index = max(active_index, stored_index)
+        max_allowed = len(_WIZARD_STEP_ORDER) - 1
+        if max_recorded_index > max_allowed:
+            max_recorded_index = max_allowed
+        if stored_index != max_recorded_index:
+            pending.wizard_max_step_index = max_recorded_index
+            _service().store_pending_job(pending)
+    else:
+        max_allowed = len(_WIZARD_STEP_ORDER) - 1
+        if max_recorded_index > max_allowed:
+            max_recorded_index = max_allowed
+    completed = [slug for idx, slug in enumerate(_WIZARD_STEP_ORDER) if idx <= max_recorded_index]
     return {
         "step": step,
         "step_index": int(meta.get("index", active_index + 1)),

@@ -381,13 +381,22 @@
                     <option value="10">10+</option>
                   </select>
                 </label>
-                <button type="button" class="button button--ghost button--small" data-role="entities-refresh" {% if not recognition_enabled %}disabled aria-disabled="true"{% endif %}>Refresh</button>
+                <label class="field field--inline" for="entities-kind-filter">
+                  <span>Entity type</span>
+                  <select id="entities-kind-filter" data-role="entity-filter-kind">
+                    <option value="all">All</option>
+                  </select>
+                </label>
+                <div class="entity-summary__refresh-group">
+                  <span class="spinner spinner--sm spinner--muted" data-role="entities-spinner" aria-hidden="true" hidden></span>
+                  <button type="button" class="button button--ghost button--small" data-role="entities-refresh" {% if not recognition_enabled %}disabled aria-disabled="true"{% endif %}>Refresh</button>
+                </div>
               </div>
             </header>
             <dl class="entity-summary__stats" data-role="entity-stats"></dl>
             <ol class="entity-summary__list" data-role="entity-list-entities"></ol>
             <template data-role="entity-row-template">
-              <li class="entity-summary__item">
+              <li class="entity-summary__item" data-role="entity-row">
                 <header class="entity-summary__item-header">
                   <div>
                     <h3 class="entity-summary__label" data-role="entity-label"></h3>
@@ -395,9 +404,31 @@
                   </div>
                   <div class="entity-summary__actions">
                     <span class="badge badge--muted" data-role="entity-count"></span>
+                    <button type="button" class="button button--ghost button--small" data-role="entity-preview" hidden>Preview</button>
                     <button type="button" class="button button--ghost button--small" data-role="entity-add-override">Add manual override</button>
                   </div>
                 </header>
+                <div class="entity-inline-override" data-role="inline-override" hidden>
+                  <div class="entity-inline-override__fields">
+                    <label class="field" data-role="inline-override-pronunciation-label">
+                      <span>Pronunciation</span>
+                      <input type="text" data-role="manual-override-pronunciation" value="">
+                    </label>
+                    <label class="field">
+                      <span>Assigned voice</span>
+                      <select data-role="manual-override-voice" data-default-voice="{{ pending.voice }}">
+                        <option value="">Use narrator voice ({{ pending.voice }})</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="entity-inline-override__actions">
+                    <div class="entity-inline-override__buttons">
+                      <button type="button" class="button button--ghost button--small" data-role="speaker-preview" data-preview-source="manual">Preview</button>
+                      <button type="button" class="button button--ghost button--small" data-role="inline-override-save">Save</button>
+                    </div>
+                    <button type="button" class="button button--ghost button--small" data-role="inline-override-remove">Remove override</button>
+                  </div>
+                </div>
                 <div class="entity-summary__samples" data-role="entity-samples"></div>
               </li>
             </template>

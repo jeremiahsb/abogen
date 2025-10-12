@@ -141,21 +141,26 @@ const displayTransientError = (modal, message) => {
   stage.prepend(alert);
 };
 
-const updateStepIndicators = (modal, activeStep) => {
+const updateStepIndicators = (modal, activeStep, payload) => {
   const indicators = modal.querySelectorAll('[data-role="wizard-step-indicator"]');
   const activeIndex = STEP_ORDER.indexOf(activeStep);
+  const completedList = Array.isArray(payload?.completed_steps) ? payload.completed_steps : [];
+  const completedSet = new Set(completedList.map((step) => normalizeStep(step)));
   indicators.forEach((indicator) => {
     const step = normalizeStep(indicator.dataset.step || "book");
     indicator.classList.remove("is-active", "is-complete");
     const index = STEP_ORDER.indexOf(step);
-    const isComplete = index > -1 && index < activeIndex;
     const isActive = index === activeIndex;
+    const visited = completedSet.has(step);
+    const isComplete = !isActive && (visited || (index > -1 && index < activeIndex));
     indicator.classList.toggle("is-complete", isComplete);
     indicator.classList.toggle("is-active", isActive);
     if (indicator instanceof HTMLButtonElement) {
-      indicator.disabled = !(isComplete);
+      const clickable = isComplete && !isActive;
+      indicator.disabled = !clickable;
+      indicator.setAttribute("aria-disabled", clickable ? "false" : "true");
       indicator.setAttribute("aria-current", isActive ? "step" : "false");
-      if (isComplete) {
+      if (clickable) {
         indicator.dataset.state = "clickable";
       } else {
         delete indicator.dataset.state;
@@ -177,7 +182,7 @@ const updateHeaderCopy = (modal, step, payload) => {
   if (hintEl) {
     hintEl.textContent = payload?.hint || meta.hint;
   }
-  updateStepIndicators(modal, step);
+  updateStepIndicators(modal, step, payload);
 };
 
 const updateFilenameLabel = (modal, filename) => {

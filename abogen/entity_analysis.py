@@ -362,7 +362,14 @@ def extract_entities(
     elapsed = time.perf_counter() - start
 
     people_records = [record for record in records.values() if record.category == "people"]
-    entity_records = [record for record in records.values() if record.category == "entities"]
+    people_keys = {record.key[1] for record in people_records}
+    entity_records = [
+        record
+        for record in records.values()
+        if record.category == "entities"
+        and record.key[1] not in people_keys
+        and record.kind != "PERSON"
+    ]
 
     people_records.sort(key=lambda rec: (-rec.count, rec.label))
     entity_records.sort(key=lambda rec: (-rec.count, rec.label))
