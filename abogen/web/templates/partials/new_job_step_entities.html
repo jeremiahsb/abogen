@@ -1,4 +1,3 @@
-{% set is_multi_speaker = pending.speaker_mode == 'multi' %}
 {% set embed_scripts = embed_scripts if embed_scripts is defined else True %}
 <form method="post"
       action="{{ url_for('web.finalize_job', pending_id=pending.id) }}"
@@ -8,7 +7,6 @@
   data-wizard-form="true"
   data-step="entities"
   data-pending-id="{{ pending.id }}"
-      data-speaker-mode="{{ pending.speaker_mode }}"
       data-analyze-url="{{ url_for('web.analyze_pending_job', pending_id=pending.id) }}"
       data-entities-url="{{ url_for('api.api_pending_entities', pending_id=pending.id) }}"
       data-manual-list-url="{{ url_for('api.api_list_manual_overrides', pending_id=pending.id) }}"

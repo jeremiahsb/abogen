@@ -273,7 +273,18 @@ const submitWizardForm = async (form, submitter) => {
   }
   const action = submitter?.getAttribute("formaction") || form.getAttribute("action") || window.location.href;
   const method = (submitter?.getAttribute("formmethod") || form.getAttribute("method") || "GET").toUpperCase();
+  const stepTarget = submitter?.dataset?.stepTarget || "";
+  const normalizedStepTarget = stepTarget ? stepTarget.toLowerCase() : "";
+  if (normalizedStepTarget) {
+    const activeInput = form.querySelector('[data-role="active-step-input"]');
+    if (activeInput) {
+      activeInput.value = normalizedStepTarget;
+    }
+  }
   const formData = new FormData(form);
+  if (normalizedStepTarget) {
+    formData.set("active_step", normalizedStepTarget);
+  }
   if (submitter && submitter.name && !formData.has(submitter.name)) {
     formData.append(submitter.name, submitter.value ?? "");
   }

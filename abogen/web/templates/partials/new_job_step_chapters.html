@@ -1,4 +1,3 @@
-{% set is_multi_speaker = pending.speaker_mode == 'multi' %}
 <form method="post"
   action="{{ url_for('web.finalize_job', pending_id=pending.id) }}"
   class="prepare-form"
@@ -7,12 +6,10 @@
   data-wizard-form="true"
   data-step="chapters"
   data-pending-id="{{ pending.id }}"
-  data-speaker-mode="{{ pending.speaker_mode }}"
   data-analyze-url="{{ url_for('web.analyze_pending_job', pending_id=pending.id) }}">
   <input type="hidden" name="active_step" value="chapters" data-role="active-step-input">
   <div class="wizard-hidden-inputs" aria-hidden="true">
     <input type="hidden" name="chunk_level" value="{{ pending.chunk_level }}">
-    <input type="hidden" name="speaker_mode" value="{{ pending.speaker_mode }}">
     <input type="hidden" name="speaker_analysis_threshold" value="{{ pending.speaker_analysis_threshold }}">
     <input type="hidden" name="chapter_intro_delay" value="{{ '%.2f'|format(pending.chapter_intro_delay) }}">
     {% if pending.generate_epub3 %}

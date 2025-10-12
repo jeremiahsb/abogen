@@ -31,14 +31,6 @@
 {% else %}
   {% set generate_epub3 = pending.generate_epub3 if pending else settings_dict.get('generate_epub3', False) %}
 {% endif %}
-{% set speaker_mode_value = form_values.get('speaker_mode') if form_values else None %}
-{% if not speaker_mode_value %}
-  {% if pending and pending.speaker_mode %}
-    {% set speaker_mode_value = pending.speaker_mode %}
-  {% else %}
-    {% set speaker_mode_value = settings_dict.get('speaker_mode', 'single') %}
-  {% endif %}
-{% endif %}
 {% set chunk_level_value = form_values.get('chunk_level') if form_values else None %}
 {% if not chunk_level_value %}
   {% if pending and pending.chunk_level %}
@@ -247,25 +239,15 @@
     <section class="form-section">
       <h3 class="form-section__title">Entities &amp; casting</h3>
       <div class="form-section__layout">
-        <div class="field-grid field-grid--two">
-          <div class="field field--stack">
-            <label for="speaker_config">Speaker preset</label>
-            <select id="speaker_config" name="speaker_config" {{ 'disabled' if readonly else '' }}>
-              <option value="">None</option>
-              {% for config in options.speaker_configs %}
-              <option value="{{ config.name }}" {% if selected_config == config.name %}selected{% endif %}>{{ config.name }} · {{ config.speakers|length }} speaker{% if config.speakers|length != 1 %}s{% endif %}</option>
-              {% endfor %}
-            </select>
-            <p class="hint">Reuse a saved roster to keep character voices consistent.</p>
-          </div>
-          <div class="field">
-            <label for="speaker_mode">Speaker mode</label>
-            <select id="speaker_mode" name="speaker_mode" {{ 'disabled' if readonly else '' }}>
-              {% for option in options.speaker_modes %}
-              <option value="{{ option.value }}" {% if speaker_mode_value == option.value %}selected{% endif %}>{{ option.label }}</option>
-              {% endfor %}
-            </select>
-          </div>
+        <div class="field field--stack">
+          <label for="speaker_config">Speaker preset</label>
+          <select id="speaker_config" name="speaker_config" {{ 'disabled' if readonly else '' }}>
+            <option value="">None</option>
+            {% for config in options.speaker_configs %}
+            <option value="{{ config.name }}" {% if selected_config == config.name %}selected{% endif %}>{{ config.name }} · {{ config.speakers|length }} speaker{% if config.speakers|length != 1 %}s{% endif %}</option>
+            {% endfor %}
+          </select>
+          <p class="hint">Reuse a saved roster to keep character voices consistent.</p>
         </div>
         <div class="field-grid field-grid--two">
           <div class="field">

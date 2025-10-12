@@ -27,7 +27,6 @@
         <li><strong>Max words per subtitle:</strong> {{ job.max_subtitle_words }}</li>
         <li><strong>Project folder:</strong> {{ 'Yes' if job.save_as_project else 'No' }}</li>
         <li><strong>Chunk granularity:</strong> {{ job.chunk_level|replace('_', ' ')|title }}</li>
-        <li><strong>Speaker mode:</strong> {{ job.speaker_mode|replace('_', ' ')|title }}</li>
         <li><strong>Speaker analysis threshold:</strong> {{ job.speaker_analysis_threshold }}</li>
         <li><strong>Generate EPUB 3:</strong> {{ 'Yes' if job.generate_epub3 else 'No' }}</li>
       </ul>

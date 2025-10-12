@@ -106,13 +106,7 @@ _CHUNK_LEVEL_OPTIONS = [
     {"value": "sentence", "label": "Sentences"},
 ]
 
-_SPEAKER_MODE_OPTIONS = [
-    {"value": "single", "label": "Single Speaker"},
-    {"value": "multi", "label": "Multi-Speaker"},
-]
-
 _CHUNK_LEVEL_VALUES = {option["value"] for option in _CHUNK_LEVEL_OPTIONS}
-_SPEAKER_MODE_VALUES = {option["value"] for option in _SPEAKER_MODE_OPTIONS}
 
 
 _DEFAULT_ANALYSIS_THRESHOLD = 3
@@ -835,7 +829,6 @@ def _prepare_speaker_metadata(
     chapters: List[Dict[str, Any]],
     chunks: List[Dict[str, Any]],
     analysis_chunks: Optional[List[Dict[str, Any]]] = None,
-    speaker_mode: str,
     voice: str,
     voice_profile: Optional[str],
     threshold: int,
@@ -848,7 +841,7 @@ def _prepare_speaker_metadata(
     chunk_list = [dict(chunk) for chunk in chunks]
     analysis_source = [dict(chunk) for chunk in (analysis_chunks or chunks)]
     threshold_value = max(1, int(threshold))
-    analysis_enabled = speaker_mode == "multi" and run_analysis
+    analysis_enabled = run_analysis
     settings_state = _load_settings()
     global_random_languages = [
         code
@@ -1323,10 +1316,7 @@ def _apply_prepare_form(
     pending.chunk_level = raw_chunk_level
     chunk_level_literal = cast(ChunkLevel, pending.chunk_level)
 
-    raw_speaker_mode = (form.get("speaker_mode") or pending.speaker_mode or "single").strip().lower()
-    if raw_speaker_mode not in _SPEAKER_MODE_VALUES:
-        raw_speaker_mode = "single"
-    pending.speaker_mode = raw_speaker_mode
+    pending.speaker_mode = "single"
 
     pending.generate_epub3 = _coerce_bool(form.get("generate_epub3"), False)
 
@@ -1660,13 +1650,12 @@ def _template_options() -> Dict[str, Any]:
         "voice_profiles": ordered_profiles,
         "voice_profile_options": profile_options,
         "separate_formats": ["wav", "flac", "mp3", "opus"],
-    "voice_catalog": voice_catalog,
-    "voice_catalog_map": {entry["id"]: entry for entry in voice_catalog},
+        "voice_catalog": voice_catalog,
+        "voice_catalog_map": {entry["id"]: entry for entry in voice_catalog},
         "sample_voice_texts": SAMPLE_VOICE_TEXTS,
         "voice_profiles_data": profiles,
         "speaker_configs": list_configs(),
         "chunk_levels": _CHUNK_LEVEL_OPTIONS,
-        "speaker_modes": _SPEAKER_MODE_OPTIONS,
         "speaker_analysis_threshold": current_settings.get(
             "speaker_analysis_threshold", _DEFAULT_ANALYSIS_THRESHOLD
         ),
@@ -1718,7 +1707,6 @@ def _settings_defaults() -> Dict[str, Any]:
         "chapter_intro_delay": 0.5,
         "max_subtitle_words": 50,
         "chunk_level": "paragraph",
-        "speaker_mode": "single",
         "generate_epub3": False,
         "speaker_analysis_threshold": _DEFAULT_ANALYSIS_THRESHOLD,
         "speaker_pronunciation_sentence": "This is {{name}} speaking.",
@@ -1786,10 +1774,6 @@ def _normalize_setting_value(key: str, value: Any, defaults: Dict[str, Any]) -> 
         return defaults[key]
     if key == "chunk_level":
         if isinstance(value, str) and value in _CHUNK_LEVEL_VALUES:
-            return value
-        return defaults[key]
-    if key == "speaker_mode":
-        if isinstance(value, str) and value in _SPEAKER_MODE_VALUES:
             return value
         return defaults[key]
     if key == "speaker_random_languages":
@@ -1994,9 +1978,6 @@ def settings_page() -> ResponseReturnValue:
             updated[key] = _coerce_bool(form.get(key), False)
         updated["chunk_level"] = _normalize_setting_value(
             "chunk_level", form.get("chunk_level"), defaults
-        )
-        updated["speaker_mode"] = _normalize_setting_value(
-            "speaker_mode", form.get("speaker_mode"), defaults
         )
         updated["separate_chapters_format"] = _normalize_setting_value(
             "separate_chapters_format", form.get("separate_chapters_format"), defaults
@@ -2744,11 +2725,7 @@ def enqueue_job() -> ResponseReturnValue:
     chunk_level_value = raw_chunk_level
     chunk_level_literal = cast(ChunkLevel, chunk_level_value)
 
-    speaker_mode_default = str(settings.get("speaker_mode", "single")).strip().lower()
-    raw_speaker_mode = (request.form.get("speaker_mode") or speaker_mode_default).strip().lower()
-    if raw_speaker_mode not in _SPEAKER_MODE_VALUES:
-        raw_speaker_mode = "single"
-    speaker_mode_value = raw_speaker_mode
+    speaker_mode_value = "single"
 
     generate_epub3_default = bool(settings.get("generate_epub3", False))
     generate_epub3 = _coerce_bool(request.form.get("generate_epub3"), generate_epub3_default)
@@ -2764,12 +2741,11 @@ def enqueue_job() -> ResponseReturnValue:
         maximum=25,
     )
 
-    initial_analysis = speaker_mode_value == "multi"
+    initial_analysis = False
     processed_chunks, speakers, analysis_payload, config_languages, _ = _prepare_speaker_metadata(
         chapters=selected_chapter_sources,
         chunks=raw_chunks,
         analysis_chunks=analysis_chunks,
-        speaker_mode=speaker_mode_value,
         voice=voice,
         voice_profile=selected_profile or None,
         threshold=analysis_threshold,
@@ -2868,20 +2844,6 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
             )
         abort(400, message)
 
-    if pending.speaker_mode != "multi":
-        setattr(pending, "analysis_requested", False)
-        pending.chunks = []
-        pending.speaker_analysis = {}
-        error_message = "Switch to multi-speaker mode to analyze speakers."
-        if _wants_wizard_json():
-            return _wizard_json_response(
-                pending,
-                "chapters",
-                error=error_message,
-                status=400,
-            )
-        abort(400, error_message)
-
     if not enabled_overrides:
         setattr(pending, "analysis_requested", False)
         pending.chunks = []
@@ -2911,7 +2873,6 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
         chapters=enabled_overrides,
         chunks=raw_chunks,
         analysis_chunks=analysis_chunks,
-        speaker_mode=pending.speaker_mode,
         voice=pending.voice,
         voice_profile=pending.voice_profile,
         threshold=pending.speaker_analysis_threshold,
@@ -2981,9 +2942,6 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
             )
         abort(400, message)
 
-    if pending.speaker_mode != "multi":
-        setattr(pending, "analysis_requested", False)
-
     if not enabled_overrides:
         pending.chunks = []
         error_message = "Select at least one chapter to convert."
@@ -3003,9 +2961,8 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
     normalized_step = _normalize_wizard_step(active_step, pending)
     raw_chunks = build_chunks_for_chapters(enabled_overrides, level=chunk_level_literal)
     analysis_chunks = build_chunks_for_chapters(enabled_overrides, level="sentence")
-    is_multi = pending.speaker_mode == "multi"
     analysis_requested = bool(getattr(pending, "analysis_requested", False))
-    should_force_entities = is_multi and normalized_step != "entities"
+    should_force_entities = analysis_requested and normalized_step != "entities"
 
     if analysis_requested:
         existing_roster: Optional[Mapping[str, Any]] = pending.speakers
@@ -3019,12 +2976,11 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
 
     config_name = pending.applied_speaker_config or selected_config
     speaker_config_payload = get_config(config_name) if config_name else None
-    run_analysis = is_multi and (should_force_entities or analysis_requested)
+    run_analysis = should_force_entities or analysis_requested
     processed_chunks, roster, analysis_payload, config_languages, updated_config = _prepare_speaker_metadata(
         chapters=enabled_overrides,
         chunks=raw_chunks,
         analysis_chunks=analysis_chunks,
-        speaker_mode=pending.speaker_mode,
         voice=pending.voice,
         voice_profile=pending.voice_profile,
         threshold=pending.speaker_analysis_threshold,
@@ -3183,8 +3139,6 @@ def _normalize_wizard_step(step: Optional[str], pending: Optional[PendingJob] = 
             chosen = normalized
         else:
             chosen = default_step
-    if chosen == "entities" and pending is not None and pending.speaker_mode != "multi":
-        return "chapters"
     return chosen
 
 

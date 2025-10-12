@@ -24,14 +24,6 @@
         <p class="hint">Used whenever “Standard voice” is selected for a new job.</p>
       </div>
       <div class="field">
-        <label for="speaker_mode_default">Speaker Mode</label>
-        <select id="speaker_mode_default" name="speaker_mode">
-          {% for option in options.speaker_modes %}
-          <option value="{{ option.value }}" {% if settings.speaker_mode == option.value %}selected{% endif %}>{{ option.label }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="field">
         <label for="chunk_level_default">Chunk Granularity</label>
         <select id="chunk_level_default" name="chunk_level">
           {% for option in options.chunk_levels %}

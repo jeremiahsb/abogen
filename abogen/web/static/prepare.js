@@ -474,38 +474,6 @@ const initPrepare = (root = document) => {
     });
   });
 
-  const speakerModeSelect = form.querySelector("#speaker_mode");
-  const analysisToggleButtons = Array.from(form.querySelectorAll('[data-step-toggle="analysis"]'));
-  const finalizeToggleButtons = Array.from(form.querySelectorAll('[data-step-toggle="finalize"]'));
-
-  const setButtonVisibility = (button, isVisible) => {
-    if (!button) return;
-    if (isVisible) {
-      button.hidden = false;
-      button.removeAttribute("aria-hidden");
-      button.removeAttribute("tabindex");
-    } else {
-      button.hidden = true;
-      button.setAttribute("aria-hidden", "true");
-      button.setAttribute("tabindex", "-1");
-    }
-  };
-
-  const updateStepButtons = () => {
-    if (!speakerModeSelect) {
-      return;
-    }
-    const modeValue = (speakerModeSelect.value || "").toLowerCase();
-    const isMulti = modeValue === "multi";
-    analysisToggleButtons.forEach((button) => setButtonVisibility(button, isMulti));
-    finalizeToggleButtons.forEach((button) => setButtonVisibility(button, !isMulti));
-  };
-
-  if (speakerModeSelect) {
-    updateStepButtons();
-    speakerModeSelect.addEventListener("change", updateStepButtons);
-  }
-
   const voiceModal = document.querySelector('[data-role="voice-modal"]');
   let activeGenderFilter = "";
 
