@@ -1719,6 +1719,24 @@ button.step-indicator__item:focus-visible {
   gap: 1rem;
 }
 
+.entity-summary__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.entity-summary__filters .field,
+.entity-summary__filters .button {
+  margin: 0;
+}
+
+.field--inline {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
 .entity-summary__titles h2 {
   margin: 0;
 }

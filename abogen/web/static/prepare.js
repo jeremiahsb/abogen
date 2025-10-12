@@ -73,6 +73,9 @@ const initPrepare = (root = document) => {
   const voiceCatalogMap = new Map(voiceCatalog.map((voice) => [voice.id, voice]));
 
   const sampleIndexState = new WeakMap();
+  const speakerHints = new Map();
+
+  const canonicalizeEntityKey = (value) => (value || "").toLowerCase().replace(/\s+/g, " ").trim();
 
   const readSpeakerSamples = (speakerItem) => {
     if (!speakerItem) return [];
@@ -109,6 +112,47 @@ const initPrepare = (root = document) => {
       normalised.push({ excerpt: key, genderHint });
     }
     return normalised;
+  };
+
+  const registerSpeakerHintFromNode = (node) => {
+    if (!node) return;
+    const nameNode = node.querySelector(".speaker-list__name");
+    const label = nameNode?.textContent || "";
+    const key = canonicalizeEntityKey(label);
+    if (!key) return;
+    const genderInput = node.querySelector('[data-role="gender-input"]');
+    const voiceSelect = node.querySelector('[data-role="speaker-voice"]');
+    const formulaInput = node.querySelector('[data-role="speaker-formula"]');
+    let resolvedVoice = "";
+    if (voiceSelect) {
+      const selectedValue = voiceSelect.value || voiceSelect.dataset.prevManual || "";
+      if (selectedValue && selectedValue !== "__custom_mix") {
+        resolvedVoice = selectedValue;
+      } else if (voiceSelect.dataset.defaultVoice) {
+        resolvedVoice = voiceSelect.dataset.defaultVoice;
+      } else if (form.dataset.baseVoice) {
+        resolvedVoice = form.dataset.baseVoice;
+      }
+    } else if (form.dataset.baseVoice) {
+      resolvedVoice = form.dataset.baseVoice;
+    }
+    if (!resolvedVoice && formulaInput?.value?.trim()) {
+      const formula = formulaInput.value.trim();
+      const firstTerm = formula.split("+")[0] || "";
+      const [voiceId] = firstTerm.split("*");
+      if (voiceId) {
+        resolvedVoice = voiceId.trim();
+      }
+    }
+    speakerHints.set(key, {
+      gender: (genderInput?.value || "unknown").toLowerCase(),
+      voice: resolvedVoice,
+    });
+  };
+
+  const rebuildSpeakerHints = () => {
+    speakerHints.clear();
+    form.querySelectorAll(".speaker-list__item").forEach((item) => registerSpeakerHintFromNode(item));
   };
 
   const getPronunciationText = (container) => {
@@ -411,6 +455,7 @@ const initPrepare = (root = document) => {
           target.value = previous;
         }
         updatePreviewVoice(target);
+        registerSpeakerHintFromNode(container);
         return;
       }
 
@@ -430,6 +475,9 @@ const initPrepare = (root = document) => {
       target.dataset.prevManual = target.value || "";
       updatePreviewVoice(target);
       delete target.dataset.suppressFormulaClear;
+      if (container) {
+        registerSpeakerHintFromNode(container);
+      }
     });
     updatePreviewVoice(select);
   });
@@ -443,7 +491,9 @@ const initPrepare = (root = document) => {
         pronunciationInput.addEventListener("input", sync);
         pronunciationInput.addEventListener("change", sync);
       }
+    registerSpeakerHintFromNode(item);
     });
+  rebuildSpeakerHints();
 
   const activeStepInput = form.querySelector('[data-role="active-step-input"]');
   const analysisButtons = Array.from(form.querySelectorAll('[data-role="submit-speaker-analysis"]'));
@@ -588,6 +638,7 @@ const initPrepare = (root = document) => {
 
     updatePreviewVoice(select);
     delete select.dataset.suppressFormulaClear;
+    registerSpeakerHintFromNode(speakerItem);
   };
 
   const hideGenderMenus = () => {
@@ -620,6 +671,8 @@ const initPrepare = (root = document) => {
         option.removeAttribute("data-state");
       }
     });
+    const speakerItem = genderContainer.closest(".speaker-list__item");
+    registerSpeakerHintFromNode(speakerItem);
   };
 
   Array.from(form.querySelectorAll('[data-role="speaker-gender"]')).forEach((container) => {
@@ -1071,10 +1124,18 @@ const initPrepare = (root = document) => {
     cacheKey: typeof entityCacheKeyData === "string" ? entityCacheKeyData : "",
     manualOverrides: Array.isArray(manualOverridesSeed) ? [...manualOverridesSeed] : [],
     pronunciationOverrides: Array.isArray(pronunciationOverridesSeed) ? [...pronunciationOverridesSeed] : [],
+    filters: {
+      people: 0,
+      entities: 0,
+    },
   };
 
   let highlightedOverrideId = "";
-  const pendingOverrideSaves = new Map();
+  const dirtyOverrideIds = new Set();
+  let activeEntityPanel = "";
+  let overrideFlushPromise = null;
+  let markOverrideDirty = () => {};
+  let flushManualOverrides = () => null;
 
   if (entityTabs) {
     const tabButtons = Array.from(entityTabs.querySelectorAll('[data-role="entity-tab"]'));
@@ -1082,11 +1143,17 @@ const initPrepare = (root = document) => {
       Array.from(entityTabs.querySelectorAll('[data-role="entity-panel"]')).map((panel) => [panel.dataset.panel || "", panel])
     );
 
-    const entitySummaryContainer = entityTabs.querySelector('[data-role="entity-summary"]');
-    const entityStatsNode = entitySummaryContainer?.querySelector('[data-role="entity-stats"]');
-    const entityListNode = entitySummaryContainer?.querySelector('[data-role="entity-list"]');
-    const entityRowTemplate = entitySummaryContainer?.querySelector('template[data-role="entity-row-template"]');
-    const entitiesRefreshButton = entitySummaryContainer?.querySelector('[data-role="entities-refresh"]');
+  const peopleSummaryContainer = entityTabs.querySelector('[data-role="people-summary"]');
+  const peopleStatsNode = peopleSummaryContainer?.querySelector('[data-role="people-stats"]');
+  const peopleListNode = peopleSummaryContainer?.querySelector('[data-role="entity-list-people"]');
+  const peopleFilterNode = peopleSummaryContainer?.querySelector('[data-role="entity-filter-people"]');
+
+  const entitySummaryContainer = entityTabs.querySelector('[data-role="entities-summary"]');
+  const entityStatsNode = entitySummaryContainer?.querySelector('[data-role="entity-stats"]');
+  const entityListNode = entitySummaryContainer?.querySelector('[data-role="entity-list-entities"]');
+  const entitiesFilterNode = entitySummaryContainer?.querySelector('[data-role="entity-filter-entities"]');
+  const entityRowTemplate = entityTabs.querySelector('template[data-role="entity-row-template"]');
+  const entitiesRefreshButton = entitySummaryContainer?.querySelector('[data-role="entities-refresh"]');
 
     const manualOverridesRoot = entityTabs.querySelector('[data-role="manual-overrides"]');
     const manualOverrideList = manualOverridesRoot?.querySelector('[data-role="manual-override-list"]');
@@ -1100,6 +1167,25 @@ const initPrepare = (root = document) => {
     if (entitiesRefreshButton) {
       entitiesRefreshButton.disabled = !entitiesEnabled;
       entitiesRefreshButton.setAttribute("aria-disabled", entitiesEnabled ? "false" : "true");
+    }
+
+    const parseThreshold = (value) => {
+      const parsed = Number.parseInt(value, 10);
+      return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    };
+
+    if (peopleFilterNode) {
+      peopleFilterNode.addEventListener("change", () => {
+        entityState.filters.people = parseThreshold(peopleFilterNode.value);
+        renderEntitySummary();
+      });
+    }
+
+    if (entitiesFilterNode) {
+      entitiesFilterNode.addEventListener("change", () => {
+        entityState.filters.entities = parseThreshold(entitiesFilterNode.value);
+        renderEntitySummary();
+      });
     }
 
     const cloneTemplate = (template) => {
@@ -1116,6 +1202,9 @@ const initPrepare = (root = document) => {
     };
 
     function activateEntityTab(panelKey) {
+      if (activeEntityPanel === "manual" && panelKey !== activeEntityPanel) {
+        void flushManualOverrides();
+      }
       tabButtons.forEach((button) => {
         const isActive = button.dataset.panel === panelKey;
         button.classList.toggle("is-active", isActive);
@@ -1128,6 +1217,7 @@ const initPrepare = (root = document) => {
         panel.hidden = !isActive;
         panel.setAttribute("aria-hidden", isActive ? "false" : "true");
       });
+      activeEntityPanel = panelKey;
     }
 
     function populateVoiceOptions(select, selectedVoice) {
@@ -1163,22 +1253,60 @@ const initPrepare = (root = document) => {
     }
 
     function renderEntitySummary() {
-      if (!entityListNode) return;
-      if (!entitiesEnabled) {
-        if (entityStatsNode) {
-          entityStatsNode.textContent = "Entity recognition is turned off in Settings.";
-        }
-        entityListNode.innerHTML = "";
-        const emptyItem = document.createElement("li");
-        emptyItem.className = "entity-summary__empty";
-        emptyItem.textContent = "Enable entity recognition to populate detected entities.";
-        entityListNode.appendChild(emptyItem);
-        return;
-      }
-
       const summary = entityState.summary || {};
       const stats = summary.stats || {};
       const errors = Array.isArray(summary.errors) ? summary.errors : [];
+      const peopleEntries = Array.isArray(summary.people) ? summary.people : [];
+      const entityEntries = Array.isArray(summary.entities) ? summary.entities : [];
+      const peopleThreshold = Number.parseInt(entityState.filters?.people, 10) || 0;
+      const entityThreshold = Number.parseInt(entityState.filters?.entities, 10) || 0;
+
+      const ensureSelectValue = (node, value) => {
+        if (!node) return;
+        const target = String(value);
+        if (node.value !== target) {
+          node.value = target;
+        }
+      };
+
+      ensureSelectValue(peopleFilterNode, peopleThreshold);
+      ensureSelectValue(entitiesFilterNode, entityThreshold);
+
+      const renderDisabled = (listNode, message) => {
+        if (!listNode) return;
+        listNode.innerHTML = "";
+        const emptyItem = document.createElement("li");
+        emptyItem.className = "entity-summary__empty";
+        emptyItem.textContent = message;
+        listNode.appendChild(emptyItem);
+      };
+
+      if (!entitiesEnabled) {
+        const disabledMessage = "Entity recognition is turned off in Settings.";
+        if (entityStatsNode) {
+          entityStatsNode.textContent = disabledMessage;
+        }
+        if (peopleStatsNode) {
+          peopleStatsNode.textContent = disabledMessage;
+        }
+        if (peopleFilterNode) {
+          peopleFilterNode.disabled = true;
+        }
+        if (entitiesFilterNode) {
+          entitiesFilterNode.disabled = true;
+        }
+        renderDisabled(peopleListNode, disabledMessage);
+        renderDisabled(entityListNode, "Enable entity recognition to populate detected entities.");
+        return;
+      }
+
+      if (peopleFilterNode) {
+        peopleFilterNode.disabled = false;
+      }
+      if (entitiesFilterNode) {
+        entitiesFilterNode.disabled = false;
+      }
+
       if (entityStatsNode) {
         if (errors.length) {
           entityStatsNode.textContent = errors.join(" · ");
@@ -1190,90 +1318,162 @@ const initPrepare = (root = document) => {
           if (typeof stats.tokens === "number") {
             parts.push(`${stats.tokens.toLocaleString()} tokens processed`);
           }
+          if (typeof stats.people === "number") {
+            parts.push(`${stats.people} character${stats.people === 1 ? "" : "s"}`);
+          }
+          if (typeof stats.entities === "number") {
+            parts.push(`${stats.entities} ${stats.entities === 1 ? "entity" : "entities"}`);
+          }
           entityStatsNode.textContent = parts.length ? parts.join(" · ") : "Entity analysis up to date.";
         } else {
           entityStatsNode.textContent = "Entity analysis will populate once you continue from chapters.";
         }
       }
 
-      entityListNode.innerHTML = "";
-      const entries = Array.isArray(summary.entities) ? summary.entities : [];
-      if (!entries.length) {
-        const emptyItem = document.createElement("li");
-        emptyItem.className = "entity-summary__empty";
-        emptyItem.textContent = "No entities detected yet.";
-        entityListNode.appendChild(emptyItem);
-        return;
+      const renderGroup = (listNode, entries, threshold, options) => {
+        if (!listNode) {
+          return { visible: 0, total: entries.length };
+        }
+        listNode.innerHTML = "";
+        const filtered = entries.filter((entry) => Number(entry?.count || 0) >= threshold);
+        if (!filtered.length) {
+          const emptyItem = document.createElement("li");
+          emptyItem.className = "entity-summary__empty";
+          emptyItem.textContent = entries.length ? options.filteredEmptyText : options.emptyText;
+          listNode.appendChild(emptyItem);
+          return { visible: 0, total: entries.length };
+        }
+        filtered.forEach((entity) => {
+          const item = cloneTemplate(entityRowTemplate);
+          if (!item) return;
+          const normalized = entity.normalized || entity.label || entity.token || "";
+          const tokenLabel = entity.label || entity.token || normalized || "Untitled entity";
+          item.dataset.entityId = entity.id || normalized || tokenLabel;
+          item.dataset.entityCategory = options.groupKey;
+
+          const labelEl = item.querySelector('[data-role="entity-label"]');
+          if (labelEl) {
+            labelEl.textContent = tokenLabel;
+          }
+
+          const kindEl = item.querySelector('[data-role="entity-kind"]');
+          if (kindEl) {
+            const kind = entity.kind || entity.category || "";
+            if (options.hideKind || !kind) {
+              kindEl.textContent = "";
+              kindEl.hidden = true;
+            } else {
+              kindEl.hidden = false;
+              kindEl.textContent = kind;
+            }
+          }
+
+          const countEl = item.querySelector('[data-role="entity-count"]');
+          if (countEl) {
+            countEl.textContent = formatMentions(entity.count);
+          }
+
+          const samplesContainer = item.querySelector('[data-role="entity-samples"]');
+          if (samplesContainer) {
+            samplesContainer.innerHTML = "";
+            const samples = Array.isArray(entity.samples) ? entity.samples : [];
+            if (!samples.length) {
+              const hint = document.createElement("p");
+              hint.className = "hint";
+              hint.textContent = "No sample sentences captured yet.";
+              samplesContainer.appendChild(hint);
+            } else {
+              const list = document.createElement("ul");
+              list.className = "entity-summary__samples-list";
+              samples.slice(0, 3).forEach((sample) => {
+                const text = typeof sample === "string" ? sample : sample?.excerpt;
+                if (!text) return;
+                const entry = document.createElement("li");
+                entry.textContent = text;
+                list.appendChild(entry);
+              });
+              samplesContainer.appendChild(list);
+            }
+          }
+
+          const button = item.querySelector('[data-role="entity-add-override"]');
+          if (button) {
+            const hasOverride = entityState.manualOverrides.some((entry) => {
+              const candidate = entry?.normalized || entry?.token || "";
+              return candidate && candidate.toLowerCase() === normalized.toLowerCase();
+            });
+            button.dataset.entityToken = entity.label || entity.token || "";
+            button.dataset.entityNormalized = normalized;
+            button.dataset.entityCategory = options.groupKey;
+            button.dataset.entityCount = String(entity.count || 0);
+            const sampleContext = Array.isArray(entity.samples) && entity.samples.length
+              ? typeof entity.samples[0] === "string"
+                ? entity.samples[0]
+                : entity.samples[0]?.excerpt || ""
+              : "";
+            if (sampleContext) {
+              button.dataset.entityContext = sampleContext;
+            }
+            if (entity.kind) {
+              button.dataset.entityKind = entity.kind;
+            }
+            button.textContent = hasOverride ? "Edit manual override" : "Add manual override";
+          }
+
+          listNode.appendChild(item);
+        });
+        return { visible: filtered.length, total: entries.length };
+      };
+
+      const peopleRender = renderGroup(peopleListNode, peopleEntries, peopleThreshold, {
+        groupKey: "people",
+        hideKind: true,
+        emptyText: "No characters detected yet.",
+        filteredEmptyText: "No characters match the selected mention filter.",
+      });
+
+      if (peopleFilterNode && !peopleEntries.length) {
+        peopleFilterNode.value = "0";
       }
 
-      entries.forEach((entity) => {
-        const item = cloneTemplate(entityRowTemplate);
-        if (!item) return;
-        const normalized = entity.normalized || entity.label || entity.token || "";
-        const tokenLabel = entity.label || entity.token || normalized || "Untitled entity";
-        item.dataset.entityId = entity.id || normalized || tokenLabel;
-
-        const labelEl = item.querySelector('[data-role="entity-label"]');
-        if (labelEl) {
-          labelEl.textContent = tokenLabel;
-        }
-
-        const kindEl = item.querySelector('[data-role="entity-kind"]');
-        if (kindEl) {
-          const kind = entity.kind || entity.category || "";
-          kindEl.textContent = kind;
-          kindEl.hidden = !kind;
-        }
-
-        const countEl = item.querySelector('[data-role="entity-count"]');
-        if (countEl) {
-          countEl.textContent = formatMentions(entity.count);
-        }
-
-        const samplesContainer = item.querySelector('[data-role="entity-samples"]');
-        if (samplesContainer) {
-          samplesContainer.innerHTML = "";
-          const samples = Array.isArray(entity.samples) ? entity.samples : [];
-          if (!samples.length) {
-            const hint = document.createElement("p");
-            hint.className = "hint";
-            hint.textContent = "No sample sentences captured yet.";
-            samplesContainer.appendChild(hint);
-          } else {
-            const list = document.createElement("ul");
-            list.className = "entity-summary__samples-list";
-            samples.slice(0, 3).forEach((sample) => {
-              const text = typeof sample === "string" ? sample : sample?.excerpt;
-              if (!text) return;
-              const entry = document.createElement("li");
-              entry.textContent = text;
-              list.appendChild(entry);
-            });
-            samplesContainer.appendChild(list);
+      if (peopleStatsNode) {
+        if (!peopleEntries.length) {
+          peopleStatsNode.textContent = "No characters detected yet.";
+        } else if (!peopleRender.visible) {
+          peopleStatsNode.textContent = "Adjust the mention filter to see additional characters.";
+        } else {
+          let label = "all mentions";
+          if (peopleThreshold > 1) {
+            label = `${peopleThreshold}+ mentions`;
+          } else if (peopleThreshold === 1) {
+            label = "1+ mention";
           }
+          peopleStatsNode.textContent = `Showing ${peopleRender.visible} of ${peopleRender.total} characters (${label}).`;
         }
+      }
 
-        const button = item.querySelector('[data-role="entity-add-override"]');
-        if (button) {
-          const hasOverride = entityState.manualOverrides.some((entry) => {
-            const candidate = entry?.normalized || entry?.token || "";
-            return candidate && candidate.toLowerCase() === normalized.toLowerCase();
-          });
-          button.dataset.entityToken = entity.label || entity.token || "";
-          button.dataset.entityNormalized = normalized;
-          const sampleContext = Array.isArray(entity.samples) && entity.samples.length
-            ? typeof entity.samples[0] === "string"
-              ? entity.samples[0]
-              : entity.samples[0]?.excerpt || ""
-            : "";
-          if (sampleContext) {
-            button.dataset.entityContext = sampleContext;
-          }
-          button.textContent = hasOverride ? "Edit manual override" : "Add manual override";
-        }
-
-        entityListNode.appendChild(item);
+      const entitiesRender = renderGroup(entityListNode, entityEntries, entityThreshold, {
+        groupKey: "entities",
+        hideKind: false,
+        emptyText: "No entities detected yet.",
+        filteredEmptyText: "No entities match the selected mention filter.",
       });
+
+      if (entitiesFilterNode && !entityEntries.length) {
+        entitiesFilterNode.value = "0";
+      }
+
+      if (
+        entityStatsNode &&
+        !errors.length &&
+        stats.processed &&
+        typeof stats.entities === "number" &&
+        entityThreshold > 0 &&
+        stats.entities > entitiesRender.visible
+      ) {
+        const filterLabel = entityThreshold > 1 ? `${entityThreshold}+ mentions` : "1+ mention";
+        entityStatsNode.textContent += ` · Filter hiding ${stats.entities - entitiesRender.visible} entries (${filterLabel})`;
+      }
     }
 
     function renderManualOverrides() {
@@ -1400,6 +1600,87 @@ const initPrepare = (root = document) => {
       renderManualOverrides();
     }
 
+    const filterVoicesByGender = (voices, genderHint) => {
+      const normalized = (genderHint || "unknown").toLowerCase();
+      if (normalized === "female") {
+        return voices.filter((voice) => (voice.gender_code || "").toLowerCase() === "f");
+      }
+      if (normalized === "male") {
+        return voices.filter((voice) => (voice.gender_code || "").toLowerCase() === "m");
+      }
+      if (normalized === "either") {
+        return voices.filter((voice) => {
+          const code = (voice.gender_code || "").toLowerCase();
+          return code === "f" || code === "m";
+        });
+      }
+      return voices.slice();
+    };
+
+    const pickRandomVoiceForOverride = (genderHint) => {
+      if (!Array.isArray(voiceCatalog) || !voiceCatalog.length) {
+        return baseVoice || "";
+      }
+      const normalizedLanguage = (languageCode || "").trim().toLowerCase();
+      const languageCandidates = () => {
+        const keys = [];
+        if (normalizedLanguage) keys.push(normalizedLanguage);
+        if (languageCode && languageCode !== normalizedLanguage) {
+          keys.push(languageCode);
+        }
+        for (const key of keys) {
+          const mapped = languageMap?.[key];
+          if (Array.isArray(mapped) && mapped.length) {
+            const lookup = new Set(mapped);
+            const matches = voiceCatalog.filter((voice) => lookup.has(voice.id));
+            if (matches.length) {
+              return matches;
+            }
+          }
+        }
+        const direct = voiceCatalog.filter((voice) => (voice.language || "").toLowerCase() === normalizedLanguage);
+        return direct;
+      };
+
+      const preferred = languageCandidates();
+      let pool = filterVoicesByGender(preferred.length ? preferred : voiceCatalog, genderHint);
+      if (!pool.length) {
+        pool = voiceCatalog.slice();
+      }
+      if (!pool.length) {
+        return baseVoice || "";
+      }
+      const selected = pool[Math.floor(Math.random() * pool.length)];
+      return selected?.id || baseVoice || "";
+    };
+
+    const resolveOverrideVoice = (data) => {
+      if (data.voice) {
+        return data.voice;
+      }
+      const normalizedKey = canonicalizeEntityKey(data.normalized || data.token || "");
+      let genderHint = (data.gender || "").toLowerCase();
+      if (normalizedKey) {
+        const speakerHint = speakerHints.get(normalizedKey);
+        if (speakerHint) {
+          if (speakerHint.voice) {
+            return speakerHint.voice;
+          }
+          if (!genderHint || genderHint === "unknown") {
+            genderHint = speakerHint.gender || genderHint;
+          }
+        }
+      }
+      if (!genderHint || genderHint === "unknown") {
+        if (data.category === "people" || data.kind === "PERSON") {
+          genderHint = "either";
+        } else {
+          genderHint = "";
+        }
+      }
+      return pickRandomVoiceForOverride(genderHint);
+    };
+
     function collectOverridePayload(overrideId) {
       if (!overrideId || !manualOverrideList) return null;
       const selectorId = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(overrideId) : overrideId.replace(/["\\]/g, "\\$&");
@@ -1420,7 +1701,7 @@ const initPrepare = (root = document) => {
 
     async function saveManualOverride(overrideId) {
       const payload = collectOverridePayload(overrideId);
-      if (!payload || !manualUpsertUrl) return;
+      if (!payload || !manualUpsertUrl) return false;
       try {
         const response = await fetch(manualUpsertUrl, {
           method: "POST",
@@ -1432,25 +1713,52 @@ const initPrepare = (root = document) => {
         }
         const data = await response.json();
         applyEntityPayload(data, { highlightId: data.override?.id || payload.id });
+        return true;
       } catch (error) {
         console.error("Failed to save manual override", error);
+        return false;
       }
     }
 
-    function scheduleManualOverrideSave(overrideId) {
+    markOverrideDirty = (overrideId) => {
       if (!overrideId) return;
-      if (pendingOverrideSaves.has(overrideId)) {
-        clearTimeout(pendingOverrideSaves.get(overrideId));
-      }
-      const timer = setTimeout(() => {
-        pendingOverrideSaves.delete(overrideId);
-        saveManualOverride(overrideId);
-      }, 400);
-      pendingOverrideSaves.set(overrideId, timer);
-    }
+      dirtyOverrideIds.add(overrideId);
+    };
+
+    flushManualOverrides = (options = {}) => {
+      const { overrideId } = options || {};
+      const pendingIds = Array.isArray(overrideId) ? overrideId : overrideId ? [overrideId] : Array.from(dirtyOverrideIds);
+      const targetIds = pendingIds.filter((id) => dirtyOverrideIds.has(id));
+      if (!targetIds.length) return null;
+      targetIds.forEach((id) => dirtyOverrideIds.delete(id));
+      const runFlush = async () => {
+        if (overrideFlushPromise) {
+          try {
+            await overrideFlushPromise;
+          } catch (error) {
+            console.warn("Previous override flush failed", error);
+          }
+        }
+        const results = await Promise.all(targetIds.map((id) => saveManualOverride(id)));
+        results.forEach((ok, index) => {
+          if (!ok) {
+            dirtyOverrideIds.add(targetIds[index]);
+          }
+        });
+      };
+      overrideFlushPromise = runFlush()
+        .catch((error) => {
+          console.error("Failed flushing manual overrides", error);
+        })
+        .finally(() => {
+          overrideFlushPromise = null;
+        });
+      return overrideFlushPromise;
+    };
 
     async function deleteManualOverride(overrideId) {
       if (!overrideId || !manualDeleteUrlTemplate) return;
+      dirtyOverrideIds.delete(overrideId);
       const targetUrl = manualDeleteUrlTemplate.replace("__OVERRIDE_ID__", encodeURIComponent(overrideId));
       try {
         const response = await fetch(targetUrl, { method: "DELETE" });
@@ -1543,12 +1851,14 @@ const initPrepare = (root = document) => {
       if (!data || !manualUpsertUrl) return;
       const token = (data.token || "").trim();
       if (!token) return;
+      const normalized = (data.normalized || "").trim();
+      const voiceChoice = resolveOverrideVoice({ ...data, token, normalized });
       const payload = {
         token,
-        normalized: (data.normalized || "").trim(),
+        normalized,
         context: data.context || "",
         pronunciation: data.pronunciation || "",
-        voice: data.voice || "",
+        voice: voiceChoice || "",
         source: data.source || "manual",
       };
       try {
@@ -1580,6 +1890,7 @@ const initPrepare = (root = document) => {
 
     if (entitiesRefreshButton) {
       entitiesRefreshButton.addEventListener("click", () => {
+        void flushManualOverrides();
         performEntitiesRefresh(true);
       });
     }
@@ -1593,6 +1904,8 @@ const initPrepare = (root = document) => {
           token: trigger.dataset.entityToken || "",
           normalized: trigger.dataset.entityNormalized || "",
           context: trigger.dataset.entityContext || "",
+          category: trigger.dataset.entityCategory || "",
+          kind: trigger.dataset.entityKind || "",
           source: "entity",
         });
       });
@@ -1649,7 +1962,7 @@ const initPrepare = (root = document) => {
           previewButton.dataset.previewText = input.value.trim() || input.placeholder || "";
         }
         if (overrideId) {
-          scheduleManualOverrideSave(overrideId);
+          markOverrideDirty(overrideId);
         }
       });
 
@@ -1663,11 +1976,15 @@ const initPrepare = (root = document) => {
           previewButton.dataset.voice = select.value || baseVoice || select.dataset.defaultVoice || "";
         }
         if (overrideId) {
-          scheduleManualOverrideSave(overrideId);
+          markOverrideDirty(overrideId);
         }
       });
 
       manualOverrideList.addEventListener("click", (event) => {
+        const previewButton = event.target.closest('[data-role="speaker-preview"]');
+        if (previewButton?.dataset.overrideId) {
+          void flushManualOverrides({ overrideId: previewButton.dataset.overrideId });
+        }
         const deleteButton = event.target.closest('[data-role="manual-override-delete"]');
         if (!deleteButton) return;
         event.preventDefault();
@@ -1683,7 +2000,42 @@ const initPrepare = (root = document) => {
     renderManualOverrides();
   }
 
+  const handleDeferredSubmit = (event) => {
+    const hasDirty = dirtyOverrideIds.size > 0;
+    const hasPendingFlush = Boolean(overrideFlushPromise);
+    if (!hasDirty && !hasPendingFlush) return;
+    if (form.dataset.skipDirtyFlush === "true") {
+      delete form.dataset.skipDirtyFlush;
+      return;
+    }
+    event.preventDefault();
+    const submitter = event.submitter || null;
+    const resumeSubmission = () => {
+      form.dataset.skipDirtyFlush = "true";
+      if (typeof form.requestSubmit === "function") {
+        form.requestSubmit(submitter || undefined);
+      } else if (submitter && typeof submitter.click === "function") {
+        submitter.click();
+      } else if (typeof form.submit === "function") {
+        form.submit();
+      }
+    };
+
+    const flushPromise = overrideFlushPromise || flushManualOverrides();
+    if (!flushPromise) {
+      resumeSubmission();
+      return;
+    }
+    flushPromise.finally(resumeSubmission);
+  };
+
+  form.addEventListener("submit", handleDeferredSubmit);
+
   form.addEventListener("click", (event) => {
+    const previewFromOverride = event.target.closest('[data-role="speaker-preview"]');
+    if (previewFromOverride?.dataset.overrideId) {
+      void flushManualOverrides({ overrideId: previewFromOverride.dataset.overrideId });
+    }
     const genderMenu = event.target.closest('[data-role="gender-menu"]');
     const genderPill = event.target.closest('[data-role="gender-pill"]');
     if (!genderMenu && !genderPill) {

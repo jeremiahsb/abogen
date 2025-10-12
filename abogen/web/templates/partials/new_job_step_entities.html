@@ -332,6 +332,29 @@
           {% else %}
           <p class="hint">No additional speakers detected yet. The narrator voice will be used for all dialogue.</p>
           {% endif %}
+
+          <section class="entity-summary entity-summary--people" data-role="people-summary">
+            <header class="entity-summary__header">
+              <div class="entity-summary__titles">
+                <h2>Detected people</h2>
+                <p class="hint">Characters surfaced by entity recognition. Filter by mention count to focus on recurring names.</p>
+              </div>
+              <div class="entity-summary__filters">
+                <label class="field field--inline" for="people-mention-filter">
+                  <span>Minimum mentions</span>
+                  <select id="people-mention-filter" data-role="entity-filter-people">
+                    <option value="0">All</option>
+                    <option value="1">1+</option>
+                    <option value="2">2+</option>
+                    <option value="5">5+</option>
+                    <option value="10">10+</option>
+                  </select>
+                </label>
+              </div>
+            </header>
+            <dl class="entity-summary__stats" data-role="people-stats"></dl>
+            <ol class="entity-summary__list" data-role="entity-list-people"></ol>
+          </section>
         </section>
 
         <section class="entity-tabs__panel"
@@ -341,16 +364,28 @@
                  role="tabpanel"
                  aria-labelledby="entity-tab-entities"
                  hidden>
-          <div class="entity-summary" data-role="entity-summary">
+          <div class="entity-summary" data-role="entities-summary">
             <header class="entity-summary__header">
               <div class="entity-summary__titles">
                 <h2>Detected entities</h2>
                 <p class="hint">Assign pronunciations and voices for recurring names and terminology across the manuscript.</p>
               </div>
-              <button type="button" class="button button--ghost button--small" data-role="entities-refresh" {% if not recognition_enabled %}disabled aria-disabled="true"{% endif %}>Refresh</button>
+              <div class="entity-summary__filters">
+                <label class="field field--inline" for="entities-mention-filter">
+                  <span>Minimum mentions</span>
+                  <select id="entities-mention-filter" data-role="entity-filter-entities">
+                    <option value="0">All</option>
+                    <option value="1">1+</option>
+                    <option value="2">2+</option>
+                    <option value="5">5+</option>
+                    <option value="10">10+</option>
+                  </select>
+                </label>
+                <button type="button" class="button button--ghost button--small" data-role="entities-refresh" {% if not recognition_enabled %}disabled aria-disabled="true"{% endif %}>Refresh</button>
+              </div>
             </header>
             <dl class="entity-summary__stats" data-role="entity-stats"></dl>
-            <ol class="entity-summary__list" data-role="entity-list"></ol>
+            <ol class="entity-summary__list" data-role="entity-list-entities"></ol>
             <template data-role="entity-row-template">
               <li class="entity-summary__item">
                 <header class="entity-summary__item-header">

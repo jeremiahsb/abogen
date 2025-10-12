@@ -1115,7 +1115,16 @@ def _refresh_entity_summary(pending: PendingJob, chapters: Iterable[Mapping[str,
         return
 
     language = pending.language or "en"
-    result = extract_entities(chapters, language=language)
+    chapter_list: List[Mapping[str, Any]] = [chapter for chapter in chapters if isinstance(chapter, Mapping)]
+    if not chapter_list:
+        pending.entity_summary = {}
+        pending.entity_cache_key = ""
+        pending.pronunciation_overrides = pending.pronunciation_overrides or []
+        return
+
+    enabled_only = [chapter for chapter in chapter_list if chapter.get("enabled")]
+    target_chapters = enabled_only or chapter_list
+    result = extract_entities(target_chapters, language=language)
     summary = dict(result.summary)
     tokens: List[str] = []
     for group in ("people", "entities"):

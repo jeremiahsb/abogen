@@ -60,12 +60,36 @@ _STOP_LABELS = {
     "nor",
     "so",
     "yet",
+    "dr",
+    "mr",
+    "mrs",
+    "ms",
+    "miss",
+    "sir",
+    "madam",
+    "lady",
+    "lord",
+}
+
+_EXCLUDED_NER_LABELS = {
+    "CARDINAL",
+    "DATE",
+    "ORDINAL",
+    "PERCENT",
+    "TIME",
+    "LAW",
+    "MONEY",
+    "QUANTITY",
 }
 
 _TITLE_PATTERN = re.compile(r"^(?:" + "|".join(re.escape(prefix) for prefix in _TITLE_PREFIXES) + r")\.?\s+", re.IGNORECASE)
 _POSSESSIVE_PATTERN = re.compile(r"(?:'s|’s|\u2019s)$", re.IGNORECASE)
 _NON_WORD_PATTERN = re.compile(r"[^\w\s'-]+")
 _MULTI_SPACE_PATTERN = re.compile(r"\s+")
+_SUFFIX_PATTERN = re.compile(
+    r",?\s+(?:jr|sr|ii|iii|iv|v|vi|md|phd|esq|esquire|dds|dvm)\.?$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(slots=True)
@@ -165,6 +189,7 @@ def _normalize_label(text: str) -> str:
     if not stripped:
         return ""
     stripped = _TITLE_PATTERN.sub("", stripped)
+    stripped = _SUFFIX_PATTERN.sub("", stripped)
     stripped = _POSSESSIVE_PATTERN.sub("", stripped)
     stripped = _NON_WORD_PATTERN.sub(" ", stripped)
     stripped = _MULTI_SPACE_PATTERN.sub(" ", stripped)
@@ -252,9 +277,16 @@ def extract_entities(
     for idx, chapter in enumerate(chapters):
         text = chapter.get("text") if isinstance(chapter, Mapping) else None
         text_value = str(text or "")
-        chapter_texts.append((idx, text_value))
+        original_index = idx
+        if isinstance(chapter, Mapping):
+            try:
+                original_index = int(chapter.get("index", idx))
+            except (TypeError, ValueError):
+                original_index = idx
+        chapter_texts.append((original_index, text_value))
         if text_value:
             combined_hasher.update(text_value.encode("utf-8", "ignore"))
+            combined_hasher.update(str(original_index).encode("utf-8", "ignore"))
     cache_key = combined_hasher.hexdigest()
 
     if not chapter_texts:
@@ -279,6 +311,8 @@ def extract_entities(
 
         def _register_span(span: Any, category_hint: Optional[str] = None) -> None:
             nonlocal processed_tokens
+            if category_hint is None and span.label_ in _EXCLUDED_NER_LABELS:
+                return
             cleaned = _normalize_label(span.text)
             if not cleaned:
                 return
@@ -346,6 +380,8 @@ def extract_entities(
             "tokens": processed_tokens,
             "chapters": len(chapter_texts),
             "processed": True,
+            "people": len(people_payload),
+            "entities": len(entity_payload),
         },
         "model": {
             "name": getattr(nlp, "meta", {}).get("name", "unknown"),
