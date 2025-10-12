@@ -1591,7 +1591,7 @@ const initPrepare = (root = document) => {
             }
           }
 
-          const previewButton = item.querySelector('[data-role="entity-preview"]');
+          const previewButton = item.querySelector('[data-entity-preview="true"]');
           if (previewButton) {
             const previewVoice = overrideLookup.get(normalized.toLowerCase())?.voice || baseVoice || "";
             const previewText = Array.isArray(entity.samples) && entity.samples.length
@@ -1606,6 +1606,7 @@ const initPrepare = (root = document) => {
               previewButton.dataset.language = languageCode;
               previewButton.dataset.speed = defaultSpeed;
               previewButton.dataset.useGpu = useGpuDefault;
+              previewButton.dataset.previewSource = "entity";
             }
           }
 
@@ -2077,7 +2078,8 @@ const initPrepare = (root = document) => {
         applyEntityPayload(body, { highlightId: highlighted });
         if (highlightMode === "inline") {
           highlightedOverrideId = highlighted;
-          activateEntityTab("entities");
+          const targetPanel = activeEntityPanel || "entities";
+          activateEntityTab(targetPanel);
         } else {
           activateEntityTab("manual");
           if (manualOverrideResultsList) {
@@ -2103,8 +2105,7 @@ const initPrepare = (root = document) => {
       });
     }
 
-    if (entityListNode) {
-      entityListNode.addEventListener("click", (event) => {
+    const handleEntityListClick = (event) => {
         const addTrigger = event.target.closest('[data-role="entity-add-override"]');
         if (addTrigger) {
           event.preventDefault();
@@ -2127,6 +2128,7 @@ const initPrepare = (root = document) => {
           }
 
           inlineOverride.hidden = false;
+          inlineOverride.setAttribute("aria-hidden", "false");
           const pronInput = inlineOverride.querySelector('[data-role="manual-override-pronunciation"]');
           const voiceSelect = inlineOverride.querySelector('[data-role="manual-override-voice"]');
           const previewButton = inlineOverride.querySelector('[data-role="speaker-preview"]');
@@ -2204,11 +2206,16 @@ const initPrepare = (root = document) => {
             const inlineOverride = removeTrigger.closest('[data-role="inline-override"]');
             if (inlineOverride) {
               inlineOverride.hidden = true;
+              inlineOverride.setAttribute("aria-hidden", "true");
             }
           }
         }
-      });
-    }
+    };
+
+    [peopleListNode, entityListNode].forEach((list) => {
+      if (!list) return;
+      list.addEventListener("click", handleEntityListClick);
+    });
 
     if (manualOverrideSearchButton) {
       manualOverrideSearchButton.addEventListener("click", () => {
