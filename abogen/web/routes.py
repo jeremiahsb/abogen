@@ -18,6 +18,7 @@ from xml.etree import ElementTree as ET
 
 from flask import (
     Blueprint,
+    Response,
     abort,
     current_app,
     jsonify,
@@ -28,10 +29,13 @@ from flask import (
     url_for,
 )
 from flask.typing import ResponseReturnValue
-from werkzeug.utils import secure_filename
 
 import numpy as np
 import soundfile as sf
+
+from werkzeug.utils import secure_filename
+
+from abogen.chunking import ChunkLevel, build_chunks_for_chapters
 from abogen.constants import (
     LANGUAGE_DESCRIPTIONS,
     SAMPLE_VOICE_TEXTS,
@@ -40,11 +44,9 @@ from abogen.constants import (
     SUPPORTED_SOUND_FORMATS,
     VOICES_INTERNAL,
 )
-from abogen.chunking import ChunkLevel, build_chunks_for_chapters
 from abogen.kokoro_text_normalization import normalize_roman_numeral_titles
 from abogen.utils import (
     calculate_text_length,
-    clean_text,
     get_user_output_path,
     load_config,
     load_numpy_kpipeline,
@@ -2825,8 +2827,8 @@ def enqueue_job() -> ResponseReturnValue:
         if isinstance(languages, list):
             pending.speaker_voice_languages = [code for code in languages if isinstance(code, str)]
     if _wants_wizard_json():
-        return _wizard_json_response(pending, "chapters", embed_scripts=False)
-    return redirect(url_for("web.prepare_job", pending_id=pending.id))
+        return _wizard_json_response(pending, "chapters")
+    return redirect(url_for("web.index"))
 
 
 @web_bp.get("/jobs/prepare/<pending_id>")
@@ -2835,8 +2837,8 @@ def prepare_job(pending_id: str) -> ResponseReturnValue:
     requested_step = request.args.get("step") or "chapters"
     normalized_step = _normalize_wizard_step(requested_step, pending)
     if _wants_wizard_json():
-        return _wizard_json_response(pending, normalized_step, embed_scripts=False)
-    return _render_prepare_page(pending, active_step=normalized_step)
+        return _wizard_json_response(pending, normalized_step)
+    return redirect(url_for("web.index"))
 
 
 @web_bp.post("/jobs/prepare/<pending_id>/analyze")
@@ -2862,10 +2864,9 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
                 pending,
                 "chapters",
                 error=message,
-                embed_scripts=False,
                 status=400,
             )
-        return _render_prepare_page(pending, error=message, active_step="chapters")
+        abort(400, message)
 
     if pending.speaker_mode != "multi":
         setattr(pending, "analysis_requested", False)
@@ -2877,14 +2878,9 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
                 pending,
                 "chapters",
                 error=error_message,
-                embed_scripts=False,
                 status=400,
             )
-        return _render_prepare_page(
-            pending,
-            error=error_message,
-            active_step="chapters",
-        )
+        abort(400, error_message)
 
     if not enabled_overrides:
         setattr(pending, "analysis_requested", False)
@@ -2896,14 +2892,9 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
                 pending,
                 "chapters",
                 error=error_message,
-                embed_scripts=False,
                 status=400,
             )
-        return _render_prepare_page(
-            pending,
-            error=error_message,
-            active_step="chapters",
-        )
+        abort(400, error_message)
 
     raw_chunks = build_chunks_for_chapters(enabled_overrides, level=chunk_level_literal)
     analysis_chunks = build_chunks_for_chapters(enabled_overrides, level="sentence")
@@ -2957,9 +2948,8 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
             pending,
             "entities",
             notice=notice_message,
-            embed_scripts=False,
         )
-    return _render_prepare_page(pending, notice=notice_message, active_step="entities")
+    return redirect(url_for("web.index"))
 
 
 @web_bp.post("/jobs/prepare/<pending_id>")
@@ -2987,14 +2977,9 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
                 pending,
                 normalized_step,
                 error=message,
-                embed_scripts=False,
                 status=400,
             )
-        return _render_prepare_page(
-            pending,
-            error=message,
-            active_step=normalized_step,
-        )
+        abort(400, message)
 
     if pending.speaker_mode != "multi":
         setattr(pending, "analysis_requested", False)
@@ -3007,14 +2992,9 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
                 pending,
                 "chapters",
                 error=error_message,
-                embed_scripts=False,
                 status=400,
             )
-        return _render_prepare_page(
-            pending,
-            error=error_message,
-            active_step="chapters",
-        )
+        abort(400, error_message)
 
     active_step = (request.form.get("active_step") or "chapters").strip().lower()
     if active_step == "speakers":
@@ -3091,13 +3071,8 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
                 pending,
                 "entities",
                 notice=notice_message or None,
-                embed_scripts=False,
             )
-        return _render_prepare_page(
-            pending,
-            notice=notice_message or None,
-            active_step="entities",
-        )
+        return redirect(url_for("web.index"))
 
     total_characters = selected_total or pending.total_characters
     service.pop_pending_job(pending_id)
@@ -3233,7 +3208,6 @@ def _render_wizard_partial(
     *,
     error: Optional[str] = None,
     notice: Optional[str] = None,
-    embed_scripts: bool = False,
 ) -> str:
     templates = {
         "book": "partials/new_job_step_book.html",
@@ -3248,7 +3222,6 @@ def _render_wizard_partial(
         "settings": _load_settings(),
         "error": error,
         "notice": notice,
-        "embed_scripts": embed_scripts,
     }
     return render_template(template_name, **context)
 
@@ -3288,41 +3261,11 @@ def _wizard_json_response(
     *,
     error: Optional[str] = None,
     notice: Optional[str] = None,
-    embed_scripts: bool = False,
     status: int = 200,
 ) -> ResponseReturnValue:
-    html = _render_wizard_partial(pending, step, error=error, notice=notice, embed_scripts=embed_scripts)
+    html = _render_wizard_partial(pending, step, error=error, notice=notice)
     payload = _wizard_step_payload(pending, step, html, error=error, notice=notice)
     return jsonify(payload), status
-
-
-def _render_prepare_page(
-    pending: PendingJob,
-    *,
-    error: Optional[str] = None,
-    notice: Optional[str] = None,
-    active_step: Optional[str] = None,
-) -> str:
-    if not active_step:
-        active_step = (
-            request.form.get("active_step")
-            if request.method == "POST"
-            else request.args.get("step")
-        ) or "chapters"
-
-    normalized_step = _normalize_wizard_step(active_step, pending)
-
-    template_name = "prepare_entities.html" if normalized_step == "entities" else "prepare_chapters.html"
-
-    return render_template(
-        template_name,
-        pending=pending,
-        options=_template_options(),
-        settings=_load_settings(),
-        error=error,
-        notice=notice,
-        active_step=normalized_step,
-    )
 
 
 @web_bp.get("/jobs/<job_id>")
