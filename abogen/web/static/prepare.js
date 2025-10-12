@@ -15,9 +15,6 @@ const initPrepare = (root = document) => {
   const uploadModal =
     document.querySelector('[data-role="new-job-modal"]') ||
     document.querySelector('[data-role="upload-modal"]');
-  const wizardPreviousButtons = Array.from(
-    document.querySelectorAll('[data-role="wizard-previous"], [data-role="wizard-back"]')
-  );
   const openUploadTriggers = Array.from(document.querySelectorAll('[data-role="open-upload-modal"]'));
 
   const showWizardModal = () => {
@@ -58,22 +55,6 @@ const initPrepare = (root = document) => {
     document.addEventListener("upload-modal:open", hideWizardModal);
     document.addEventListener("upload-modal:close", showWizardModal);
   }
-
-  wizardPreviousButtons.forEach((button) => {
-    if (!button || button.dataset.prepareBackBound === "true") {
-      return;
-    }
-    const targetStep = (button.dataset.targetStep || "").toLowerCase();
-    if (targetStep && targetStep !== "book") {
-      return;
-    }
-    button.dataset.prepareBackBound = "true";
-    button.addEventListener("click", (event) => {
-      event.preventDefault();
-      hideWizardModal();
-      triggerUploadModal();
-    });
-  });
 
   const parseJSONScript = (id) => {
     const el = document.getElementById(id);
@@ -1083,6 +1064,7 @@ const initPrepare = (root = document) => {
   const languageCode = form.dataset.language || "en";
   const defaultSpeed = form.dataset.speed || "1.0";
   const useGpuDefault = form.dataset.useGpu || "true";
+  let entitiesEnabled = form.dataset.entitiesEnabled !== "false";
 
   const entityState = {
     summary: entitySummaryData && typeof entitySummaryData === "object" ? entitySummaryData : {},
@@ -1177,6 +1159,18 @@ const initPrepare = (root = document) => {
 
     function renderEntitySummary() {
       if (!entityListNode) return;
+      if (!entitiesEnabled) {
+        if (entityStatsNode) {
+          entityStatsNode.textContent = "Entity recognition is turned off in Settings.";
+        }
+        entityListNode.innerHTML = "";
+        const emptyItem = document.createElement("li");
+        emptyItem.className = "entity-summary__empty";
+        emptyItem.textContent = "Enable entity recognition to populate detected entities.";
+        entityListNode.appendChild(emptyItem);
+        return;
+      }
+
       const summary = entityState.summary || {};
       const stats = summary.stats || {};
       const errors = Array.isArray(summary.errors) ? summary.errors : [];
@@ -1207,7 +1201,7 @@ const initPrepare = (root = document) => {
         return;
       }
 
-      entries.slice(0, 120).forEach((entity) => {
+      entries.forEach((entity) => {
         const item = cloneTemplate(entityRowTemplate);
         if (!item) return;
         const normalized = entity.normalized || entity.label || entity.token || "";
@@ -1384,6 +1378,14 @@ const initPrepare = (root = document) => {
         }
         if (typeof payload.cache_key === "string") {
           entityState.cacheKey = payload.cache_key;
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, "recognition_enabled")) {
+          entitiesEnabled = payload.recognition_enabled !== false;
+          form.dataset.entitiesEnabled = entitiesEnabled ? "true" : "false";
+          if (entitiesRefreshButton) {
+            entitiesRefreshButton.disabled = !entitiesEnabled;
+            entitiesRefreshButton.setAttribute("aria-disabled", entitiesEnabled ? "false" : "true");
+          }
         }
       }
       if (options.highlightId) {

@@ -1,4 +1,5 @@
 {% set embed_scripts = embed_scripts if embed_scripts is defined else True %}
+{% set recognition_enabled = settings.enable_entity_recognition if settings is defined and settings.enable_entity_recognition is not none else True %}
 <form method="post"
       action="{{ url_for('web.finalize_job', pending_id=pending.id) }}"
       class="prepare-form"
@@ -16,7 +17,8 @@
       data-language="{{ pending.language }}"
       data-base-voice="{{ pending.voice }}"
       data-speed="{{ '%.2f'|format(pending.speed) }}"
-      data-use-gpu="{{ 'true' if pending.use_gpu else 'false' }}">
+  data-use-gpu="{{ 'true' if pending.use_gpu else 'false' }}"
+  data-entities-enabled="{{ 'true' if recognition_enabled else 'false' }}">
   <input type="hidden" name="active_step" value="entities" data-role="active-step-input">
 
   <div class="modal__body wizard-card__body">
@@ -28,6 +30,11 @@
     {% endif %}
 
     <div class="entity-tabs" data-role="entity-tabs">
+      {% if not recognition_enabled %}
+      <div class="alert alert--info entity-tabs__notice">
+        Entity recognition is disabled in Settings. Enable it to populate detected people and entities automatically.
+      </div>
+      {% endif %}
       <div class="entity-tabs__nav" role="tablist" aria-label="Entity categories">
         <button type="button"
                 class="entity-tabs__tab is-active"
@@ -95,7 +102,7 @@
                         formaction="{{ url_for('web.analyze_pending_job', pending_id=pending.id) }}"
                         formmethod="post"
                         formnovalidate
-                        {% if not speaker_configs %}disabled{% endif %}>
+                        {% if not options.speaker_configs %}disabled{% endif %}>
                   Apply preset
                 </button>
                 <label class="toggle-pill">
@@ -340,7 +347,7 @@
                 <h2>Detected entities</h2>
                 <p class="hint">Assign pronunciations and voices for recurring names and terminology across the manuscript.</p>
               </div>
-              <button type="button" class="button button--ghost button--small" data-role="entities-refresh">Refresh</button>
+              <button type="button" class="button button--ghost button--small" data-role="entities-refresh" {% if not recognition_enabled %}disabled aria-disabled="true"{% endif %}>Refresh</button>
             </header>
             <dl class="entity-summary__stats" data-role="entity-stats"></dl>
             <ol class="entity-summary__list" data-role="entity-list"></ol>

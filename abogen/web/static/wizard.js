@@ -120,10 +120,18 @@ const updateStepIndicators = (modal, activeStep) => {
     const step = normalizeStep(indicator.dataset.step || "book");
     indicator.classList.remove("is-active", "is-complete");
     const index = STEP_ORDER.indexOf(step);
-    if (index < activeIndex) {
-      indicator.classList.add("is-complete");
-    } else if (index === activeIndex) {
-      indicator.classList.add("is-active");
+    const isComplete = index > -1 && index < activeIndex;
+    const isActive = index === activeIndex;
+    indicator.classList.toggle("is-complete", isComplete);
+    indicator.classList.toggle("is-active", isActive);
+    if (indicator instanceof HTMLButtonElement) {
+      indicator.disabled = !(isComplete);
+      indicator.setAttribute("aria-current", isActive ? "step" : "false");
+      if (isComplete) {
+        indicator.dataset.state = "clickable";
+      } else {
+        delete indicator.dataset.state;
+      }
     }
   });
 };
@@ -359,27 +367,42 @@ const handleCancel = async (button) => {
   dispatchWizardEvent(modal, "cancel", { pendingId });
 };
 
-const handleBackToStep = (button) => {
+const navigateToWizardStep = (targetStep, pendingOverride) => {
   const modal = ensureModalRef();
-  if (!modal) return;
-  const targetStep = normalizeStep(button.dataset.targetStep || "book");
-  if (targetStep === "book") {
-    return; // handled by prepare.js to reopen upload modal
+  if (!modal || wizardState.submitting) {
+    return;
   }
-  const pendingId = button.dataset.pendingId || modal.dataset.pendingId || "";
+  const normalizedTarget = normalizeStep(targetStep || "book");
+  const currentStep = modal.dataset.step ? normalizeStep(modal.dataset.step) : "book";
+  if (normalizedTarget === currentStep) {
+    return;
+  }
+  const pendingId = pendingOverride || modal.dataset.pendingId || "";
   const template = modal.dataset.prepareUrlTemplate || "";
   if (!pendingId || !template) {
     return;
   }
   const url = new URL(template.replace("__pending__", encodeURIComponent(pendingId)), window.location.origin);
-  url.searchParams.set("step", targetStep);
+  url.searchParams.set("step", normalizedTarget);
   url.searchParams.set("format", "json");
   requestWizardStep(url.toString(), { method: "GET" });
+};
+
+const handleBackToStep = (button) => {
+  const targetStep = normalizeStep(button.dataset.targetStep || "book");
+  navigateToWizardStep(targetStep, button.dataset.pendingId);
 };
 
 const handleWizardClick = (event) => {
   const modal = ensureModalRef();
   if (!modal) return;
+  const closeTarget = event.target.closest('[data-role="new-job-modal-close"]');
+  if (closeTarget) {
+    event.preventDefault();
+    event.stopPropagation();
+    handleCancel(closeTarget);
+    return;
+  }
   const cancelButton = event.target.closest('[data-role="wizard-cancel"]');
   if (cancelButton) {
     event.preventDefault();
@@ -390,10 +413,17 @@ const handleWizardClick = (event) => {
   const backButton = event.target.closest('[data-role="wizard-back"]');
   if (backButton) {
     const targetStep = normalizeStep(backButton.dataset.targetStep || "book");
-    if (targetStep !== "book") {
+    event.preventDefault();
+    event.stopPropagation();
+    handleBackToStep(backButton);
+    return;
+  }
+  const indicator = event.target.closest('[data-role="wizard-step-indicator"]');
+  if (indicator instanceof HTMLButtonElement) {
+    if (indicator.classList.contains("is-complete")) {
       event.preventDefault();
       event.stopPropagation();
-      handleBackToStep(backButton);
+      navigateToWizardStep(indicator.dataset.step || "book");
     }
   }
 };

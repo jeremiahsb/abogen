@@ -43,10 +43,14 @@
           {% for slug, label in navigation_labels.items() %}
             {% set item_index = step_number[slug] %}
             {% set state = 'is-active' if slug == current_step else ('is-complete' if item_index < current_index else '') %}
-            <span class="step-indicator__item {{ state }}" data-role="wizard-step-indicator" data-step="{{ slug }}">
+            <button type="button"
+                    class="step-indicator__item {{ state }}"
+                    data-role="wizard-step-indicator"
+                    data-step="{{ slug }}"
+                    aria-current="{{ 'step' if slug == current_step else 'false' }}">
               <span class="step-indicator__index">{{ item_index }}</span>
               <span class="step-indicator__label">{{ label }}</span>
-            </span>
+            </button>
           {% endfor %}
         </nav>
         <h2 class="modal__title" id="new-job-modal-title">{{ step_titles[current_step] }}</h2>

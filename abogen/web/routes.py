@@ -1107,6 +1107,13 @@ def _sync_pronunciation_overrides(pending: PendingJob) -> None:
 
 
 def _refresh_entity_summary(pending: PendingJob, chapters: Iterable[Mapping[str, Any]]) -> None:
+    settings = _load_settings()
+    if not bool(settings.get("enable_entity_recognition", True)):
+        pending.entity_summary = {}
+        pending.entity_cache_key = ""
+        pending.pronunciation_overrides = pending.pronunciation_overrides or []
+        return
+
     language = pending.language or "en"
     result = extract_entities(chapters, language=language)
     summary = dict(result.summary)
@@ -1289,12 +1296,15 @@ def _search_manual_override_candidates(pending: PendingJob, query: str, *, limit
 
 
 def _pending_entities_payload(pending: PendingJob) -> Dict[str, Any]:
+    settings = _load_settings()
+    recognition_enabled = bool(settings.get("enable_entity_recognition", True))
     return {
         "summary": pending.entity_summary or {},
         "manual_overrides": pending.manual_overrides or [],
         "pronunciation_overrides": pending.pronunciation_overrides or [],
         "cache_key": pending.entity_cache_key,
         "language": pending.language or "en",
+        "recognition_enabled": recognition_enabled,
     }
 
 
@@ -1681,6 +1691,7 @@ BOOLEAN_SETTINGS = {
     "merge_chapters_at_end",
     "save_as_project",
     "generate_epub3",
+    "enable_entity_recognition",
 }
 
 FLOAT_SETTINGS = {"silence_between_chapters", "chapter_intro_delay"}
@@ -1707,6 +1718,7 @@ def _settings_defaults() -> Dict[str, Any]:
         "chapter_intro_delay": 0.5,
         "max_subtitle_words": 50,
         "chunk_level": "paragraph",
+    "enable_entity_recognition": True,
         "generate_epub3": False,
         "speaker_analysis_threshold": _DEFAULT_ANALYSIS_THRESHOLD,
         "speaker_pronunciation_sentence": "This is {{name}} speaking.",

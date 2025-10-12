@@ -41,6 +41,13 @@
         <input type="text" id="speaker_pronunciation_sentence" name="speaker_pronunciation_sentence" value="{{ settings.speaker_pronunciation_sentence }}" placeholder="This is {{ '{{name}}' }} speaking.">
         <p class="hint">Include <code>{{ '{{name}}' }}</code> where the speaker name should be inserted.</p>
       </div>
+      <div class="field field--stack">
+        <label class="toggle-pill">
+          <input type="checkbox" name="enable_entity_recognition" value="true" {% if settings.enable_entity_recognition %}checked{% endif %}>
+          <span>Automatically detect entities for new jobs</span>
+        </label>
+        <p class="hint">Disable if you prefer to skip entity extraction in the job wizard.</p>
+      </div>
       <div class="field">
         <label for="speaker_random_languages">Randomizer Languages</label>
         {% set selected_languages = settings.speaker_random_languages or [] %}
