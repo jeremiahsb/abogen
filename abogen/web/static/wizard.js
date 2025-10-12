@@ -22,6 +22,8 @@ const wizardState = (window.AbogenWizardState = window.AbogenWizardState || {
   modal: null,
   stage: null,
   submitting: false,
+  initialStep: "book",
+  initialStageMarkup: "",
 });
 
 const normalizeStep = (step) => {
@@ -48,10 +50,12 @@ const setButtonLoading = (button, isLoading) => {
     }
     button.disabled = true;
     button.dataset.loading = "true";
+    button.setAttribute("aria-busy", "true");
   } else {
     if (button.dataset.loading) {
       delete button.dataset.loading;
     }
+    button.removeAttribute("aria-busy");
     const original = button.dataset.originalDisabled;
     if (original !== undefined) {
       button.disabled = original === "true";
@@ -67,10 +71,34 @@ const setSubmitting = (modal, isSubmitting, button) => {
   wizardState.submitting = isSubmitting;
   if (isSubmitting) {
     modal.dataset.submitting = "true";
+    modal.setAttribute("aria-busy", "true");
   } else {
     delete modal.dataset.submitting;
+    modal.removeAttribute("aria-busy");
   }
   setButtonLoading(button, isSubmitting);
+};
+
+const resetWizardToInitial = () => {
+  const modal = ensureModalRef();
+  if (!modal) return;
+  wizardState.submitting = false;
+  delete modal.dataset.submitting;
+  modal.removeAttribute("aria-busy");
+  modal.dataset.pendingId = "";
+  const step = normalizeStep(wizardState.initialStep || modal.dataset.step || "book");
+  modal.dataset.step = step;
+  updateHeaderCopy(modal, step);
+  updateFilenameLabel(modal, "");
+  const stage = modal.querySelector('[data-role="wizard-stage"]');
+  if (stage) {
+    wizardState.stage = stage;
+    destroyTransientAlerts(stage);
+    if (typeof wizardState.initialStageMarkup === "string" && wizardState.initialStageMarkup) {
+      stage.innerHTML = wizardState.initialStageMarkup;
+      reinitializeStageModules(stage);
+    }
+  }
 };
 
 const findModal = () => document.querySelector('[data-role="new-job-modal"]');
@@ -365,6 +393,7 @@ const handleCancel = async (button) => {
   delete modal.dataset.open;
   document.body.classList.remove("modal-open");
   dispatchWizardEvent(modal, "cancel", { pendingId });
+  resetWizardToInitial();
 };
 
 const navigateToWizardStep = (targetStep, pendingOverride) => {
@@ -455,6 +484,11 @@ const initWizard = () => {
   wizardState.initialized = true;
   wizardState.modal = modal;
   wizardState.stage = modal.querySelector('[data-role="wizard-stage"]');
+  const initialStep = normalizeStep(modal.dataset.step || "book");
+  if (!wizardState.initialStageMarkup && wizardState.stage) {
+    wizardState.initialStageMarkup = wizardState.stage.innerHTML;
+    wizardState.initialStep = initialStep;
+  }
   modal.addEventListener("submit", handleWizardSubmit, true);
   modal.addEventListener("click", handleWizardClick);
 };

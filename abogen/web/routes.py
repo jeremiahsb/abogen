@@ -2909,6 +2909,7 @@ def analyze_pending_job(pending_id: str) -> ResponseReturnValue:
     if selected_total:
         pending.total_characters = selected_total
 
+    _refresh_entity_summary(pending, enabled_overrides)
     _sync_pronunciation_overrides(pending)
 
     service.store_pending_job(pending)
@@ -3021,6 +3022,7 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
     if selected_total:
         pending.total_characters = selected_total
 
+    _refresh_entity_summary(pending, enabled_overrides)
     _sync_pronunciation_overrides(pending)
 
     requested_step = normalized_step

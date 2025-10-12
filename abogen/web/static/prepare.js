@@ -1097,6 +1097,11 @@ const initPrepare = (root = document) => {
     const manualOverrideAddCustomButton = manualOverridesRoot?.querySelector('[data-role="manual-override-add-custom"]');
     const manualOverridesEmpty = manualOverridesRoot?.querySelector('[data-role="manual-overrides-empty"]');
 
+    if (entitiesRefreshButton) {
+      entitiesRefreshButton.disabled = !entitiesEnabled;
+      entitiesRefreshButton.setAttribute("aria-disabled", entitiesEnabled ? "false" : "true");
+    }
+
     const cloneTemplate = (template) => {
       if (!template) return null;
       if (template.content && template.content.firstElementChild) {
