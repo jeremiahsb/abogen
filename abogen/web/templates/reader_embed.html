@@ -811,14 +811,39 @@
         return;
       }
 
+      setStatus('Fetching EPUB…');
+      book = window.ePub({
+        replacements: 'view',
+        requestCredentials: 'same-origin',
+      });
+
+      const preloadTimeout = setTimeout(() => {
+        setStatus('Still fetching EPUB… this may take a moment for large books.');
+      }, 4000);
+
+      try {
+        await book.open(epubUrl, 'epub');
+      } catch (error) {
+        console.error('Failed to fetch EPUB payload', error);
+        clearTimeout(preloadTimeout);
+        setStatus('Unable to fetch the EPUB asset for this job.');
+        return;
+      }
+
+      clearTimeout(preloadTimeout);
       setStatus('Loading book…');
-      book = window.ePub(epubUrl, { openAs: 'epub' });
+
       rendition = book.renderTo('reader-view', {
         flow: 'scrolled-doc',
         width: '100%',
         height: '100%',
         spread: 'none',
         allowScriptedContent: false,
+      });
+
+      book.on('book:loadFailed', (error) => {
+        console.error('EPUB engine reported a load failure', error);
+        setStatus('EPUB content could not be loaded.');
       });
 
       registerRenditionHooks();
