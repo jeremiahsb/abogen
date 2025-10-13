@@ -59,9 +59,14 @@
       {{ stats.with_pronunciation }} with pronunciations · {{ stats.with_voice }} with assigned voices
     </p>
   </header>
+  {% if status_message or status_error %}
+  <div class="notice {% if status_error %}notice--error{% else %}notice--success{% endif %}">
+    {{ status_error or status_message }}
+  </div>
+  {% endif %}
   {% if overrides %}
   <div class="table-wrapper">
-    <table class="data-table">
+    <table class="jobs-table overrides-table">
       <thead>
         <tr>
           <th scope="col">Token</th>
@@ -70,17 +75,69 @@
           <th scope="col">Notes</th>
           <th scope="col">Usage</th>
           <th scope="col">Last updated</th>
+          <th scope="col" class="overrides-table__actions-heading">Actions</th>
         </tr>
       </thead>
       <tbody>
         {% for override in overrides %}
+        {% set form_id = "override-form-" ~ loop.index %}
         <tr>
-          <td data-label="Token">{{ override.token }}</td>
-          <td data-label="Pronunciation">{{ override.pronunciation or "—" }}</td>
-          <td data-label="Voice">{{ override.voice or "—" }}</td>
-          <td data-label="Notes">{{ override.notes or "" }}</td>
+          <td data-label="Token"><span class="overrides-table__token">{{ override.token }}</span></td>
+          <td data-label="Pronunciation">
+            <input
+              class="overrides-table__input"
+              type="text"
+              name="pronunciation"
+              form="{{ form_id }}"
+              value="{{ override.pronunciation or '' }}"
+              placeholder="Add pronunciation"
+            >
+          </td>
+          <td data-label="Voice">
+            <select
+              class="overrides-table__select"
+              name="voice"
+              form="{{ form_id }}"
+            >
+              <option value="" {% if not override.voice %}selected{% endif %}>No override</option>
+              {% for voice in options.voice_catalog %}
+              <option value="{{ voice.id }}" {% if override.voice == voice.id %}selected{% endif %}>
+                {{ voice.display_name }} - {{ voice.language_label }} - {{ voice.gender }}
+              </option>
+              {% endfor %}
+            </select>
+          </td>
+          <td data-label="Notes">
+            <input
+              class="overrides-table__input"
+              type="text"
+              name="notes"
+              form="{{ form_id }}"
+              value="{{ override.notes or '' }}"
+              placeholder="Add notes"
+            >
+          </td>
           <td data-label="Usage">{{ override.usage_count }}</td>
           <td data-label="Last updated">{{ override.updated_at_label }}</td>
+          <td data-label="Actions">
+            <form
+              id="{{ form_id }}"
+              class="overrides-table__form"
+              method="post"
+              action="{{ url_for('web.entities_override_update') }}"
+            >
+              <input type="hidden" name="lang" value="{{ language }}">
+              <input type="hidden" name="token" value="{{ override.token }}">
+              <input type="hidden" name="state_voice" value="{{ voice_filter }}">
+              <input type="hidden" name="state_pronunciation" value="{{ pronunciation_filter }}">
+              <input type="hidden" name="state_limit" value="{{ limit }}">
+              <input type="hidden" name="state_query" value="{{ query }}">
+              <div class="overrides-table__actions">
+                <button type="submit" class="button button--small" name="action" value="save">Save</button>
+                <button type="submit" class="button button--ghost button--small button--danger" name="action" value="delete">Delete</button>
+              </div>
+            </form>
+          </td>
         </tr>
         {% endfor %}
       </tbody>

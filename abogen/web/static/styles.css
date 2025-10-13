@@ -25,6 +25,27 @@ body {
   flex-direction: column;
 }
 
+.notice {
+  margin: 0 0 1.5rem;
+  padding: 0.9rem 1.1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(56, 189, 248, 0.32);
+  background: rgba(14, 165, 233, 0.18);
+  color: var(--text);
+  font-size: 0.95rem;
+  box-shadow: 0 12px 30px rgba(8, 15, 32, 0.22);
+}
+
+.notice--success {
+  border-color: rgba(52, 211, 153, 0.42);
+  background: rgba(34, 197, 94, 0.18);
+}
+
+.notice--error {
+  border-color: rgba(248, 113, 113, 0.48);
+  background: rgba(248, 113, 113, 0.18);
+}
+
 .top-bar {
   backdrop-filter: blur(20px);
   background: linear-gradient(90deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.7));
@@ -1192,6 +1213,50 @@ button.step-indicator__item:focus-visible {
 
 .jobs-table tbody tr:hover {
   background: rgba(56, 189, 248, 0.08);
+}
+
+.overrides-table__token {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.overrides-table__input,
+.overrides-table__select {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.45);
+  color: var(--text);
+  padding: 0.6rem 0.75rem;
+  font-size: 0.95rem;
+  transition: border 0.2s ease, box-shadow 0.2s ease;
+}
+
+.overrides-table__input:focus,
+.overrides-table__select:focus {
+  outline: none;
+  border-color: rgba(56, 189, 248, 0.55);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18);
+}
+
+.overrides-table__select {
+  appearance: none;
+}
+
+.overrides-table__actions-heading {
+  text-align: right;
+}
+
+.overrides-table__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.overrides-table__form {
+  margin: 0;
 }
 
 .progress-bar {

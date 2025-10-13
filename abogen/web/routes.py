@@ -2151,6 +2151,10 @@ def entities_page() -> ResponseReturnValue:
     raw_language = (request.args.get("lang") or settings.get("language") or "a").strip().lower()
     language = raw_language if raw_language in languages_map else "a"
 
+    status_code = (request.args.get("status") or "").strip().lower()
+    status_token = (request.args.get("token") or "").strip()
+    status_error = (request.args.get("error") or "").strip()
+
     query = (request.args.get("q") or "").strip()
     voice_filter = (request.args.get("voice") or "all").strip().lower()
     pronunciation_filter = (request.args.get("pronunciation") or "all").strip().lower()
@@ -2207,6 +2211,12 @@ def entities_page() -> ResponseReturnValue:
         {"value": "without-pronunciation", "label": "No pronunciation"},
     ]
 
+    status_message = ""
+    if status_code == "saved":
+        status_message = f"Updated override for {status_token or 'override'}."
+    elif status_code == "deleted":
+        status_message = f"Deleted override for {status_token or 'override'}."
+
     context = {
         "options": options,
         "language": language,
@@ -2220,8 +2230,67 @@ def entities_page() -> ResponseReturnValue:
         "limit": limit_value,
         "overrides": display_rows,
         "stats": stats,
+        "status_message": status_message,
+        "status_error": status_error,
     }
     return render_template("entities.html", **context)
+
+
+@web_bp.post("/entities/override")
+def entities_override_update() -> ResponseReturnValue:
+    options = _template_options()
+    languages_map = options.get("languages", {})
+
+    raw_language = (request.form.get("lang") or "").strip().lower()
+    language = raw_language if raw_language in languages_map else "a"
+
+    token_value = (request.form.get("token") or "").strip()
+    action = (request.form.get("action") or "save").strip().lower()
+    pronunciation_value = (request.form.get("pronunciation") or "").strip()
+    voice_value = (request.form.get("voice") or "").strip()
+    notes_value = (request.form.get("notes") or "").strip()
+
+    redirect_params: Dict[str, Any] = {"lang": language}
+    state_mappings = (
+        ("state_voice", "voice"),
+        ("state_pronunciation", "pronunciation"),
+        ("state_limit", "limit"),
+        ("state_query", "q"),
+    )
+    for form_key, query_key in state_mappings:
+        value = (request.form.get(form_key) or "").strip()
+        if value:
+            redirect_params[query_key] = value
+
+    if not token_value:
+        redirect_params["status"] = "error"
+        redirect_params["error"] = "Missing override token."
+        return redirect(url_for("web.entities_page", **redirect_params))
+
+    status_code = "saved"
+    try:
+        if action == "delete":
+            delete_pronunciation_override(language=language, token=token_value)
+            status_code = "deleted"
+        else:
+            save_pronunciation_override(
+                language=language,
+                token=token_value,
+                pronunciation=pronunciation_value or None,
+                voice=voice_value or None,
+                notes=notes_value or None,
+                context=None,
+            )
+            status_code = "saved"
+    except Exception as exc:  # pragma: no cover - defensive logging
+        current_app.logger.exception("Failed to %s override for token %s", action, token_value)
+        redirect_params["status"] = "error"
+        redirect_params["error"] = "Failed to update override."
+        return redirect(url_for("web.entities_page", **redirect_params))
+
+    redirect_params["status"] = status_code
+    redirect_params["token"] = token_value
+    return redirect(url_for("web.entities_page", **redirect_params))
 
 
 @web_bp.route("/speakers", methods=["GET", "POST"])
