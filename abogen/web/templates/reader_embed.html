@@ -779,12 +779,26 @@
         const fragment = typeof options.fragment === 'string' ? options.fragment : '';
         const baseHref = target.href.split('#')[0];
         const displayHref = fragment ? `${baseHref}#${fragment}` : target.href;
+        const canonicalCandidate = typeof book.canonical === 'function' ? book.canonical(displayHref) : displayHref;
+        const isBlobCanonical = typeof canonicalCandidate === 'string' && canonicalCandidate.startsWith('blob:');
+        const canonicalHref = isBlobCanonical ? null : canonicalCandidate;
+        const targetHref = canonicalHref || displayHref;
+        const syncHref = canonicalHref ? canonicalHref.split('#')[0] : baseHref;
+        console.info('[reader] Displaying chapter', {
+          requestedIndex: normalizedIndex,
+          href: target.href,
+          displayHref,
+          canonicalHref,
+          targetHref,
+          syncHref,
+        });
         suppressRelocate = true;
-        await rendition.display(displayHref);
+        await rendition.display(targetHref);
         suppressRelocate = false;
         currentChapterIndex = normalizedIndex;
         updateControls();
-        await loadChapterSync(target.href);
+        const syncTarget = syncHref || target.normalizedHref || target.href;
+        await loadChapterSync(syncTarget);
         const shouldScroll = options.scroll ?? Boolean(audioEl && !audioEl.paused);
         if (fragment) {
           highlightChunk(fragment, { scroll: true });
@@ -991,8 +1005,24 @@
       }
 
       if (!chapters.length && navigation && Array.isArray(navigation.toc)) {
-        chapters = dedupeChapters(normalizeChapterList(flattenToc(navigation.toc)));
-      } else {
+        chapters = normalizeChapterList(flattenToc(navigation.toc));
+      }
+
+      chapters = dedupeChapters(chapters);
+
+      if (typeof book.canonical === 'function') {
+        chapters = chapters.map((chapter) => {
+          const canonicalCandidate = book.canonical(chapter.href) || chapter.href;
+          const canonicalNormalized = normalizeHref(canonicalCandidate);
+          const looksBlob = typeof canonicalCandidate === 'string' && canonicalCandidate.startsWith('blob:');
+          const effectiveHref = looksBlob ? chapter.href : canonicalCandidate;
+          const effectiveNormalized = !looksBlob && canonicalNormalized ? canonicalNormalized : (chapter.normalizedHref || normalizeHref(chapter.href));
+          return {
+            ...chapter,
+            href: effectiveHref,
+            normalizedHref: effectiveNormalized,
+          };
+        });
         chapters = dedupeChapters(chapters);
       }
 
@@ -1017,7 +1047,7 @@
         if (index >= 0 && index !== currentChapterIndex) {
           currentChapterIndex = index;
           updateControls();
-          loadChapterSync(chapters[index].href).then(() => {
+          loadChapterSync(chapters[index].normalizedHref || chapters[index].href).then(() => {
             if (audioEl && !audioEl.paused) {
               syncToTime(audioEl.currentTime || 0, { force: true, scroll: false });
             }
