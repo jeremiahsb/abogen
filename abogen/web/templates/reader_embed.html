@@ -302,7 +302,8 @@
         error.status = response.status;
         throw error;
       }
-      return response.arrayBuffer();
+      const buffer = await response.arrayBuffer();
+      return buffer;
     };
 
     const buildAssetUrl = (path) => {
@@ -838,6 +839,10 @@
 
       try {
         epubPayload = await fetchEpubAsset(epubUrl);
+        console.info('[reader] EPUB fetched', {
+          byteLength: epubPayload instanceof ArrayBuffer ? epubPayload.byteLength : null,
+          type: epubPayload ? epubPayload.constructor?.name : null,
+        });
       } catch (error) {
         clearTimeout(fetchTimeout);
         console.error('Failed to fetch EPUB payload', error);
@@ -853,6 +858,28 @@
 
       clearTimeout(fetchTimeout);
 
+      if (!epubPayload || !(epubPayload instanceof ArrayBuffer) || epubPayload.byteLength === 0) {
+        console.error('Fetched EPUB payload is empty or invalid', {
+          type: typeof epubPayload,
+          byteLength: epubPayload && typeof epubPayload === 'object' && 'byteLength' in epubPayload ? epubPayload.byteLength : null,
+        });
+        setStatus('The EPUB package retrieved from the server was empty.');
+        return;
+      }
+
+      let epubBlob = null;
+      try {
+        epubBlob = new Blob([epubPayload], { type: 'application/epub+zip' });
+        console.info('[reader] Created EPUB blob', {
+          size: epubBlob.size,
+          type: epubBlob.type,
+        });
+      } catch (error) {
+        console.error('Failed to construct Blob from EPUB payload', error);
+        setStatus('The EPUB data could not be prepared for viewing.');
+        return;
+      }
+
       book = window.ePub({
         replacements: 'view',
         requestCredentials: 'same-origin',
@@ -860,12 +887,41 @@
 
       setStatus('Loading book…');
 
+      let openError = null;
       try {
-        await book.open(epubPayload, 'binary');
+        console.info('[reader] Opening book from blob');
+        await book.open(epubBlob);
+        console.info('[reader] Book open resolved via blob');
       } catch (error) {
-        console.error('Book failed to open binary payload', error);
-        setStatus('Unable to open this EPUB.');
-        return;
+        openError = error;
+        console.warn('Primary EPUB open attempt failed, will retry via object URL', error);
+      }
+
+      if (openError) {
+        let objectUrl = null;
+        try {
+          objectUrl = URL.createObjectURL(epubBlob);
+          console.info('[reader] Opening book from object URL');
+          await book.open(objectUrl, 'epub');
+          console.info('[reader] Book open resolved via object URL');
+        } catch (fallbackError) {
+          console.error('Fallback EPUB open attempt failed', fallbackError);
+          if (objectUrl) {
+            URL.revokeObjectURL(objectUrl);
+          }
+          const errorMessage = fallbackError && fallbackError.message ? fallbackError.message : openError && openError.message;
+          if (errorMessage) {
+            setStatus(`Unable to open this EPUB. (${errorMessage})`);
+          } else {
+            setStatus('Unable to open this EPUB.');
+          }
+          return;
+        } finally {
+          if (objectUrl) {
+            // Delay revocation slightly so the renderer can finish fetching.
+            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+          }
+        }
       }
 
       rendition = book.renderTo('reader-view', {
@@ -885,9 +941,14 @@
 
       try {
         await book.ready;
+        console.info('[reader] Book ready resolved');
       } catch (error) {
         console.error('Book failed to initialize', error);
-        setStatus('Unable to open this EPUB.');
+        if (error && error.message) {
+          setStatus(`Unable to open this EPUB. (${error.message})`);
+        } else {
+          setStatus('Unable to open this EPUB.');
+        }
         return;
       }
 
