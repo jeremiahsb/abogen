@@ -1168,6 +1168,36 @@ const initPrepare = (root = document) => {
     const manualOverrideSearchButton = manualOverridesRoot?.querySelector('[data-role="manual-override-search"]');
     const manualOverrideAddCustomButton = manualOverridesRoot?.querySelector('[data-role="manual-override-add-custom"]');
     const manualOverridesEmpty = manualOverridesRoot?.querySelector('[data-role="manual-overrides-empty"]');
+    const manualOverrideSaveButton = manualOverridesRoot?.querySelector('[data-role="manual-override-save-all"]');
+    const manualOverrideStatusNode = manualOverridesRoot?.querySelector('[data-role="manual-override-status"]');
+    let manualOverrideStatusTimer = null;
+    let manualOverrideStatusNonce = 0;
+
+    const setManualOverrideStatus = (message, state = "") => {
+      if (!manualOverrideStatusNode) return;
+      manualOverrideStatusNonce += 1;
+      const nonce = manualOverrideStatusNonce;
+      if (manualOverrideStatusTimer) {
+        window.clearTimeout(manualOverrideStatusTimer);
+        manualOverrideStatusTimer = null;
+      }
+      manualOverrideStatusNode.textContent = message || "";
+      if (state) {
+        manualOverrideStatusNode.dataset.state = state;
+      } else {
+        manualOverrideStatusNode.removeAttribute("data-state");
+      }
+      if (state === "success" && message) {
+        manualOverrideStatusTimer = window.setTimeout(() => {
+          if (manualOverrideStatusNonce !== nonce) {
+            return;
+          }
+          manualOverrideStatusNode.textContent = "";
+          manualOverrideStatusNode.removeAttribute("data-state");
+          manualOverrideStatusTimer = null;
+        }, 4000);
+      }
+    };
 
     if (entitiesRefreshButton) {
       entitiesRefreshButton.disabled = !entitiesEnabled;
@@ -1932,6 +1962,7 @@ const initPrepare = (root = document) => {
     markOverrideDirty = (overrideId) => {
       if (!overrideId) return;
       dirtyOverrideIds.add(overrideId);
+      setManualOverrideStatus("Unsaved changes", "pending");
     };
 
     flushManualOverrides = (options = {}) => {
@@ -1939,6 +1970,7 @@ const initPrepare = (root = document) => {
       const pendingIds = Array.isArray(overrideId) ? overrideId : overrideId ? [overrideId] : Array.from(dirtyOverrideIds);
       const targetIds = pendingIds.filter((id) => dirtyOverrideIds.has(id));
       if (!targetIds.length) return null;
+      setManualOverrideStatus("Saving overrides…", "pending");
       targetIds.forEach((id) => dirtyOverrideIds.delete(id));
       const runFlush = async () => {
         if (overrideFlushPromise) {
@@ -1949,15 +1981,23 @@ const initPrepare = (root = document) => {
           }
         }
         const results = await Promise.all(targetIds.map((id) => saveManualOverride(id)));
+        let hasFailure = false;
         results.forEach((ok, index) => {
           if (!ok) {
+            hasFailure = true;
             dirtyOverrideIds.add(targetIds[index]);
           }
         });
+        if (hasFailure) {
+          setManualOverrideStatus("Some overrides failed to save.", "error");
+        } else {
+          setManualOverrideStatus("Overrides saved.", "success");
+        }
       };
       overrideFlushPromise = runFlush()
         .catch((error) => {
           console.error("Failed flushing manual overrides", error);
+          setManualOverrideStatus("Failed to save overrides.", "error");
         })
         .finally(() => {
           overrideFlushPromise = null;
@@ -2060,9 +2100,9 @@ const initPrepare = (root = document) => {
     }
 
     async function createOverrideFromData(data) {
-      if (!data || !manualUpsertUrl) return;
+      if (!data || !manualUpsertUrl) return false;
       const token = (data.token || "").trim();
-      if (!token) return;
+      if (!token) return false;
       const normalized = (data.normalized || "").trim();
       const voiceChoice = resolveOverrideVoice({ ...data, token, normalized });
       const payload = {
@@ -2095,8 +2135,10 @@ const initPrepare = (root = document) => {
             manualOverrideResultsList.innerHTML = "";
           }
         }
+        return true;
       } catch (error) {
         console.error("Failed to create manual override", error);
+        return false;
       }
     }
 
@@ -2114,7 +2156,103 @@ const initPrepare = (root = document) => {
       });
     }
 
-    const handleEntityListClick = (event) => {
+    const extractInlineOverrideState = (inlineOverride, row) => {
+      if (!inlineOverride || inlineOverride.hidden) {
+        return null;
+      }
+      const container = row || inlineOverride.closest('[data-role="entity-row"]');
+      if (!container) {
+        return null;
+      }
+      const tokenLabel = inlineOverride.dataset.pendingToken || container.querySelector('[data-role="entity-label"]')?.textContent || "";
+      if (!tokenLabel) {
+        return null;
+      }
+      const normalized = (inlineOverride.dataset.pendingNormalized || container.dataset.normalized || tokenLabel || "").trim();
+      const context = (inlineOverride.dataset.pendingContext || "").trim();
+      const pronInput = inlineOverride.querySelector('[data-role="manual-override-pronunciation"]');
+      const voiceSelect = inlineOverride.querySelector('[data-role="manual-override-voice"]');
+      const pronunciationRaw = pronInput?.value ?? "";
+      const pronunciation = pronunciationRaw.trim();
+      const voiceRaw = voiceSelect?.value ?? "";
+      const voice = voiceRaw;
+      const previewVoice = voice || baseVoice || "";
+      const previewText = pronunciation || tokenLabel;
+      return {
+        token: tokenLabel,
+        normalized,
+        context,
+        pronunciation,
+        voice,
+        previewVoice,
+        previewText,
+        category: inlineOverride.dataset.pendingCategory || container.dataset.entityCategory || "",
+        kind: inlineOverride.dataset.pendingKind || container.dataset.entityKind || "",
+      };
+    };
+
+    const syncInlinePreviewUI = (row, inlineOverride, state, targetButton) => {
+      if (!state) {
+        return;
+      }
+      const previewText = state.previewText || state.token;
+      const previewVoice = state.previewVoice || baseVoice || "";
+      const applyDatasets = (button) => {
+        if (!button) return;
+        button.dataset.previewText = previewText;
+        button.dataset.voice = previewVoice;
+        button.dataset.language = languageCode;
+        button.dataset.speed = defaultSpeed;
+        button.dataset.useGpu = useGpuDefault;
+        if (!button.dataset.previewSource || button.dataset.previewSource === "entity") {
+          button.dataset.previewSource = "manual";
+        }
+      };
+
+      if (targetButton) {
+        applyDatasets(targetButton);
+        return;
+      }
+
+      if (inlineOverride) {
+        applyDatasets(inlineOverride.querySelector('[data-role="speaker-preview"]'));
+      }
+      if (row) {
+        applyDatasets(row.querySelector('[data-entity-preview="true"]'));
+      }
+    };
+
+    const persistInlineOverrideState = (state) => {
+      if (!state) {
+        return null;
+      }
+      highlightMode = "inline";
+      setManualOverrideStatus("Saving overrides…", "pending");
+      return createOverrideFromData({
+        token: state.token,
+        normalized: state.normalized,
+        context: state.context,
+        pronunciation: state.pronunciation,
+        voice: state.voice,
+        category: state.category,
+        kind: state.kind,
+        source: "entity-inline",
+      })
+        .then((ok) => {
+          if (ok) {
+            setManualOverrideStatus("Overrides saved.", "success");
+          } else {
+            setManualOverrideStatus("Failed to save overrides.", "error");
+          }
+          return ok;
+        })
+        .catch((error) => {
+          setManualOverrideStatus("Failed to save overrides.", "error");
+          throw error;
+        });
+    };
+
+  const handleEntityListClick = (event) => {
         const addTrigger = event.target.closest('[data-role="entity-add-override"]');
         if (addTrigger) {
           event.preventDefault();
@@ -2160,13 +2298,8 @@ const initPrepare = (root = document) => {
           inlineOverride.dataset.pendingCategory = addTrigger.dataset.entityCategory || row.dataset.entityCategory || "";
           inlineOverride.dataset.pendingKind = addTrigger.dataset.entityKind || row.dataset.entityKind || "";
 
-          if (previewButton) {
-            previewButton.dataset.previewText = pronInput?.value || token;
-            previewButton.dataset.voice = voiceSelect?.value || baseVoice || "";
-            previewButton.dataset.language = languageCode;
-            previewButton.dataset.speed = defaultSpeed;
-            previewButton.dataset.useGpu = useGpuDefault;
-          }
+          const inlineState = extractInlineOverrideState(inlineOverride, row);
+          syncInlinePreviewUI(row, inlineOverride, inlineState, previewButton);
 
           highlightMode = "inline";
           highlightedOverrideId = row.dataset.overrideId || "";
@@ -2182,22 +2315,9 @@ const initPrepare = (root = document) => {
           if (!inlineOverride || !row) {
             return;
           }
-          const pronInput = inlineOverride.querySelector('[data-role="manual-override-pronunciation"]');
-          const voiceSelect = inlineOverride.querySelector('[data-role="manual-override-voice"]');
-          const token = inlineOverride.dataset.pendingToken || row.querySelector('[data-role="entity-label"]')?.textContent || "";
-          const normalized = inlineOverride.dataset.pendingNormalized || row.dataset.normalized || token;
-          const context = inlineOverride.dataset.pendingContext || "";
-          highlightMode = "inline";
-          createOverrideFromData({
-            token,
-            normalized,
-            context,
-            pronunciation: pronInput?.value || "",
-            voice: voiceSelect?.value || "",
-            category: inlineOverride.dataset.pendingCategory || row.dataset.entityCategory || "",
-            kind: inlineOverride.dataset.pendingKind || row.dataset.entityKind || "",
-            source: "entity-inline",
-          });
+          const inlineState = extractInlineOverrideState(inlineOverride, row);
+          syncInlinePreviewUI(row, inlineOverride, inlineState);
+          void persistInlineOverrideState(inlineState);
           return;
         }
 
@@ -2351,6 +2471,15 @@ const initPrepare = (root = document) => {
 
   form.addEventListener("click", (event) => {
     const previewFromOverride = event.target.closest('[data-role="speaker-preview"]');
+    if (previewFromOverride) {
+      const entityRow = previewFromOverride.closest('[data-role="entity-row"]');
+      const inlineOverride = entityRow?.querySelector('[data-role="inline-override"]');
+      if (inlineOverride && !inlineOverride.hidden) {
+        const inlineState = extractInlineOverrideState(inlineOverride, entityRow);
+        syncInlinePreviewUI(entityRow, inlineOverride, inlineState, previewFromOverride);
+        void persistInlineOverrideState(inlineState);
+      }
+    }
     if (previewFromOverride?.dataset.overrideId) {
       void flushManualOverrides({ overrideId: previewFromOverride.dataset.overrideId });
     }
@@ -2437,6 +2566,32 @@ const initPrepare = (root = document) => {
     select.value = chip.dataset.voice || "";
     select.dispatchEvent(new Event("change", { bubbles: true }));
     select.dataset.prevManual = select.value || "";
+  });
+
+  form.addEventListener("input", (event) => {
+    const inlineOverride = event.target.closest('[data-role="inline-override"]');
+    if (!inlineOverride || inlineOverride.hidden) {
+      return;
+    }
+    const entityRow = inlineOverride.closest('[data-role="entity-row"]');
+    const inlineState = extractInlineOverrideState(inlineOverride, entityRow);
+    syncInlinePreviewUI(entityRow, inlineOverride, inlineState);
+    if (inlineState) {
+      setManualOverrideStatus("Unsaved changes", "pending");
+    }
+  });
+
+  form.addEventListener("change", (event) => {
+    const inlineOverride = event.target.closest('[data-role="inline-override"]');
+    if (!inlineOverride || inlineOverride.hidden) {
+      return;
+    }
+    const entityRow = inlineOverride.closest('[data-role="entity-row"]');
+    const inlineState = extractInlineOverrideState(inlineOverride, entityRow);
+    syncInlinePreviewUI(entityRow, inlineOverride, inlineState);
+    if (inlineState) {
+      setManualOverrideStatus("Unsaved changes", "pending");
+    }
   });
 
   document.addEventListener("click", (event) => {

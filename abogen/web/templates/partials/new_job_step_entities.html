@@ -21,6 +21,33 @@
   data-entities-enabled="{{ 'true' if recognition_enabled else 'false' }}">
   <input type="hidden" name="active_step" value="entities" data-role="active-step-input">
 
+  <div class="wizard-hidden-inputs" aria-hidden="true">
+    <input type="hidden" name="chunk_level" value="{{ pending.chunk_level }}">
+    <input type="hidden" name="speaker_analysis_threshold" value="{{ pending.speaker_analysis_threshold }}">
+    <input type="hidden" name="chapter_intro_delay" value="{{ '%.2f'|format(pending.chapter_intro_delay) }}">
+    {% if pending.generate_epub3 %}
+      <input type="hidden" name="generate_epub3" value="true">
+    {% endif %}
+    {% for chapter in pending.chapters %}
+      {% set idx = loop.index0 %}
+      {% set is_enabled = chapter.enabled is not defined or chapter.enabled %}
+      {% set selected_option = '__default' %}
+      {% if chapter.voice_profile %}
+        {% set selected_option = 'profile:' ~ chapter.voice_profile %}
+      {% elif chapter.voice %}
+        {% set selected_option = 'voice:' ~ chapter.voice %}
+      {% elif chapter.voice_formula %}
+        {% set selected_option = 'formula' %}
+      {% endif %}
+      {% if is_enabled %}
+        <input type="hidden" name="chapter-{{ idx }}-enabled" value="on">
+      {% endif %}
+      <input type="hidden" name="chapter-{{ idx }}-title" value="{{ chapter.title }}">
+      <input type="hidden" name="chapter-{{ idx }}-voice" value="{{ selected_option }}">
+      <input type="hidden" name="chapter-{{ idx }}-formula" value="{{ chapter.voice_formula or '' }}">
+    {% endfor %}
+  </div>
+
   <div class="modal__body wizard-card__body">
     {% if error %}
       <div class="alert alert--error">{{ error }}</div>
@@ -444,8 +471,14 @@
                  hidden>
           <div class="manual-overrides" data-role="manual-overrides">
             <header class="manual-overrides__header">
-              <h2>Manual overrides</h2>
-              <p class="hint">Search tokens from the book or add custom entries. Set pronunciations and assign voices to ensure previews and conversions use your preferred delivery.</p>
+              <div class="manual-overrides__copy">
+                <h2>Manual overrides</h2>
+                <p class="hint">Search tokens from the book or add custom entries. Set pronunciations and assign voices to ensure previews and conversions use your preferred delivery.</p>
+              </div>
+              <div class="manual-overrides__header-actions">
+                <span class="manual-overrides__status" data-role="manual-override-status" aria-live="polite"></span>
+                <button type="button" class="button button--ghost button--small" data-role="manual-override-save-all">Save overrides</button>
+              </div>
             </header>
             <div class="manual-overrides__search">
               <label class="field" for="manual-override-query">
