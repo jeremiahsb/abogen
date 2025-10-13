@@ -12,7 +12,7 @@ from collections import defaultdict
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Set, cast
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Set, cast
 
 import numpy as np
 import soundfile as sf
@@ -21,6 +21,7 @@ import static_ffmpeg
 from abogen.constants import VOICES_INTERNAL
 from abogen.epub3.exporter import build_epub3_package
 from abogen.kokoro_text_normalization import ApostropheConfig, normalize_for_pipeline
+from abogen.entity_analysis import normalize_token as normalize_entity_token
 from abogen.text_extractor import ExtractedChapter, extract_from_path
 from abogen.utils import (
     calculate_text_length,
@@ -399,6 +400,76 @@ def _normalize_for_pipeline(text: str) -> str:
     return normalize_for_pipeline(text, config=_APOSTROPHE_CONFIG)
 
 
+def _compile_pronunciation_rules(
+    overrides: Optional[Iterable[Mapping[str, Any]]],
+) -> List[tuple[re.Pattern[str], str]]:
+    if not overrides:
+        return []
+
+    candidates: List[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    for entry in overrides:
+        if not isinstance(entry, Mapping):
+            continue
+        pronunciation_value = str(entry.get("pronunciation") or "").strip()
+        if not pronunciation_value:
+            continue
+
+        token_values: List[str] = []
+        token_raw = entry.get("token")
+        if token_raw:
+            token_value = str(token_raw).strip()
+            if token_value:
+                token_values.append(token_value)
+        normalized_raw = entry.get("normalized")
+        if normalized_raw:
+            normalized_value = str(normalized_raw).strip()
+            if normalized_value:
+                token_values.append(normalized_value)
+        if token_raw and not token_values:
+            fallback = normalize_entity_token(str(token_raw))
+            if fallback:
+                token_values.append(fallback)
+
+        if not token_values:
+            continue
+
+        for token_value in token_values:
+            key = token_value.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append((token_value, pronunciation_value))
+
+    if not candidates:
+        return []
+
+    candidates.sort(key=lambda item: len(item[0]), reverse=True)
+    compiled: List[tuple[re.Pattern[str], str]] = []
+    for token_value, pronunciation_value in candidates:
+        escaped = re.escape(token_value)
+        pattern = re.compile(rf"(?i)(?<!\w){escaped}(?P<possessive>'s|\u2019s|\u2019)?(?!\w)")
+        compiled.append((pattern, pronunciation_value))
+
+    return compiled
+
+
+def _apply_pronunciation_rules(text: str, rules: List[tuple[re.Pattern[str], str]]) -> str:
+    if not text or not rules:
+        return text
+
+    result = text
+    for pattern, pronunciation_value in rules:
+        def _replacement(match: re.Match[str]) -> str:
+            suffix = match.group("possessive") or ""
+            return pronunciation_value + suffix
+
+        result = pattern.sub(_replacement, result)
+
+    return result
+
+
 def _chapter_voice_spec(job: Job, override: Optional[Dict[str, Any]]) -> str:
     if not override:
         return _job_voice_fallback(job)
@@ -727,6 +798,13 @@ def run_conversion_job(job: Job) -> None:
         _initialize_voice_cache(job)
         extraction = extract_from_path(job.stored_path)
         file_type = _infer_file_type(job.stored_path)
+        pronunciation_rules = _compile_pronunciation_rules(job.pronunciation_overrides)
+        if pronunciation_rules:
+            count = len(pronunciation_rules)
+            job.add_log(
+                f"Applying {count} pronunciation override{'s' if count != 1 else ''} during conversion.",
+                level="debug",
+            )
 
         if not job.chapters:
             filtered, skipped_info = _auto_select_relevant_chapters(extraction.chapters, file_type)
@@ -841,7 +919,10 @@ def run_conversion_job(job: Job) -> None:
             split_pattern: Optional[str] = SPLIT_PATTERN,
         ) -> int:
             nonlocal processed_chars, subtitle_index, current_time
-            normalized = _normalize_for_pipeline(text)
+            source_text = str(text or "")
+            if pronunciation_rules:
+                source_text = _apply_pronunciation_rules(source_text, pronunciation_rules)
+            normalized = _normalize_for_pipeline(source_text)
             local_segments = 0
 
             for segment in pipeline(
