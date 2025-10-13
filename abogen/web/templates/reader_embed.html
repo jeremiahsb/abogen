@@ -212,6 +212,13 @@
       }
     };
 
+    const removeLeadingSlash = (value) => {
+      if (typeof value !== 'string') {
+        return value;
+      }
+      return value.replace(/^[\/]+/, '');
+    };
+
     const normalizeHref = (value) => {
       if (!value) {
         return '';
@@ -223,9 +230,10 @@
         return '';
       }
       try {
-        return decodeURIComponent(cleanPart);
+        const decoded = decodeURIComponent(cleanPart);
+        return removeLeadingSlash(decoded);
       } catch (error) {
-        return cleanPart;
+        return removeLeadingSlash(cleanPart);
       }
     };
 
@@ -426,6 +434,18 @@
     document.title = `${baseTitle} · Reader`;
 
     let chapters = dedupeChapters(normalizeChapterList(Array.isArray(payload.chapters) ? payload.chapters : []));
+    chapters = chapters.map((chapter, idx) => {
+      const cleanedHref = removeLeadingSlash(chapter.href);
+      const normalized = chapter.normalizedHref ? removeLeadingSlash(chapter.normalizedHref) : normalizeHref(cleanedHref);
+      return {
+        ...chapter,
+        href: cleanedHref,
+        normalizedHref: normalized,
+        title: chapter.title || `Chapter ${idx + 1}`,
+      };
+    });
+    chapters = dedupeChapters(chapters);
+    console.info('[reader] Chapters payload normalized', chapters.map((chapter) => chapter.href));
     let book = null;
     let rendition = null;
     let currentSync = [];
@@ -781,9 +801,9 @@
         const displayHref = fragment ? `${baseHref}#${fragment}` : target.href;
         const canonicalCandidate = typeof book.canonical === 'function' ? book.canonical(displayHref) : displayHref;
         const isBlobCanonical = typeof canonicalCandidate === 'string' && canonicalCandidate.startsWith('blob:');
-        const canonicalHref = isBlobCanonical ? null : canonicalCandidate;
-        const targetHref = canonicalHref || displayHref;
-        const syncHref = canonicalHref ? canonicalHref.split('#')[0] : baseHref;
+        const canonicalHref = isBlobCanonical ? null : removeLeadingSlash(canonicalCandidate);
+        const targetHref = removeLeadingSlash(canonicalHref || displayHref);
+        const syncHref = removeLeadingSlash((canonicalHref || baseHref).split('#')[0]);
         console.info('[reader] Displaying chapter', {
           requestedIndex: normalizedIndex,
           href: target.href,
@@ -797,7 +817,7 @@
         suppressRelocate = false;
         currentChapterIndex = normalizedIndex;
         updateControls();
-        const syncTarget = syncHref || target.normalizedHref || target.href;
+        const syncTarget = syncHref || target.normalizedHref || removeLeadingSlash(target.href);
         await loadChapterSync(syncTarget);
         const shouldScroll = options.scroll ?? Boolean(audioEl && !audioEl.paused);
         if (fragment) {
@@ -1015,8 +1035,9 @@
           const canonicalCandidate = book.canonical(chapter.href) || chapter.href;
           const canonicalNormalized = normalizeHref(canonicalCandidate);
           const looksBlob = typeof canonicalCandidate === 'string' && canonicalCandidate.startsWith('blob:');
-          const effectiveHref = looksBlob ? chapter.href : canonicalCandidate;
-          const effectiveNormalized = !looksBlob && canonicalNormalized ? canonicalNormalized : (chapter.normalizedHref || normalizeHref(chapter.href));
+          const effectiveHref = removeLeadingSlash(looksBlob ? chapter.href : canonicalCandidate);
+          const fallbackNormalized = chapter.normalizedHref || normalizeHref(chapter.href);
+          const effectiveNormalized = !looksBlob && canonicalNormalized ? canonicalNormalized : fallbackNormalized;
           return {
             ...chapter,
             href: effectiveHref,
@@ -1047,7 +1068,8 @@
         if (index >= 0 && index !== currentChapterIndex) {
           currentChapterIndex = index;
           updateControls();
-          loadChapterSync(chapters[index].normalizedHref || chapters[index].href).then(() => {
+          const relocateTarget = chapters[index].normalizedHref || removeLeadingSlash(chapters[index].href);
+          loadChapterSync(relocateTarget).then(() => {
             if (audioEl && !audioEl.paused) {
               syncToTime(audioEl.currentTime || 0, { force: true, scroll: false });
             }
