@@ -151,6 +151,14 @@ def _normalize_epub_path(base_dir: str, href: str) -> str:
     if sanitized.startswith("/"):
         sanitized = sanitized[1:]
         base_dir = ""
+    normalized_base = base_dir.strip("/")
+    sanitized_lower = sanitized.lower()
+    if normalized_base:
+        base_lower = normalized_base.lower()
+        if sanitized_lower.startswith(base_lower + "/"):
+            base_dir = ""
+        elif sanitized_lower == base_lower:
+            base_dir = ""
     base = base_dir.strip("/")
     combined = posixpath.join(base, sanitized) if base else sanitized
     normalized = posixpath.normpath(combined)
