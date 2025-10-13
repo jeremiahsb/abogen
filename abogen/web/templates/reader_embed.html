@@ -216,7 +216,21 @@
       if (typeof value !== 'string') {
         return value;
       }
-      return value.replace(/^[\/]+/, '');
+      const normalized = value.replace(/\\/g, '/').replace(/^[\/]+/, '');
+      if (!normalized) {
+        return '';
+      }
+      const segments = normalized.split('/').filter((segment) => segment && segment !== '.');
+      if (!segments.length) {
+        return '';
+      }
+      const deduped = [];
+      segments.forEach((segment) => {
+        if (!deduped.length || deduped[deduped.length - 1].toLowerCase() !== segment.toLowerCase()) {
+          deduped.push(segment);
+        }
+      });
+      return deduped.join('/');
     };
 
     const normalizeHref = (value) => {
