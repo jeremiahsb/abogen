@@ -287,6 +287,24 @@
       return null;
     };
 
+    const fetchEpubAsset = async (url) => {
+      if (!url) {
+        throw new Error('Missing EPUB URL');
+      }
+      const response = await fetch(url, {
+        credentials: 'same-origin',
+        headers: {
+          Accept: 'application/epub+zip,application/octet-stream;q=0.8,*/*;q=0.5',
+        },
+      });
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
+      return response.arrayBuffer();
+    };
+
     const buildAssetUrl = (path) => {
       if (!path) {
         return '';
@@ -812,26 +830,43 @@
       }
 
       setStatus('Fetching EPUB…');
+      let epubPayload = null;
+
+      const fetchTimeout = setTimeout(() => {
+        setStatus('Still fetching EPUB… this may take a moment for large books.');
+      }, 4000);
+
+      try {
+        epubPayload = await fetchEpubAsset(epubUrl);
+      } catch (error) {
+        clearTimeout(fetchTimeout);
+        console.error('Failed to fetch EPUB payload', error);
+        if (error?.status === 404) {
+          setStatus('The EPUB package could not be found for this job.');
+        } else if (error?.status === 403) {
+          setStatus('Access to the EPUB package was denied. Check your session.');
+        } else {
+          setStatus('Unable to fetch the EPUB asset for this job.');
+        }
+        return;
+      }
+
+      clearTimeout(fetchTimeout);
+
       book = window.ePub({
         replacements: 'view',
         requestCredentials: 'same-origin',
       });
 
-      const preloadTimeout = setTimeout(() => {
-        setStatus('Still fetching EPUB… this may take a moment for large books.');
-      }, 4000);
+      setStatus('Loading book…');
 
       try {
-        await book.open(epubUrl, 'epub');
+        await book.open(epubPayload, 'binary');
       } catch (error) {
-        console.error('Failed to fetch EPUB payload', error);
-        clearTimeout(preloadTimeout);
-        setStatus('Unable to fetch the EPUB asset for this job.');
+        console.error('Book failed to open binary payload', error);
+        setStatus('Unable to open this EPUB.');
         return;
       }
-
-      clearTimeout(preloadTimeout);
-      setStatus('Loading book…');
 
       rendition = book.renderTo('reader-view', {
         flow: 'scrolled-doc',
@@ -847,6 +882,14 @@
       });
 
       registerRenditionHooks();
+
+      try {
+        await book.ready;
+      } catch (error) {
+        console.error('Book failed to initialize', error);
+        setStatus('Unable to open this EPUB.');
+        return;
+      }
 
       let navigation = null;
       try {
@@ -867,14 +910,6 @@
 
       if (!chapters.length) {
         setStatus('No readable chapters found in this EPUB.');
-        return;
-      }
-
-      try {
-        await book.ready;
-      } catch (error) {
-        console.error('Book failed to initialize', error);
-        setStatus('Unable to open this EPUB.');
         return;
       }
 
