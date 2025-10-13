@@ -1264,15 +1264,70 @@ const initPrepare = (root = document) => {
 
     const buildOverrideLookup = () => {
       const map = new Map();
-      const overrides = Array.isArray(entityState.manualOverrides) ? entityState.manualOverrides : [];
-      overrides.forEach((entry) => {
+      const register = (entry, origin) => {
         if (!entry || typeof entry !== "object") return;
-        const key = canonicalizeEntityKey(entry.normalized || entry.token || "");
-        if (key) {
-          map.set(key, entry);
-        }
-      });
+        const normalizedToken = entry.normalized || entry.token || "";
+        const canonical = canonicalizeEntityKey(normalizedToken);
+        const tokenLabel = entry.token || entry.normalized || "";
+        const pronunciation = entry.pronunciation || "";
+        if (!canonical || !tokenLabel) return;
+        map.set(canonical, {
+          ...entry,
+          origin,
+          token: tokenLabel,
+          normalized: normalizedToken,
+          pronunciation,
+        });
+      };
+
+      const pronunciationOverrides = Array.isArray(entityState.pronunciationOverrides)
+        ? entityState.pronunciationOverrides
+        : [];
+      pronunciationOverrides.forEach((entry) => register(entry, entry?.source || "history"));
+
+      const manualOverrides = Array.isArray(entityState.manualOverrides) ? entityState.manualOverrides : [];
+      manualOverrides.forEach((entry) => register(entry, "manual"));
+
       return map;
+    };
+
+    const buildPossessivePreviewSamples = (pronText, tokenLabel) => {
+      const samples = new Set();
+      const base = (pronText || "").trim();
+      const fallback = (tokenLabel || "").trim();
+      if (base) {
+        samples.add(base);
+      } else if (fallback) {
+        samples.add(fallback);
+      }
+      const reference = (fallback || base).trim();
+      if (!reference) {
+        return Array.from(samples);
+      }
+      const root = (base || reference).trim();
+      if (!root) {
+        return Array.from(samples);
+      }
+      const lowerReference = reference.toLowerCase();
+      const lowerRoot = root.toLowerCase();
+      const endsWithApostrophe = lowerRoot.endsWith("'") || lowerRoot.endsWith("’");
+      const endsWithApostropheS = lowerRoot.endsWith("'s") || lowerRoot.endsWith("’s");
+      if (!endsWithApostropheS) {
+        const possessive = `${root}'s`;
+        const altPossessive = `${root}’s`;
+        samples.add(possessive);
+        samples.add(altPossessive);
+      }
+      if ((lowerReference.endsWith("s") || lowerRoot.endsWith("s")) && !endsWithApostrophe) {
+        samples.add(`${root}'`);
+        samples.add(`${root}’`);
+      }
+      return Array.from(samples);
+    };
+
+    const joinPossessivePreviewSamples = (pronText, tokenLabel) => {
+      const variants = buildPossessivePreviewSamples(pronText, tokenLabel);
+      return variants.join("\n").trim();
     };
 
     const setEntitiesLoading = (isLoading) => {
@@ -1555,12 +1610,11 @@ const initPrepare = (root = document) => {
             }
           }
 
+          const normalizedKey = canonicalizeEntityKey(normalized || tokenLabel);
+          const overrideMeta = normalizedKey ? overrideLookup.get(normalizedKey) : null;
+
           const overrideButton = item.querySelector('[data-role="entity-add-override"]');
           if (overrideButton) {
-            const hasOverride = entityState.manualOverrides.some((entry) => {
-              const candidate = entry?.normalized || entry?.token || "";
-              return candidate && candidate.toLowerCase() === normalized.toLowerCase();
-            });
             overrideButton.dataset.entityToken = entity.label || entity.token || "";
             overrideButton.dataset.entityNormalized = normalized;
             overrideButton.dataset.entityCategory = options.groupKey;
@@ -1576,22 +1630,39 @@ const initPrepare = (root = document) => {
             if (entity.kind) {
               overrideButton.dataset.entityKind = entity.kind;
             }
-            overrideButton.textContent = hasOverride ? "Edit manual override" : "Add manual override";
-            if (hasOverride) {
+            overrideButton.textContent = overrideMeta
+              ? overrideMeta.origin === "manual"
+                ? "Edit manual override"
+                : "Edit pronunciation override"
+              : "Add manual override";
+            if (overrideMeta) {
               item.dataset.hasOverride = "true";
+            } else {
+              delete item.dataset.hasOverride;
             }
           }
 
           const inlineOverride = item.querySelector('[data-role="inline-override"]');
           if (inlineOverride) {
-            const override = overrideLookup.get(normalized.toLowerCase());
+            const override = overrideMeta;
             if (override) {
               inlineOverride.hidden = false;
               item.dataset.hasOverride = "true";
               item.dataset.overrideId = override.id || override.normalized || override.token || "";
+              if (override.origin) {
+                item.dataset.overrideSource = override.origin;
+              } else {
+                delete item.dataset.overrideSource;
+              }
+              inlineOverride.dataset.pendingToken = override.token || tokenLabel;
+              inlineOverride.dataset.pendingNormalized = override.normalized || normalized;
+              inlineOverride.dataset.pendingContext = override.context || inlineOverride.dataset.pendingContext || "";
+              inlineOverride.dataset.pendingCategory = options.groupKey;
+              inlineOverride.dataset.pendingKind = entity.kind || "";
               const pronInput = inlineOverride.querySelector('[data-role="manual-override-pronunciation"]');
               if (pronInput) {
                 pronInput.value = override.pronunciation || "";
+                pronInput.placeholder = override.token || tokenLabel;
               }
               const voiceSelect = inlineOverride.querySelector('[data-role="manual-override-voice"]');
               if (voiceSelect) {
@@ -1599,7 +1670,8 @@ const initPrepare = (root = document) => {
               }
               const previewButton = inlineOverride.querySelector('[data-role="speaker-preview"]');
               if (previewButton) {
-                previewButton.dataset.previewText = override.pronunciation || override.token || tokenLabel;
+                const previewValue = joinPossessivePreviewSamples(override.pronunciation, override.token || tokenLabel);
+                previewButton.dataset.previewText = previewValue || override.token || tokenLabel;
                 previewButton.dataset.voice = override.voice || override.voice_profile || baseVoice || "";
                 previewButton.dataset.language = languageCode;
                 previewButton.dataset.speed = defaultSpeed;
@@ -1618,12 +1690,13 @@ const initPrepare = (root = document) => {
             } else {
               inlineOverride.hidden = true;
               delete item.dataset.overrideId;
+              delete item.dataset.overrideSource;
             }
           }
 
           const previewButton = item.querySelector('[data-entity-preview="true"]');
           if (previewButton) {
-            const previewVoice = overrideLookup.get(normalized.toLowerCase())?.voice || baseVoice || "";
+            const previewVoice = overrideMeta?.voice || baseVoice || "";
             const previewText = Array.isArray(entity.samples) && entity.samples.length
               ? typeof entity.samples[0] === "string"
                 ? entity.samples[0]
@@ -1761,9 +1834,9 @@ const initPrepare = (root = document) => {
         const previewButton = node.querySelector('[data-role="speaker-preview"]');
         if (previewButton) {
           const previewVoice = override.voice || voiceSelect?.value || baseVoice || "";
-          const previewText = override.pronunciation || override.token || "";
+          const previewText = joinPossessivePreviewSamples(override.pronunciation, override.token || override.normalized || "");
           previewButton.dataset.overrideId = overrideId;
-          previewButton.dataset.previewText = previewText;
+          previewButton.dataset.previewText = previewText || override.pronunciation || override.token || "";
           previewButton.dataset.voice = previewVoice;
           previewButton.dataset.language = languageCode;
           previewButton.dataset.speed = defaultSpeed;
@@ -2199,7 +2272,8 @@ const initPrepare = (root = document) => {
       const previewVoice = state.previewVoice || baseVoice || "";
       const applyDatasets = (button) => {
         if (!button) return;
-        button.dataset.previewText = previewText;
+        const previewValue = joinPossessivePreviewSamples(previewText, state.token);
+        button.dataset.previewText = previewValue || previewText || state.token || "";
         button.dataset.voice = previewVoice;
         button.dataset.language = languageCode;
         button.dataset.speed = defaultSpeed;
@@ -2396,7 +2470,9 @@ const initPrepare = (root = document) => {
         const container = input.closest(".manual-override");
         const previewButton = container?.querySelector('[data-role="speaker-preview"]');
         if (previewButton) {
-          previewButton.dataset.previewText = input.value.trim() || input.placeholder || "";
+          const fallback = container?.dataset.token || input.placeholder || "";
+          const previewValue = joinPossessivePreviewSamples(input.value.trim(), fallback);
+          previewButton.dataset.previewText = previewValue || input.value.trim() || fallback;
         }
         if (overrideId) {
           markOverrideDirty(overrideId);
