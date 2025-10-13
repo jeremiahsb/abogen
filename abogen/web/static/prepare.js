@@ -1855,8 +1855,14 @@ const initPrepare = (root = document) => {
     };
 
     const resolveOverrideVoice = (data) => {
-      if (data.voice) {
-        return data.voice;
+      const hasVoiceProp = Boolean(data && Object.prototype.hasOwnProperty.call(data, "voice"));
+      const voiceValueRaw = typeof data?.voice === "string" ? data.voice : "";
+      const voiceValue = voiceValueRaw.trim();
+      if (voiceValue) {
+        return voiceValue;
+      }
+      if (hasVoiceProp) {
+        return "";
       }
       const normalizedKey = canonicalizeEntityKey(data.normalized || data.token || "");
       let genderHint = (data.gender || "").toLowerCase();
@@ -1877,6 +1883,9 @@ const initPrepare = (root = document) => {
         } else {
           genderHint = "";
         }
+      }
+      if (baseVoice) {
+        return "";
       }
       return pickRandomVoiceForOverride(genderHint);
     };

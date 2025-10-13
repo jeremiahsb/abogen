@@ -44,7 +44,7 @@ from abogen.constants import (
     SUPPORTED_SOUND_FORMATS,
     VOICES_INTERNAL,
 )
-from abogen.kokoro_text_normalization import normalize_roman_numeral_titles
+from abogen.kokoro_text_normalization import normalize_for_pipeline, normalize_roman_numeral_titles
 from abogen.utils import (
     calculate_text_length,
     get_user_output_path,
@@ -2488,6 +2488,11 @@ def api_preview_voice_mix() -> ResponseReturnValue:
     if voice_choice is None:
         abort(400, "Unable to resolve voice selection")
 
+    try:
+        text = normalize_for_pipeline(text)
+    except Exception:
+        current_app.logger.exception("Voice preview normalization failed; using raw text")
+
     segments = pipeline(
         text,
         voice=voice_choice,
@@ -2583,6 +2588,11 @@ def api_speaker_preview() -> ResponseReturnValue:
             voice_choice = get_new_voice(pipeline, voice_spec, use_gpu)
         except ValueError as exc:
             abort(400, str(exc))
+
+    try:
+        text = normalize_for_pipeline(text)
+    except Exception:
+        current_app.logger.exception("Preview normalization failed; using raw text")
 
     segments = pipeline(
         text,

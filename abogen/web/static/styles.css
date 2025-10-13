@@ -1625,6 +1625,9 @@ button.step-indicator__item:focus-visible {
   border: 1px solid rgba(148, 163, 184, 0.2);
   box-shadow: 0 18px 38px rgba(15, 23, 42, 0.35);
   backdrop-filter: blur(4px);
+  position: sticky;
+  top: max(env(safe-area-inset-top), 0.5rem);
+  z-index: 25;
 }
 
 .entity-tabs__tab {
