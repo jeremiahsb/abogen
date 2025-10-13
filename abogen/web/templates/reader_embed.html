@@ -73,7 +73,7 @@
       font-weight: 500;
       font-size: 0.95rem;
       cursor: pointer;
-      transition: background 0.2s ease, border-color 0.2s ease;
+      transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
     }
 
     .reader-toolbar button:hover,
@@ -81,6 +81,11 @@
       background: rgba(56, 189, 248, 0.2);
       border-color: rgba(56, 189, 248, 0.4);
       outline: none;
+    }
+
+    .reader-toolbar button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
     }
 
     .reader-toolbar select {
@@ -108,41 +113,21 @@
       border: 1px solid var(--border);
       overflow: hidden;
       display: flex;
+      position: relative;
     }
 
-    #reader {
+    #reader-view {
       flex: 1 1 auto;
-      padding: 1.5rem;
-      overflow-y: auto;
-      overflow-x: hidden;
-      line-height: 1.6;
-      font-size: 1.05rem;
-      scroll-behavior: smooth;
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      outline: none;
     }
 
-    #reader:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 4px;
-    }
-
-    #reader .chunk {
-      margin-bottom: 1.25rem;
-      white-space: pre-wrap;
-      word-wrap: break-word;
-    }
-
-    #reader .chunk[data-level="sentence"] {
-      margin-bottom: 0.6rem;
-    }
-
-    #reader .chunk[data-level="sentence"] + #reader .chunk[data-level="sentence"] {
-      margin-top: -0.2rem;
-    }
-
-    #reader p,
-    #reader li,
-    #reader blockquote {
-      max-width: 60ch;
+    #reader-view iframe {
+      width: 100%;
+      height: 100%;
+      border: 0;
     }
 
     .reader-footer {
@@ -163,11 +148,17 @@
       font-size: 0.85rem;
       color: rgba(226, 232, 240, 0.75);
     }
+
+    .chunk--active {
+      background: rgba(56, 189, 248, 0.35);
+      box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.5);
+      border-radius: 6px;
+    }
   </style>
 </head>
 <body
-  data-chapter-url="{{ chapter_url }}"
   data-asset-base="{{ asset_base }}"
+  data-epub-url="{{ epub_url }}"
 >
   <div class="reader-shell" data-role="reader-shell">
     <div class="reader-toolbar">
@@ -177,47 +168,42 @@
       <button type="button" data-action="next">Next</button>
     </div>
     <div id="reader-container">
-  <div id="reader" tabindex="0"></div>
+      <div id="reader-view" class="reader-view" tabindex="0" aria-label="Book reader"></div>
     </div>
     <div class="reader-footer">
       {% if audio_url %}
       <audio controls preload="metadata" src="{{ audio_url }}"></audio>
       {% endif %}
-      <div class="reader-status" data-role="reader-status">Loading EPUB…</div>
+      <div class="reader-status" data-role="reader-status" aria-live="polite">Loading EPUB…</div>
     </div>
   </div>
   <script type="application/json" id="reader-data">{{ {'chapters': chapters, 'title': job.original_filename}|tojson }}</script>
+  <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
   <script type="module">
-  const statusEl = document.querySelector('[data-role="reader-status"]');
-  const prevBtn = document.querySelector('[data-action="prev"]');
-  const nextBtn = document.querySelector('[data-action="next"]');
-  const titleEl = document.querySelector('[data-role="reader-title"]');
-  const readerEl = document.getElementById('reader');
-  const chapterSelect = document.querySelector('[data-role="reader-chapter"]');
-  const rawData = document.getElementById('reader-data');
-  const chapterUrl = document.body.dataset.chapterUrl || '';
-  const assetBase = document.body.dataset.assetBase || '';
+    const statusEl = document.querySelector('[data-role="reader-status"]');
+    const prevBtn = document.querySelector('[data-action="prev"]');
+    const nextBtn = document.querySelector('[data-action="next"]');
+    const chapterSelect = document.querySelector('[data-role="reader-chapter"]');
+    const titleEl = document.querySelector('[data-role="reader-title"]');
+    const audioEl = document.querySelector('audio');
+    const bodyDataset = document.body.dataset;
+    const assetBase = bodyDataset.assetBase || '';
+    const epubUrl = bodyDataset.epubUrl || '';
 
-    let data = { chapters: [] };
-    try {
-      data = JSON.parse(rawData?.textContent || '{}');
-    } catch (error) {
-      data = { chapters: [] };
+    const reduceMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let preferSmoothScroll = !reduceMotionQuery.matches;
+    if (typeof reduceMotionQuery.addEventListener === 'function') {
+      reduceMotionQuery.addEventListener('change', (event) => {
+        preferSmoothScroll = !event.matches;
+      });
+    } else if (typeof reduceMotionQuery.addListener === 'function') {
+      reduceMotionQuery.addListener((event) => {
+        preferSmoothScroll = !event.matches;
+      });
     }
 
-  const chapters = Array.isArray(data.chapters) ? data.chapters : [];
-  const baseTitle = typeof data.title === 'string' && data.title ? data.title : 'Book';
-  let currentIndex = 0;
-    const parser = new DOMParser();
-    const activeStyleNodes = [];
-
-    const escapeFragment = (value) => {
-      if (!value) return '';
-      if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
-        return CSS.escape(value);
-      }
-      return value.replace(/[^a-zA-Z0-9_-]/g, '\\$&');
-    };
+    const ACTIVE_CLASS = 'chunk--active';
+    const syncCache = new Map();
 
     const setStatus = (message) => {
       if (statusEl) {
@@ -225,227 +211,728 @@
       }
     };
 
-    const resolveAsset = (value) => {
-      if (!value) return value;
-      const trimmed = value.trim();
-      if (/^(?:[a-z]+:)?\/\//i.test(trimmed) || trimmed.startsWith('data:')) {
-        return trimmed;
+    const normalizeHref = (value) => {
+      if (!value) {
+        return '';
       }
-      const base = window.location.origin + assetBase;
+      const raw = String(value);
+      const pathPart = raw.split('#', 1)[0];
+      const cleanPart = pathPart.split('?', 1)[0];
+      if (!cleanPart) {
+        return '';
+      }
       try {
-        const url = new URL(trimmed, base);
-        return url.pathname + url.search + url.hash;
+        return decodeURIComponent(cleanPart);
       } catch (error) {
-        const normalized = trimmed.replace(/^\.\//, '').replace(/^\/+/, '');
+        return cleanPart;
+      }
+    };
+
+    const formatClock = (value) => {
+      if (!Number.isFinite(value) || value < 0) {
+        return '--:--';
+      }
+      const totalSeconds = Math.floor(value);
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      if (hours > 0) {
+        return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+      }
+      return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    };
+
+    const parseSmilTime = (value) => {
+      if (!value) {
+        return null;
+      }
+      const raw = String(value).trim();
+      if (!raw) {
+        return null;
+      }
+      if (/^\d+(?:\.\d+)?$/.test(raw)) {
+        return Number.parseFloat(raw);
+      }
+      let match = raw.match(/^(\d+):(\d{2}):(\d{2}(?:\.\d+)?)$/);
+      if (match) {
+        const hours = Number.parseInt(match[1], 10);
+        const minutes = Number.parseInt(match[2], 10);
+        const seconds = Number.parseFloat(match[3]);
+        return hours * 3600 + minutes * 60 + seconds;
+      }
+      match = raw.match(/^(\d+):(\d{2}(?:\.\d+)?)$/);
+      if (match) {
+        const minutes = Number.parseInt(match[1], 10);
+        const seconds = Number.parseFloat(match[2]);
+        return minutes * 60 + seconds;
+      }
+      match = raw.match(/^([\d.]+)\s*(h|hours?|hr|m|min|minutes?|s|sec|seconds?|ms|millisecond|milliseconds)$/i);
+      if (match) {
+        const valueNum = Number.parseFloat(match[1]);
+        const unit = match[2].toLowerCase();
+        if (Number.isNaN(valueNum)) {
+          return null;
+        }
+        if (unit.startsWith('h')) {
+          return valueNum * 3600;
+        }
+        if (unit.startsWith('m') && unit !== 'ms' && unit !== 'millisecond' && unit !== 'milliseconds') {
+          return valueNum * 60;
+        }
+        if (unit === 'ms' || unit === 'millisecond' || unit === 'milliseconds') {
+          return valueNum / 1000;
+        }
+        return valueNum;
+      }
+      return null;
+    };
+
+    const buildAssetUrl = (path) => {
+      if (!path) {
+        return '';
+      }
+      const trimmed = String(path).replace(/^\.\//, '');
+      const base = `${window.location.origin}${assetBase}`;
+      try {
+        const root = base.endsWith('/') ? base : `${base}/`;
+        const url = new URL(trimmed, root);
+        return url.toString();
+      } catch (error) {
+        const normalized = trimmed.replace(/^\/+/, '');
         return `${assetBase}${normalized}`;
       }
     };
 
-    const rewriteAssets = (root) => {
-      root.querySelectorAll('script').forEach((node) => node.remove());
-      root.querySelectorAll('[src]').forEach((node) => {
-        const resolved = resolveAsset(node.getAttribute('src'));
-        if (resolved) {
-          node.setAttribute('src', resolved);
-        }
-      });
-      root.querySelectorAll('link[href]').forEach((node) => {
-        const resolved = resolveAsset(node.getAttribute('href'));
-        if (resolved) {
-          node.setAttribute('href', resolved);
-        }
-      });
-    };
-
-    const applyStyles = (root) => {
-      while (activeStyleNodes.length) {
-        const node = activeStyleNodes.pop();
-        node?.remove();
-      }
-
-      root.querySelectorAll('style').forEach((styleNode) => {
-        const clone = styleNode.cloneNode(true);
-        document.head.append(clone);
-        activeStyleNodes.push(clone);
-        styleNode.remove();
-      });
-
-      root.querySelectorAll('link[rel="stylesheet"]').forEach((linkNode) => {
-        const href = linkNode.getAttribute('href');
-        if (!href) {
-          linkNode.remove();
+    const flattenToc = (entries) => {
+      const output = [];
+      const walk = (items) => {
+        if (!Array.isArray(items)) {
           return;
         }
-        const clone = document.createElement('link');
-        clone.rel = 'stylesheet';
-        clone.href = href;
-        document.head.append(clone);
-        activeStyleNodes.push(clone);
-        linkNode.remove();
+        items.forEach((item) => {
+          if (!item) {
+            return;
+          }
+          output.push(item);
+          if (item.subitems) {
+            walk(item.subitems);
+          }
+          if (item.children) {
+            walk(item.children);
+          }
+          if (item.subnav) {
+            walk(item.subnav);
+          }
+        });
+      };
+      walk(entries);
+      return output;
+    };
+
+    const normalizeChapterList = (items) => {
+      const normalized = [];
+      if (!Array.isArray(items)) {
+        return normalized;
+      }
+      items.forEach((entry) => {
+        if (!entry) {
+          return;
+        }
+        const hrefValue = entry.href || entry.src || '';
+        const href = typeof hrefValue === 'string' ? hrefValue.trim() : '';
+        if (!href) {
+          return;
+        }
+        const labelSource = entry.title ?? entry.label ?? entry.name ?? entry.text ?? '';
+        const title = typeof labelSource === 'string' && labelSource.trim() ? labelSource.trim() : `Chapter ${normalized.length + 1}`;
+        normalized.push({
+          href,
+          normalizedHref: normalizeHref(href),
+          title,
+        });
       });
+      return normalized;
+    };
+
+    const dedupeChapters = (items) => {
+      const seen = new Set();
+      const output = [];
+      items.forEach((item) => {
+        if (!item || !item.normalizedHref) {
+          return;
+        }
+        if (seen.has(item.normalizedHref)) {
+          return;
+        }
+        seen.add(item.normalizedHref);
+        output.push(item);
+      });
+      return output;
+    };
+
+    const rawDataNode = document.getElementById('reader-data');
+    let payload = {};
+    try {
+      payload = JSON.parse(rawDataNode?.textContent || '{}');
+    } catch (error) {
+      payload = {};
+    }
+
+    const baseTitle = typeof payload.title === 'string' && payload.title ? payload.title : 'Book';
+    document.title = `${baseTitle} · Reader`;
+
+    let chapters = dedupeChapters(normalizeChapterList(Array.isArray(payload.chapters) ? payload.chapters : []));
+    let book = null;
+    let rendition = null;
+    let currentSync = [];
+    let activeOverlay = null;
+    let currentChapterIndex = 0;
+    let navigationLock = false;
+    let suppressRelocate = false;
+    let scheduledSync = 0;
+
+    const updateStatus = () => {
+      if (!statusEl) {
+        return;
+      }
+      const parts = [];
+      if (chapters.length) {
+        const position = Math.min(currentChapterIndex + 1, chapters.length);
+        parts.push(`Chapter ${position} of ${chapters.length}`);
+      } else {
+        parts.push('No chapters loaded');
+      }
+      if (audioEl) {
+        const currentTime = formatClock(audioEl.currentTime || 0);
+        const hasDuration = Number.isFinite(audioEl.duration);
+        if (hasDuration) {
+          parts.push(`Audio ${currentTime} / ${formatClock(audioEl.duration)}`);
+        } else {
+          parts.push(`Audio ${currentTime}`);
+        }
+        if (currentSync.length) {
+          if (activeOverlay) {
+            parts.push(`Chunk ${activeOverlay.index + 1}/${currentSync.length}`);
+          } else {
+            parts.push('Sync ready');
+          }
+        } else {
+          parts.push('Sync unavailable');
+        }
+      }
+      statusEl.textContent = parts.join(' • ');
     };
 
     const updateControls = () => {
       const hasChapters = chapters.length > 0;
       if (prevBtn) {
-        prevBtn.disabled = !hasChapters || currentIndex <= 0;
+        prevBtn.disabled = !hasChapters || currentChapterIndex <= 0;
       }
       if (nextBtn) {
-        nextBtn.disabled = !hasChapters || currentIndex >= chapters.length - 1;
+        nextBtn.disabled = !hasChapters || currentChapterIndex >= chapters.length - 1;
       }
-      if (chapterSelect && hasChapters) {
-        chapterSelect.value = String(currentIndex);
+      if (chapterSelect) {
+        if (hasChapters) {
+          chapterSelect.disabled = false;
+          chapterSelect.value = String(currentChapterIndex);
+        } else {
+          chapterSelect.disabled = true;
+          chapterSelect.value = '';
+        }
       }
       if (titleEl) {
-        const current = chapters[currentIndex];
-        titleEl.textContent = current?.title ? `${current.title} · ${baseTitle}` : baseTitle;
+        const chapter = chapters[currentChapterIndex];
+        titleEl.textContent = chapter?.title ? `${chapter.title} · ${baseTitle}` : baseTitle;
       }
     };
 
-    const renderChapter = async (index, fragmentId = '') => {
-      if (!chapters[index]) {
-        setStatus('No chapter available.');
+    const highlightChunk = (chunkId, { scroll = false } = {}) => {
+      if (!rendition) {
         return;
       }
-      setStatus('Loading chapter…');
-      currentIndex = index;
-      updateControls();
-      try {
-        const target = new URL(chapterUrl, window.location.origin);
-        target.searchParams.set('href', chapters[index].href);
-        const response = await fetch(target.toString(), { credentials: 'same-origin' });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+      const contents = rendition.getContents();
+      contents.forEach((content) => {
+        const doc = content.document;
+        if (!doc) {
+          return;
         }
-        const payload = await response.json();
-        const content = payload?.content || '';
-        const doc = parser.parseFromString(content, 'text/html');
-        rewriteAssets(doc);
-        applyStyles(doc);
-        const fragment = document.createDocumentFragment();
-        const body = doc.body || doc.documentElement;
-        body.childNodes.forEach((node) => {
-          fragment.append(node.cloneNode(true));
+        doc.querySelectorAll(`.${ACTIVE_CLASS}`).forEach((node) => {
+          node.classList.remove(ACTIVE_CLASS);
         });
-        readerEl?.replaceChildren(fragment);
-        if (readerEl) {
-          readerEl.scrollTop = 0;
-          if (fragmentId) {
-            const target = readerEl.querySelector(`#${escapeFragment(fragmentId)}`);
-            if (target instanceof HTMLElement) {
-              target.scrollIntoView({ block: 'start', behavior: 'auto' });
+        if (!chunkId) {
+          return;
+        }
+        const target = doc.getElementById(chunkId);
+        if (!target) {
+          return;
+        }
+        target.classList.add(ACTIVE_CLASS);
+        if (scroll) {
+          try {
+            const hostWindow = content.window;
+            const rect = target.getBoundingClientRect();
+            const viewportHeight = hostWindow?.innerHeight || doc.documentElement.clientHeight || 0;
+            if (rect.top < 48 || rect.bottom > viewportHeight - 48) {
+              target.scrollIntoView({
+                block: 'center',
+                behavior: preferSmoothScroll ? 'smooth' : 'auto',
+              });
             }
+          } catch (error) {
+            // ignore scrolling errors from detached iframes
           }
         }
-        setStatus(`Chapter ${index + 1} of ${chapters.length}`);
-        updateControls();
-      } catch (error) {
-        console.error('Failed to load chapter', error);
-        setStatus('Unable to load this chapter. Try another one.');
-      }
+      });
     };
 
-    const initChapters = () => {
-      chapterSelect?.replaceChildren();
-      if (!chapters.length) {
-        setStatus('No chapters found in this book.');
-        if (chapterSelect) {
-          const option = document.createElement('option');
-          option.textContent = 'No chapters';
-          option.value = '';
-          chapterSelect.append(option);
-          chapterSelect.disabled = true;
+    const findOverlayAt = (time) => {
+      if (!currentSync.length) {
+        return null;
+      }
+      let low = 0;
+      let high = currentSync.length - 1;
+      let candidate = null;
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        const overlay = currentSync[mid];
+        if (!overlay) {
+          break;
         }
-        updateControls();
-        readerEl.textContent = 'This EPUB does not include any readable chapters.';
+        if (time < overlay.begin) {
+          high = mid - 1;
+          continue;
+        }
+        if (time > overlay.end) {
+          low = mid + 1;
+          continue;
+        }
+        candidate = overlay;
+        break;
+      }
+      if (!candidate && low >= 0 && low < currentSync.length) {
+        const overlay = currentSync[low];
+        if (overlay && time >= overlay.begin && time <= overlay.end) {
+          candidate = overlay;
+        }
+      }
+      if (!candidate && high >= 0 && high < currentSync.length) {
+        const overlay = currentSync[high];
+        if (overlay && time >= overlay.begin && time <= overlay.end) {
+          candidate = overlay;
+        }
+      }
+      return candidate;
+    };
+
+    const syncToTime = (time, { force = false, scroll = false } = {}) => {
+      if (!currentSync.length || !Number.isFinite(time)) {
+        if (force) {
+          activeOverlay = null;
+          highlightChunk(null);
+          updateStatus();
+        }
         return;
       }
+      const overlay = findOverlayAt(time);
+      if (!overlay) {
+        if (force) {
+          activeOverlay = null;
+          highlightChunk(null);
+          updateStatus();
+        }
+        return;
+      }
+      if (!force && activeOverlay && overlay.fragment === activeOverlay.fragment) {
+        return;
+      }
+      activeOverlay = overlay;
+      highlightChunk(overlay.fragment, { scroll });
+      updateStatus();
+    };
 
-      chapterSelect?.removeAttribute('disabled');
+    const loadChapterSync = async (href) => {
+      const key = normalizeHref(href);
+      if (!key) {
+        currentSync = [];
+        activeOverlay = null;
+        return currentSync;
+      }
+      if (syncCache.has(key)) {
+        currentSync = syncCache.get(key) || [];
+        activeOverlay = null;
+        return currentSync;
+      }
+
+      const candidates = [];
+      const textSwap = key.replace(/\/text\//i, '/smil/');
+      if (textSwap !== key) {
+        const maybe = textSwap.replace(/\.xhtml$/i, '.smil');
+        if (!candidates.includes(maybe)) {
+          candidates.push(maybe);
+        }
+      }
+      const directSmil = key.replace(/\.xhtml$/i, '.smil');
+      if (!candidates.includes(directSmil)) {
+        candidates.push(directSmil);
+      }
+      if (!candidates.includes(key)) {
+        candidates.push(key);
+      }
+
+      let overlays = [];
+      for (const candidate of candidates) {
+        const url = buildAssetUrl(candidate);
+        if (!url) {
+          continue;
+        }
+        try {
+          const response = await fetch(url, { credentials: 'same-origin' });
+          if (!response.ok) {
+            continue;
+          }
+          const xmlText = await response.text();
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(xmlText, 'application/xml');
+          if (doc.querySelector('parsererror')) {
+            continue;
+          }
+          const parsed = [];
+          doc.querySelectorAll('par').forEach((par) => {
+            const textEl = par.querySelector('text');
+            const audioNode = par.querySelector('audio');
+            if (!textEl || !audioNode) {
+              return;
+            }
+            const textSrc = textEl.getAttribute('src') || '';
+            const fragment = textSrc.split('#')[1] || '';
+            const begin = parseSmilTime(audioNode.getAttribute('clipBegin'));
+            const endRaw = parseSmilTime(audioNode.getAttribute('clipEnd'));
+            if (!fragment || begin === null) {
+              return;
+            }
+            const end = endRaw !== null && endRaw >= begin ? endRaw : begin + 0.05;
+            parsed.push({
+              fragment,
+              begin,
+              end,
+              id: par.getAttribute('id') || fragment,
+              index: parsed.length,
+            });
+          });
+          if (parsed.length) {
+            parsed.sort((a, b) => a.begin - b.begin);
+            parsed.forEach((item, index) => {
+              item.index = index;
+            });
+            overlays = parsed;
+            break;
+          }
+        } catch (error) {
+          console.warn('Failed to load SMIL asset', candidate, error);
+        }
+      }
+
+      currentSync = overlays;
+      activeOverlay = null;
+      syncCache.set(key, overlays);
+      return overlays;
+    };
+
+    const initializeChapters = () => {
+      if (!chapterSelect) {
+        return;
+      }
+      chapterSelect.innerHTML = '';
+      if (!chapters.length) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = 'No chapters';
+        chapterSelect.append(option);
+        chapterSelect.disabled = true;
+        return;
+      }
+      chapterSelect.disabled = false;
       chapters.forEach((chapter, idx) => {
         const option = document.createElement('option');
         option.value = String(idx);
         option.textContent = chapter.title || `Chapter ${idx + 1}`;
-        chapterSelect?.append(option);
+        chapterSelect.append(option);
       });
-
-      chapterSelect?.addEventListener('change', (event) => {
-        const target = event.target;
-        if (!(target instanceof HTMLSelectElement)) {
-          return;
-        }
-        const value = Number.parseInt(target.value, 10);
-        if (!Number.isNaN(value)) {
-          renderChapter(value);
-        }
-      });
-
-      prevBtn?.addEventListener('click', () => {
-        if (currentIndex > 0) {
-          renderChapter(currentIndex - 1);
-        }
-      });
-
-      nextBtn?.addEventListener('click', () => {
-        if (currentIndex < chapters.length - 1) {
-          renderChapter(currentIndex + 1);
-        }
-      });
-
-      document.addEventListener('keydown', (event) => {
-        if (event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey) {
-          return;
-        }
-        const target = event.target;
-        if (target instanceof HTMLElement) {
-          const tag = target.tagName.toLowerCase();
-          if (tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable) {
-            return;
-          }
-        }
-        if (event.key === 'ArrowLeft') {
-          if (currentIndex > 0) {
-            renderChapter(currentIndex - 1);
-          }
-        } else if (event.key === 'ArrowRight') {
-          if (currentIndex < chapters.length - 1) {
-            renderChapter(currentIndex + 1);
-          }
-        }
-      });
-
-      renderChapter(0);
+      chapterSelect.value = String(currentChapterIndex);
     };
 
-    initChapters();
+    const registerRenditionHooks = () => {
+      if (!rendition) {
+        return;
+      }
+      const injectedStyles = `:root { color-scheme: dark; }
+        body { background: transparent !important; color: rgba(226, 232, 240, 0.96) !important; font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif !important; line-height: 1.6; }
+        a { color: #38bdf8; }
+        .chunk { transition: background-color 0.25s ease, box-shadow 0.25s ease; }
+        .chunk.${ACTIVE_CLASS} { background-color: rgba(56, 189, 248, 0.25); box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.5); border-radius: 6px; }
+        .chunk-group { margin: 0 0 1.1rem 0; }`;
 
-    readerEl?.addEventListener('click', (event) => {
-      const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;
-      if (!anchor) {
-        return;
-      }
-      const href = anchor.getAttribute('href') || '';
-      if (!href || href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:')) {
-        return;
-      }
-      if (href.startsWith('#')) {
-        event.preventDefault();
-        const fragmentId = href.slice(1);
-  const target = readerEl.querySelector(`#${escapeFragment(fragmentId)}`);
-        if (target instanceof HTMLElement) {
-          target.scrollIntoView({ block: 'start', behavior: 'auto' });
+      // Inject styling into each EPUB iframe so highlights render consistently.
+      rendition.hooks.content.register((contents) => {
+        try {
+          const doc = contents.document;
+          if (!doc) {
+            return;
+          }
+          const style = doc.createElement('style');
+          style.textContent = injectedStyles;
+          doc.head.appendChild(style);
+          if (doc.documentElement) {
+            doc.documentElement.style.background = 'transparent';
+          }
+          if (doc.body) {
+            doc.body.style.background = 'transparent';
+          }
+          const handleClick = (event) => {
+            const target = event.target instanceof Element ? event.target.closest('.chunk') : null;
+            if (!target) {
+              return;
+            }
+            const chunkId = target.getAttribute('id');
+            if (!chunkId) {
+              return;
+            }
+            const overlay = currentSync.find((entry) => entry.fragment === chunkId) || null;
+            if (overlay) {
+              activeOverlay = overlay;
+              highlightChunk(chunkId, { scroll: true });
+              updateStatus();
+              if (audioEl) {
+                audioEl.currentTime = overlay.begin;
+                audioEl.play().catch(() => {});
+              }
+            }
+          };
+          doc.addEventListener('click', handleClick);
+        } catch (error) {
+          console.warn('Failed to decorate EPUB content', error);
         }
+      });
+    };
+
+    const displayChapter = async (index, options = {}) => {
+      if (!chapters.length || !book || !rendition) {
         return;
       }
-      const [resource, fragment] = href.split('#', 2);
-      const matchIndex = chapters.findIndex((chapter) => {
-        const normalized = (chapter.href || '').split('#', 1)[0];
-        return normalized === resource;
-      });
-      if (matchIndex >= 0) {
-        event.preventDefault();
-        renderChapter(matchIndex, fragment || '');
+      const normalizedIndex = Math.min(Math.max(index, 0), chapters.length - 1);
+      const target = chapters[normalizedIndex];
+      if (!target || navigationLock) {
+        return;
       }
+      navigationLock = true;
+      let failed = false;
+      setStatus('Loading chapter…');
+      highlightChunk(null);
+      activeOverlay = null;
+      updateStatus();
+      try {
+        await book.ready;
+        const fragment = typeof options.fragment === 'string' ? options.fragment : '';
+        const baseHref = target.href.split('#')[0];
+        const displayHref = fragment ? `${baseHref}#${fragment}` : target.href;
+        suppressRelocate = true;
+        await rendition.display(displayHref);
+        suppressRelocate = false;
+        currentChapterIndex = normalizedIndex;
+        updateControls();
+        await loadChapterSync(target.href);
+        const shouldScroll = options.scroll ?? Boolean(audioEl && !audioEl.paused);
+        if (fragment) {
+          highlightChunk(fragment, { scroll: true });
+          const overlayMatch = currentSync.find((entry) => entry.fragment === fragment);
+          if (overlayMatch) {
+            activeOverlay = overlayMatch;
+          }
+        } else if (audioEl) {
+          syncToTime(audioEl.currentTime || 0, { force: true, scroll: shouldScroll });
+        } else {
+          updateStatus();
+        }
+      } catch (error) {
+        failed = true;
+        console.error('Failed to display chapter', error);
+        setStatus('Unable to display this chapter.');
+      } finally {
+        suppressRelocate = false;
+        navigationLock = false;
+        if (!failed) {
+          updateStatus();
+        }
+      }
+    };
+
+    const scheduleSync = () => {
+      if (!audioEl) {
+        return;
+      }
+      if (scheduledSync) {
+        return;
+      }
+      scheduledSync = window.requestAnimationFrame(() => {
+        scheduledSync = 0;
+        syncToTime(audioEl.currentTime || 0, { scroll: false });
+      });
+    };
+
+    if (audioEl) {
+      audioEl.addEventListener('timeupdate', scheduleSync);
+      audioEl.addEventListener('seeked', () => {
+        syncToTime(audioEl.currentTime || 0, { force: true, scroll: true });
+      });
+      audioEl.addEventListener('loadedmetadata', updateStatus);
+      audioEl.addEventListener('play', () => {
+        syncToTime(audioEl.currentTime || 0, { force: true, scroll: true });
+        updateStatus();
+      });
+      audioEl.addEventListener('pause', updateStatus);
+      audioEl.addEventListener('ended', () => {
+        activeOverlay = null;
+        highlightChunk(null);
+        updateStatus();
+      });
+    }
+
+    const init = async () => {
+      if (!epubUrl) {
+        initializeChapters();
+        updateControls();
+        setStatus('EPUB asset unavailable for this job.');
+        return;
+      }
+      if (typeof window.ePub !== 'function') {
+        initializeChapters();
+        updateControls();
+        setStatus('EPUB.js failed to load.');
+        return;
+      }
+
+      setStatus('Loading book…');
+      book = window.ePub(epubUrl, { openAs: 'epub' });
+      rendition = book.renderTo('reader-view', {
+        flow: 'scrolled-doc',
+        width: '100%',
+        height: '100%',
+        spread: 'none',
+        allowScriptedContent: false,
+      });
+
+      registerRenditionHooks();
+
+      let navigation = null;
+      try {
+        navigation = await book.loaded.navigation;
+      } catch (error) {
+        console.warn('Navigation unavailable for this EPUB', error);
+      }
+
+      if (!chapters.length && navigation && Array.isArray(navigation.toc)) {
+        chapters = dedupeChapters(normalizeChapterList(flattenToc(navigation.toc)));
+      } else {
+        chapters = dedupeChapters(chapters);
+      }
+
+      currentChapterIndex = Math.min(currentChapterIndex, Math.max(chapters.length - 1, 0));
+      initializeChapters();
+      updateControls();
+
+      if (!chapters.length) {
+        setStatus('No readable chapters found in this EPUB.');
+        return;
+      }
+
+      try {
+        await book.ready;
+      } catch (error) {
+        console.error('Book failed to initialize', error);
+        setStatus('Unable to open this EPUB.');
+        return;
+      }
+
+      rendition.on('relocated', (location) => {
+        if (suppressRelocate || !location || !location.start) {
+          return;
+        }
+        const normalized = normalizeHref(location.start.href);
+        if (!normalized) {
+          return;
+        }
+        const index = chapters.findIndex((chapter) => chapter.normalizedHref === normalized);
+        if (index >= 0 && index !== currentChapterIndex) {
+          currentChapterIndex = index;
+          updateControls();
+          loadChapterSync(chapters[index].href).then(() => {
+            if (audioEl && !audioEl.paused) {
+              syncToTime(audioEl.currentTime || 0, { force: true, scroll: false });
+            }
+            updateStatus();
+          });
+        }
+      });
+
+      rendition.on('rendered', () => {
+        if (audioEl && !audioEl.paused) {
+          syncToTime(audioEl.currentTime || 0, { force: true, scroll: false });
+        }
+      });
+
+      window.addEventListener('resize', () => {
+        if (rendition && typeof rendition.resize === 'function') {
+          rendition.resize();
+        }
+      });
+
+      setStatus('Preparing viewer…');
+      await displayChapter(currentChapterIndex, { scroll: false, force: true });
+      updateStatus();
+    };
+
+    document.addEventListener('keydown', (event) => {
+      if (event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey) {
+        return;
+      }
+      const target = event.target;
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName.toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable) {
+          return;
+        }
+      }
+      if (event.key === 'ArrowLeft' && currentChapterIndex > 0) {
+        event.preventDefault();
+        displayChapter(currentChapterIndex - 1, { scroll: true });
+      } else if (event.key === 'ArrowRight' && currentChapterIndex < chapters.length - 1) {
+        event.preventDefault();
+        displayChapter(currentChapterIndex + 1, { scroll: true });
+      }
+    });
+
+    prevBtn?.addEventListener('click', () => {
+      if (currentChapterIndex > 0) {
+        displayChapter(currentChapterIndex - 1, { scroll: true });
+      }
+    });
+
+    nextBtn?.addEventListener('click', () => {
+      if (currentChapterIndex < chapters.length - 1) {
+        displayChapter(currentChapterIndex + 1, { scroll: true });
+      }
+    });
+
+    chapterSelect?.addEventListener('change', (event) => {
+      const value = Number.parseInt(event.target.value, 10);
+      if (!Number.isNaN(value)) {
+        displayChapter(value, { scroll: true });
+      }
+    });
+
+    init().catch((error) => {
+      console.error('Failed to initialize reader', error);
+      setStatus('Reader failed to initialize.');
     });
   </script>
 </body>
