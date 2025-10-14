@@ -110,6 +110,13 @@
         <input type="number" step="0.1" min="0" id="chapter_intro_delay" name="chapter_intro_delay" value="{{ '%.2f'|format(settings.chapter_intro_delay) }}">
         <p class="hint">Inserted between the spoken chapter title and the chapter content. Set to 0 to disable.</p>
       </div>
+      <div class="field field--stack">
+        <label class="toggle-pill">
+          <input type="checkbox" name="auto_prefix_chapter_titles" value="true" {% if settings.auto_prefix_chapter_titles %}checked{% endif %}>
+          <span>Add "Chapter" before numeric chapter titles</span>
+        </label>
+        <p class="hint">Ensures the spoken chapter heading starts with "Chapter" when source titles begin with only a number or numeral.</p>
+      </div>
     </fieldset>
 
     <fieldset class="settings__section">

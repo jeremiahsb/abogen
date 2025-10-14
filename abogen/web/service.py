@@ -105,6 +105,7 @@ class Job:
     metadata_tags: Dict[str, str] = field(default_factory=dict)
     max_subtitle_words: int = 50
     chapter_intro_delay: float = 0.5
+    auto_prefix_chapter_titles: bool = True
     status: JobStatus = JobStatus.PENDING
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
@@ -171,6 +172,7 @@ class Job:
                 "voice_profile": self.voice_profile,
                 "max_subtitle_words": self.max_subtitle_words,
                 "chapter_intro_delay": self.chapter_intro_delay,
+                "auto_prefix_chapter_titles": getattr(self, "auto_prefix_chapter_titles", True),
             },
             "metadata_tags": dict(self.metadata_tags),
             "chapters": [
@@ -233,6 +235,7 @@ class PendingJob:
     cover_image_path: Optional[Path] = None
     cover_image_mime: Optional[str] = None
     chapter_intro_delay: float = 0.5
+    auto_prefix_chapter_titles: bool = True
     chunk_level: str = "paragraph"
     chunks: List[Dict[str, Any]] = field(default_factory=list)
     speakers: Dict[str, Any] = field(default_factory=dict)
@@ -312,6 +315,7 @@ class ConversionService:
         cover_image_path: Optional[Path] = None,
         cover_image_mime: Optional[str] = None,
         chapter_intro_delay: float = 0.5,
+    auto_prefix_chapter_titles: bool = True,
         chunk_level: str = "paragraph",
         chunks: Optional[Iterable[Any]] = None,
         speakers: Optional[Mapping[str, Any]] = None,
@@ -358,6 +362,7 @@ class ConversionService:
             cover_image_path=cover_image_path,
             cover_image_mime=cover_image_mime,
             chapter_intro_delay=chapter_intro_delay,
+            auto_prefix_chapter_titles=bool(auto_prefix_chapter_titles),
             chunk_level=chunk_level,
             chunks=normalized_chunks,
             speakers=dict(speakers or {}),
@@ -512,6 +517,7 @@ class ConversionService:
                 cover_image_path=job.cover_image_path,
                 cover_image_mime=job.cover_image_mime,
                 chapter_intro_delay=job.chapter_intro_delay,
+                auto_prefix_chapter_titles=job.auto_prefix_chapter_titles,
                 chunk_level=job.chunk_level,
                 chunks=job.chunks,
                 speakers=job.speakers,
@@ -737,6 +743,7 @@ class ConversionService:
             "cover_image_path": str(job.cover_image_path) if job.cover_image_path else None,
             "cover_image_mime": job.cover_image_mime,
             "chapter_intro_delay": job.chapter_intro_delay,
+            "auto_prefix_chapter_titles": job.auto_prefix_chapter_titles,
             "chunk_level": job.chunk_level,
             "chunks": [dict(entry) for entry in job.chunks],
             "speakers": dict(job.speakers),
@@ -828,6 +835,7 @@ class ConversionService:
             metadata_tags=payload.get("metadata_tags", {}),
             max_subtitle_words=int(payload.get("max_subtitle_words", 50)),
             chapter_intro_delay=float(payload.get("chapter_intro_delay", 0.5)),
+            auto_prefix_chapter_titles=bool(payload.get("auto_prefix_chapter_titles", True)),
         )
         job.status = JobStatus(payload.get("status", job.status.value))
         job.started_at = payload.get("started_at")

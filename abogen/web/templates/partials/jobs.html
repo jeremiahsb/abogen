@@ -92,13 +92,15 @@
               {% endif %}
             {% endif %}
             {% if reader_source %}
+              {% set metadata = job.metadata_tags if job.metadata_tags is mapping else {} %}
+              {% set job_display_title = metadata.get('title') or metadata.get('book_title') or metadata.get('name') or job.original_filename %}
               <button type="button"
                       class="icon-button"
                       data-role="open-reader"
                       data-reader-url="{{ url_for('web.job_reader', job_id=job.id) }}"
-                      data-book-title="{{ job.original_filename }}"
+                      data-book-title="{{ job_display_title }}"
                       title="Open reader"
-                      aria-label="Open EPUB reader for {{ job.original_filename }}">
+                      aria-label="Open EPUB reader for {{ job_display_title }}">
                 📖
               </button>
             {% endif %}

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import mimetypes
 import os
 import posixpath
@@ -194,6 +195,51 @@ def _decode_text(payload: bytes) -> str:
         except UnicodeDecodeError:
             continue
     return payload.decode("utf-8", "ignore")
+
+
+def _coerce_positive_time(value: Any) -> Optional[float]:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric) or numeric < 0:
+        return None
+    return numeric
+
+
+def _load_job_metadata(job: Job) -> Dict[str, Any]:
+    result = getattr(job, "result", None)
+    artifacts = getattr(result, "artifacts", None)
+    if not isinstance(artifacts, Mapping):
+        return {}
+    metadata_ref = artifacts.get("metadata")
+    if isinstance(metadata_ref, Path):
+        metadata_path = metadata_ref
+    elif isinstance(metadata_ref, str):
+        metadata_path = Path(metadata_ref)
+    else:
+        return {}
+    if not metadata_path.exists():
+        return {}
+    try:
+        return json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return {}
+
+
+def _resolve_book_title(job: Job, *metadata_sources: Mapping[str, Any]) -> str:
+    for source in metadata_sources:
+        if not isinstance(source, Mapping):
+            continue
+        for key in ("title", "book_title", "name", "album", "album_title"):
+            value = source.get(key)
+            if isinstance(value, str):
+                candidate = value.strip()
+                if candidate:
+                    return candidate
+    filename = job.original_filename or ""
+    stem = Path(filename).stem if filename else ""
+    return stem or filename
 
 
 class _NavMapParser(HTMLParser):
@@ -1815,6 +1861,7 @@ BOOLEAN_SETTINGS = {
     "save_as_project",
     "generate_epub3",
     "enable_entity_recognition",
+    "auto_prefix_chapter_titles",
 }
 
 FLOAT_SETTINGS = {"silence_between_chapters", "chapter_intro_delay"}
@@ -1841,8 +1888,9 @@ def _settings_defaults() -> Dict[str, Any]:
         "chapter_intro_delay": 0.5,
         "max_subtitle_words": 50,
         "chunk_level": "paragraph",
-    "enable_entity_recognition": True,
+        "enable_entity_recognition": True,
         "generate_epub3": False,
+        "auto_prefix_chapter_titles": True,
         "speaker_analysis_threshold": _DEFAULT_ANALYSIS_THRESHOLD,
         "speaker_pronunciation_sentence": "This is {{name}} speaking.",
         "speaker_random_languages": [],
@@ -2946,6 +2994,7 @@ def enqueue_job() -> ResponseReturnValue:
     silence_between_chapters = settings["silence_between_chapters"]
     chapter_intro_delay = settings["chapter_intro_delay"]
     max_subtitle_words = settings["max_subtitle_words"]
+    auto_prefix_chapter_titles = settings["auto_prefix_chapter_titles"]
 
     chunk_level_default = str(settings.get("chunk_level", "paragraph")).strip().lower()
     raw_chunk_level = (request.form.get("chunk_level") or chunk_level_default).strip().lower()
@@ -3011,6 +3060,7 @@ def enqueue_job() -> ResponseReturnValue:
         cover_image_path=cover_path,
         cover_image_mime=cover_mime,
         chapter_intro_delay=chapter_intro_delay,
+        auto_prefix_chapter_titles=bool(auto_prefix_chapter_titles),
         chunk_level=chunk_level_value,
         speaker_mode=speaker_mode_value,
         generate_epub3=generate_epub3,
@@ -3290,6 +3340,7 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
         cover_image_path=pending.cover_image_path,
         cover_image_mime=pending.cover_image_mime,
         chapter_intro_delay=pending.chapter_intro_delay,
+        auto_prefix_chapter_titles=getattr(pending, "auto_prefix_chapter_titles", True),
         chunk_level=pending.chunk_level,
         chunks=processed_chunks,
         speakers=roster,
@@ -3581,6 +3632,63 @@ def job_reader(job_id: str) -> ResponseReturnValue:
     asset_base = url_for("web.job_reader_asset", job_id=job.id, asset_path="").rstrip("/") + "/"
     audio_url = url_for("web.job_audio_stream", job_id=job.id) if audio_path else ""
     epub_url = url_for("web.job_epub", job_id=job.id)
+    metadata_payload = _load_job_metadata(job)
+    metadata_section_raw = metadata_payload.get("metadata") if isinstance(metadata_payload, Mapping) else {}
+    metadata_section = metadata_section_raw if isinstance(metadata_section_raw, Mapping) else {}
+    job_metadata = job.metadata_tags if isinstance(job.metadata_tags, Mapping) else {}
+    display_title = _resolve_book_title(job, metadata_section, job_metadata)
+
+    timing_map: Dict[int, Dict[str, Any]] = {}
+    chapter_entries = metadata_payload.get("chapters") if isinstance(metadata_payload, Mapping) else []
+    for entry in chapter_entries or []:
+        if not isinstance(entry, Mapping):
+            continue
+        index_raw = entry.get("index")
+        index_value: Optional[int]
+        if isinstance(index_raw, (int, float)) and not isinstance(index_raw, bool):
+            index_value = int(index_raw) - 1
+        elif isinstance(index_raw, str):
+            stripped = index_raw.strip()
+            if not stripped:
+                continue
+            try:
+                index_value = int(stripped) - 1
+            except ValueError:
+                continue
+        else:
+            continue
+        if index_value < 0:
+            continue
+        start_value = _coerce_positive_time(entry.get("start"))
+        end_value = _coerce_positive_time(entry.get("end"))
+        title_value: Optional[str] = None
+        for key in ("title", "display_title", "spoken_title", "original_title"):
+            value = entry.get(key)
+            if isinstance(value, str) and value.strip():
+                title_value = value.strip()
+                break
+        timing_map[index_value] = {
+            "start": start_value,
+            "end": end_value,
+            "title": title_value,
+        }
+
+    chapter_timings: List[Dict[str, Any]] = []
+    for idx, chapter in enumerate(chapters):
+        marker = timing_map.get(idx)
+        if marker and marker.get("title") and isinstance(chapter, dict):
+            chapter_title = marker["title"]
+            if isinstance(chapter_title, str) and chapter_title.strip():
+                chapter["title"] = chapter_title
+        chapter_timings.append(
+            {
+                "index": idx,
+                "start": marker.get("start") if marker else None,
+                "end": marker.get("end") if marker else None,
+                "title": marker.get("title") if marker else None,
+            }
+        )
+
     return render_template(
         "reader_embed.html",
         job=job,
@@ -3589,6 +3697,8 @@ def job_reader(job_id: str) -> ResponseReturnValue:
         chapters=chapters,
         chapter_url=chapter_url,
         asset_base=asset_base,
+        chapter_timings=chapter_timings,
+        display_title=display_title,
     )
 
 

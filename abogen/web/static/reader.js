@@ -41,7 +41,17 @@ const closeReaderModal = () => {
   readerModal.removeAttribute("data-open");
   document.body.classList.remove("modal-open");
   if (readerFrame) {
-    readerFrame.src = "about:blank";
+    const frameWindow = readerFrame.contentWindow;
+    if (frameWindow) {
+      try {
+        frameWindow.postMessage({ type: "abogen:reader:pause", currentTime: 0 }, window.location.origin);
+      } catch (error) {
+        // Ignore cross-origin messaging errors.
+      }
+    }
+    window.setTimeout(() => {
+      readerFrame.src = "about:blank";
+    }, 75);
   }
   if (readerHint && defaultReaderHint) {
     readerHint.textContent = defaultReaderHint;

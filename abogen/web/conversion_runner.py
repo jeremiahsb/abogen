@@ -66,6 +66,67 @@ def _coerce_truthy(value: Any, default: bool = True) -> bool:
     return bool(value)
 
 
+_HEADING_SANITIZE_RE = re.compile(r"[^a-z0-9]+")
+_HEADING_NUMBER_PREFIX_RE = re.compile(r"^\s*(?P<number>(?:\d+|[ivxlcdm]+))(?P<suffix>(?:[\s.:;-].*)?)$", re.IGNORECASE)
+
+
+def _simplify_heading_text(text: str) -> str:
+    raw = str(text or "").strip().lower()
+    if not raw:
+        return ""
+    simplified = _HEADING_SANITIZE_RE.sub("", raw)
+    if simplified.startswith("chapter"):
+        simplified = simplified[7:]
+    return simplified
+
+
+def _headings_equivalent(left: str, right: str) -> bool:
+    simple_left = _simplify_heading_text(left)
+    simple_right = _simplify_heading_text(right)
+    return bool(simple_left and simple_left == simple_right)
+
+
+def _format_spoken_chapter_title(title: str, index: int, apply_prefix: bool) -> str:
+    base = str(title or "").strip()
+    if not base:
+        return f"Chapter {index}" if apply_prefix else ""
+    if not apply_prefix:
+        return base
+    lowered = base.lower()
+    if lowered.startswith("chapter") and (len(lowered) == 7 or not lowered[7].isalpha()):
+        return base
+    match = _HEADING_NUMBER_PREFIX_RE.match(base)
+    if match:
+        number = match.group("number") or ""
+        suffix = match.group("suffix") or ""
+        return f"Chapter {number}{suffix}"
+    return base
+
+
+def _strip_duplicate_heading_line(text: str, heading: str) -> tuple[str, bool]:
+    source_text = str(text or "")
+    if not source_text:
+        return source_text, False
+    normalized_heading = _simplify_heading_text(heading)
+    if not normalized_heading:
+        return source_text, False
+    lines = source_text.splitlines()
+    new_lines: List[str] = []
+    removed = False
+    for line in lines:
+        stripped = line.strip()
+        if not removed and stripped:
+            if _headings_equivalent(stripped, heading):
+                removed = True
+                continue
+        new_lines.append(line)
+    if not removed:
+        return source_text, False
+    while new_lines and not new_lines[0].strip():
+        new_lines.pop(0)
+    return "\n".join(new_lines), True
+
+
 def _spec_to_voice_ids(spec: Any) -> Set[str]:
     text = str(spec or "").strip()
     if not text:
@@ -909,6 +970,7 @@ def run_conversion_job(job: Job) -> None:
                 idx: items for idx, items in chunk_groups.items() if 0 <= idx < total_chapters
             }
         job.add_log(f"Detected {total_chapters} chapter{'s' if total_chapters != 1 else ''}")
+        auto_prefix_titles = getattr(job, "auto_prefix_chapter_titles", True)
 
         def emit_text(
             text: str,
@@ -992,7 +1054,11 @@ def run_conversion_job(job: Job) -> None:
 
         for idx, chapter in enumerate(extraction.chapters, start=1):
             canceller()
-            job.add_log(f"Processing chapter {idx}/{total_chapters}: {chapter.title}")
+            raw_title = str(getattr(chapter, "title", "") or "").strip()
+            spoken_title = _format_spoken_chapter_title(raw_title, idx, auto_prefix_titles)
+            heading_text = spoken_title or raw_title
+            chapter_display_title = heading_text or f"Chapter {idx}"
+            job.add_log(f"Processing chapter {idx}/{total_chapters}: {chapter_display_title}")
 
             chapter_start_time = current_time
             chapter_override = (
@@ -1016,7 +1082,7 @@ def run_conversion_job(job: Job) -> None:
                 if chapter_dir is not None:
                     chapter_audio_path = _build_output_path(
                         chapter_dir,
-                        f"{Path(job.original_filename).stem}_{_slugify(chapter.title, idx)}",
+                        f"{Path(job.original_filename).stem}_{_slugify(chapter_display_title, idx)}",
                         job.separate_chapters_format,
                     )
                     chapter_sink = _open_audio_sink(
@@ -1026,17 +1092,18 @@ def run_conversion_job(job: Job) -> None:
                         fmt=job.separate_chapters_format,
                     )
 
-                speak_heading = bool(chapter.title.strip())
-                if speak_heading:
-                    stripped_title = chapter.title.strip()
-                    if stripped_title:
-                        first_line = next((line.strip() for line in chapter.text.splitlines() if line.strip()), "")
-                        if first_line and first_line.casefold() == stripped_title.casefold():
-                            speak_heading = False
+                speak_heading = bool(heading_text)
+                first_line = ""
+                if chapter.text:
+                    first_line = next((line.strip() for line in chapter.text.splitlines() if line.strip()), "")
+                remove_heading_from_body = False
+                if speak_heading and first_line:
+                    if _headings_equivalent(first_line, heading_text) or (raw_title and _headings_equivalent(first_line, raw_title)):
+                        remove_heading_from_body = True
 
                 if speak_heading:
                     heading_segments = emit_text(
-                        chapter.title,
+                        heading_text,
                         voice_choice=voice_choice,
                         chapter_sink=chapter_sink,
                         preview_prefix=f"Chapter {idx} title",
@@ -1052,6 +1119,7 @@ def run_conversion_job(job: Job) -> None:
 
                 chunks_for_chapter = chunk_groups.get(idx - 1, []) if chunk_groups else []
                 body_segments = 0
+                pending_heading_strip = remove_heading_from_body
                 if chunks_for_chapter:
                     job.add_log(
                         f"Emitting {len(chunks_for_chapter)} {job.chunk_level} chunks for chapter {idx}.",
@@ -1065,6 +1133,15 @@ def run_conversion_job(job: Job) -> None:
                     ).strip()
                     if not chunk_text:
                         continue
+
+                    if pending_heading_strip and heading_text:
+                        chunk_text, removed_heading = _strip_duplicate_heading_line(chunk_text, heading_text)
+                        if removed_heading:
+                            pending_heading_strip = False
+                            chunk_entry = dict(chunk_entry)
+                            chunk_entry["normalized_text"] = chunk_text
+                            if not chunk_text.strip():
+                                continue
 
                     chunk_voice_spec = _chunk_voice_spec(
                         job,
@@ -1116,8 +1193,13 @@ def run_conversion_job(job: Job) -> None:
 
                 if body_segments == 0:
                     chapter_body_start = current_time
+                    chapter_text = chapter.text
+                    if pending_heading_strip and heading_text:
+                        chapter_text, removed_heading = _strip_duplicate_heading_line(chapter_text, heading_text)
+                        if removed_heading:
+                            pending_heading_strip = False
                     emitted = emit_text(
-                        chapter.text,
+                        chapter_text,
                         voice_choice=voice_choice,
                         chapter_sink=chapter_sink,
                     )
@@ -1169,15 +1251,16 @@ def run_conversion_job(job: Job) -> None:
                 )
                 chapter_end_time = current_time
 
-            chapter_markers.append(
-                {
-                    "index": idx,
-                    "title": chapter.title,
-                    "start": chapter_start_time,
-                    "end": chapter_end_time,
-                    "voice": chapter_voice_spec,
-                }
-            )
+            marker = {
+                "index": idx,
+                "title": chapter_display_title,
+                "start": chapter_start_time,
+                "end": chapter_end_time,
+                "voice": chapter_voice_spec,
+            }
+            if raw_title and raw_title != chapter_display_title:
+                marker["original_title"] = raw_title
+            chapter_markers.append(marker)
 
         if not audio_path and chapter_paths:
             job.result.audio_path = chapter_paths[0]
