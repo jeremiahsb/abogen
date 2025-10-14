@@ -251,6 +251,55 @@
       }
     };
 
+    let spineHrefList = [];
+    const spineHrefLookup = new Map();
+
+    const refreshSpineLookup = (items) => {
+      spineHrefList = [];
+      spineHrefLookup.clear();
+      if (!Array.isArray(items)) {
+        return;
+      }
+      items.forEach((entry) => {
+        const href = typeof entry === 'string' ? entry : entry?.href;
+        const normalized = removeLeadingSlash(href || '');
+        if (!normalized) {
+          return;
+        }
+        spineHrefList.push(normalized);
+        const key = normalized.toLowerCase();
+        if (!spineHrefLookup.has(key)) {
+          spineHrefLookup.set(key, normalized);
+        }
+      });
+    };
+
+    const resolveSpineHref = (value) => {
+      if (!value) {
+        return '';
+      }
+      const normalized = removeLeadingSlash(value);
+      if (!normalized) {
+        return '';
+      }
+      const direct = spineHrefLookup.get(normalized.toLowerCase());
+      if (direct) {
+        return direct;
+      }
+      const segments = normalized.split('/');
+      for (let index = 1; index < segments.length; index += 1) {
+        const candidate = segments.slice(index).join('/');
+        if (!candidate) {
+          continue;
+        }
+        const match = spineHrefLookup.get(candidate.toLowerCase());
+        if (match) {
+          return match;
+        }
+      }
+      return normalized;
+    };
+
     const formatClock = (value) => {
       if (!Number.isFinite(value) || value < 0) {
         return '--:--';
@@ -456,6 +505,7 @@
         href: cleanedHref,
         normalizedHref: normalized,
         title: chapter.title || `Chapter ${idx + 1}`,
+        spineHref: chapter.spineHref ? removeLeadingSlash(chapter.spineHref) : null,
       };
     });
     chapters = dedupeChapters(chapters);
@@ -812,22 +862,26 @@
         await book.ready;
         const fragment = typeof options.fragment === 'string' ? options.fragment : '';
         const baseHref = target.href.split('#')[0];
-        const displayHref = fragment ? `${baseHref}#${fragment}` : target.href;
-        const canonicalCandidate = typeof book.canonical === 'function' ? book.canonical(displayHref) : displayHref;
+  const displayResolved = resolveSpineHref(target.spineHref || target.href);
+  const fallbackDisplay = removeLeadingSlash(target.href);
+  const displayBase = displayResolved || fallbackDisplay;
+  const displayHref = fragment ? `${displayBase}#${fragment}` : displayBase;
+  const canonicalSource = fragment ? displayBase : displayHref;
+  const canonicalCandidate = typeof book.canonical === 'function' ? book.canonical(canonicalSource) : canonicalSource;
         const isBlobCanonical = typeof canonicalCandidate === 'string' && canonicalCandidate.startsWith('blob:');
         const canonicalHref = isBlobCanonical ? null : removeLeadingSlash(canonicalCandidate);
-        const targetHref = removeLeadingSlash(canonicalHref || displayHref);
         const syncHref = removeLeadingSlash((canonicalHref || baseHref).split('#')[0]);
         console.info('[reader] Displaying chapter', {
           requestedIndex: normalizedIndex,
           href: target.href,
+          spineHref: target.spineHref,
+          displayBase,
           displayHref,
           canonicalHref,
-          targetHref,
           syncHref,
         });
         suppressRelocate = true;
-        await rendition.display(targetHref);
+        await rendition.display(displayHref);
         suppressRelocate = false;
         currentChapterIndex = normalizedIndex;
         updateControls();
@@ -1022,8 +1076,9 @@
         await book.ready;
         console.info('[reader] Book ready resolved');
         try {
-          const spineEntries = (book.spine?.items || []).map((item) => item?.href || '(unknown)');
-          console.info('[reader] Spine hrefs', spineEntries);
+          const spineItems = Array.isArray(book.spine?.items) ? book.spine.items : [];
+          refreshSpineLookup(spineItems);
+          console.info('[reader] Spine hrefs', spineHrefList);
         } catch (spineError) {
           console.warn('[reader] Unable to log spine hrefs', spineError);
         }
@@ -1062,10 +1117,16 @@
             ...chapter,
             href: effectiveHref,
             normalizedHref: effectiveNormalized,
+            spineHref: resolveSpineHref(effectiveHref),
           };
         });
         chapters = dedupeChapters(chapters);
       }
+
+      chapters = chapters.map((chapter) => ({
+        ...chapter,
+        spineHref: resolveSpineHref(chapter.spineHref || chapter.href),
+      }));
 
       currentChapterIndex = Math.min(currentChapterIndex, Math.max(chapters.length - 1, 0));
       initializeChapters();
