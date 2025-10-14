@@ -99,7 +99,10 @@ def _format_spoken_chapter_title(title: str, index: int, apply_prefix: bool) -> 
     if match:
         number = match.group("number") or ""
         suffix = match.group("suffix") or ""
-        return f"Chapter {number}{suffix}"
+        cleaned_suffix = suffix.lstrip(" .,:;-_\t\u2013\u2014\u00b7\u2022")
+        if cleaned_suffix:
+            return f"Chapter {number}. {cleaned_suffix}"
+        return f"Chapter {number}"
     return base
 
 

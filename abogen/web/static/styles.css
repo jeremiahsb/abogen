@@ -1517,6 +1517,32 @@ button.step-indicator__item:focus-visible {
   grid-column: 1 / -1;
 }
 
+.settings__section .field {
+  align-items: flex-start;
+}
+
+.settings__section .field input,
+.settings__section .field select,
+.settings__section .field textarea {
+  max-width: 100%;
+}
+
+.settings__section .field input[type="text"],
+.settings__section .field input[type="file"],
+.settings__section .field select {
+  max-width: 100%;
+}
+
+.settings__section .field--wide {
+  grid-column: 1 / -1;
+}
+
+.settings__section .field--wide input,
+.settings__section .field--wide select,
+.settings__section .field--wide textarea {
+  max-width: 100%;
+}
+
 .field--choices {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

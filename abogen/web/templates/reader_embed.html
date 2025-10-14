@@ -1111,8 +1111,7 @@
         }
       }
       if (titleEl) {
-        const chapter = chapters[currentChapterIndex];
-        titleEl.textContent = chapter?.title ? `${chapter.title} · ${baseTitle}` : baseTitle;
+        titleEl.textContent = baseTitle;
       }
       if (chapterPanelToggleBtn) {
         chapterPanelToggleBtn.disabled = !hasChapters;

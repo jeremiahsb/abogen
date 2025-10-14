@@ -6,7 +6,7 @@ from abogen.web.conversion_runner import (
 
 
 def test_format_spoken_chapter_title_adds_prefix() -> None:
-    assert _format_spoken_chapter_title("1: A Tale", 1, True) == "Chapter 1: A Tale"
+    assert _format_spoken_chapter_title("1: A Tale", 1, True) == "Chapter 1. A Tale"
 
 
 def test_format_spoken_chapter_title_respects_existing_prefix() -> None:
@@ -15,6 +15,10 @@ def test_format_spoken_chapter_title_respects_existing_prefix() -> None:
 
 def test_format_spoken_chapter_title_handles_empty_title() -> None:
     assert _format_spoken_chapter_title("", 4, True) == "Chapter 4"
+
+
+def test_format_spoken_chapter_title_trims_delimiters() -> None:
+    assert _format_spoken_chapter_title("7 - Into the Wild", 7, True) == "Chapter 7. Into the Wild"
 
 
 def test_headings_equivalent_ignores_case_and_prefix() -> None:
