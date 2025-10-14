@@ -1021,6 +1021,12 @@
       try {
         await book.ready;
         console.info('[reader] Book ready resolved');
+        try {
+          const spineEntries = (book.spine?.items || []).map((item) => item?.href || '(unknown)');
+          console.info('[reader] Spine hrefs', spineEntries);
+        } catch (spineError) {
+          console.warn('[reader] Unable to log spine hrefs', spineError);
+        }
       } catch (error) {
         console.error('Book failed to initialize', error);
         if (error && error.message) {

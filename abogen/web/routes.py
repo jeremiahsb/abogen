@@ -362,7 +362,7 @@ def _extract_epub_chapters(epub_path: Path) -> List[Dict[str, str]]:
                     nav_titles = _parse_ncx_document(nav_bytes, nav_base)
 
             for index, href in enumerate(spine_hrefs, start=1):
-                normalized = _normalize_epub_path("", href)
+                normalized = href
                 if not normalized:
                     continue
                 title = (
@@ -375,7 +375,7 @@ def _extract_epub_chapters(epub_path: Path) -> List[Dict[str, str]]:
 
             if not chapters and nav_titles:
                 for index, (href, title) in enumerate(nav_titles.items(), start=1):
-                    normalized = _normalize_epub_path("", href)
+                    normalized = href
                     if not normalized:
                         continue
                     label = title or posixpath.basename(normalized) or f"Chapter {index}"
