@@ -46,11 +46,22 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 0.75rem;
+      gap: 1rem;
       padding: 0.75rem 1rem;
       border-radius: 14px;
       background: var(--panel);
       border: 1px solid var(--border);
+    }
+
+    .reader-toolbar__group {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex: 0 0 auto;
+    }
+
+    .reader-toolbar__group--end {
+      justify-content: flex-end;
     }
 
     .reader-toolbar__title {
@@ -63,7 +74,8 @@
       white-space: nowrap;
     }
 
-    .reader-toolbar button {
+    .reader-toolbar button,
+    .reader-chapter-panel button {
       flex: 0 0 auto;
       border: 1px solid var(--border);
       background: rgba(30, 41, 59, 0.8);
@@ -77,15 +89,34 @@
     }
 
     .reader-toolbar button:hover,
-    .reader-toolbar button:focus-visible {
+    .reader-toolbar button:focus-visible,
+    .reader-chapter-panel button:hover,
+    .reader-chapter-panel button:focus-visible {
       background: rgba(56, 189, 248, 0.2);
       border-color: rgba(56, 189, 248, 0.4);
       outline: none;
     }
 
-    .reader-toolbar button:disabled {
+    .reader-toolbar button:disabled,
+    .reader-chapter-panel button:disabled {
       opacity: 0.4;
       cursor: not-allowed;
+    }
+
+    .reader-toolbar__icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.4rem;
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: 999px;
+    }
+
+    .reader-toolbar__icon svg {
+      width: 1rem;
+      height: 1rem;
+      fill: currentColor;
     }
 
     .reader-toolbar select {
@@ -211,24 +242,26 @@
 
     .reader-chapter-links {
       display: flex;
-      flex-wrap: wrap;
+      flex-direction: column;
       gap: 0.5rem;
-      margin: 0.25rem 0;
-      max-height: 12.5rem;
+      margin: 0;
+      max-height: 100%;
       overflow-y: auto;
-      padding: 0.25rem 0;
+      padding: 0.5rem 0;
     }
 
     .reader-chapter-links button {
       border: 1px solid var(--border);
       background: rgba(30, 41, 59, 0.7);
       color: var(--text);
-      border-radius: 999px;
-      padding: 0.35rem 0.75rem;
-      font-size: 0.85rem;
+      border-radius: 10px;
+      padding: 0.45rem 0.75rem;
+      font-size: 0.9rem;
       cursor: pointer;
       white-space: nowrap;
+      text-align: left;
       transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+      width: 100%;
     }
 
     .reader-chapter-links button:hover,
@@ -254,6 +287,68 @@
       color: rgba(226, 232, 240, 0.6);
     }
 
+    .visually-hidden {
+      border: 0;
+      clip: rect(1px, 1px, 1px, 1px);
+      clip-path: inset(50%);
+      height: 1px;
+      margin: -1px;
+      overflow: hidden;
+      padding: 0;
+      position: absolute;
+      width: 1px;
+      white-space: nowrap;
+    }
+
+    .reader-chapter-panel {
+      position: fixed;
+      top: 0.75rem;
+      bottom: 0.75rem;
+      right: 0.75rem;
+      width: min(320px, 85vw);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px 0 0 16px;
+      box-shadow: -6px 0 24px rgba(15, 23, 42, 0.45);
+      display: flex;
+      flex-direction: column;
+      transform: translateX(110%);
+      transition: transform 0.24s ease;
+      z-index: 20;
+      pointer-events: none;
+    }
+
+    .reader-chapter-panel.is-open {
+      transform: translateX(0);
+      pointer-events: auto;
+    }
+
+    .reader-chapter-panel__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .reader-chapter-panel__title {
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+
+    .reader-chapter-panel__body {
+      flex: 1 1 auto;
+      min-height: 0;
+      padding: 0 1rem 1rem;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .reader-chapter-panel__body > .reader-chapter-links {
+      flex: 1 1 auto;
+    }
+
     .reader-status {
       font-size: 0.85rem;
       color: rgba(226, 232, 240, 0.75);
@@ -272,10 +367,27 @@
 >
   <div class="reader-shell" data-role="reader-shell">
     <div class="reader-toolbar">
-      <button type="button" data-action="prev">Previous</button>
-    <select data-role="reader-chapter" aria-label="Select chapter"></select>
-    <div class="reader-toolbar__title" data-role="reader-title">{{ display_title or job.original_filename }}</div>
-      <button type="button" data-action="next">Next</button>
+      <div class="reader-toolbar__group">
+        <button type="button" data-action="prev">Previous</button>
+        <select data-role="reader-chapter" aria-label="Select chapter"></select>
+      </div>
+      <div class="reader-toolbar__title" data-role="reader-title">{{ display_title or job.original_filename }}</div>
+      <div class="reader-toolbar__group reader-toolbar__group--end">
+        <button type="button" data-action="next">Next</button>
+        <button
+          type="button"
+          class="reader-toolbar__icon"
+          data-action="toggle-chapters"
+          aria-label="Toggle chapter list"
+          aria-expanded="false"
+          aria-controls="reader-chapter-panel"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M4 7h16v2H4zm0 5h16v2H4zm0 5h16v2H4z" />
+          </svg>
+          <span class="visually-hidden">Toggle chapter list</span>
+        </button>
+      </div>
     </div>
     <div id="reader-container">
       <div id="reader-view" class="reader-view" tabindex="0" aria-label="Book reader"></div>
@@ -305,10 +417,23 @@
         </div>
       </div>
       {% endif %}
-      <div class="reader-chapter-links" data-role="chapter-links" aria-label="Chapters"></div>
       <div class="reader-status" data-role="reader-status" aria-live="polite">Loading EPUB…</div>
     </div>
   </div>
+  <aside class="reader-chapter-panel" data-role="chapter-panel" id="reader-chapter-panel" aria-hidden="true">
+    <div class="reader-chapter-panel__header">
+      <span class="reader-chapter-panel__title">Chapters</span>
+      <button type="button" class="reader-toolbar__icon" data-action="close-chapter-panel" aria-label="Close chapter list">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M6.2 5.2 5.2 6.2 11 12l-5.8 5.8 1 1L12 13l5.8 5.8 1-1L13 12l5.8-5.8-1-1L12 11 6.2 5.2z" />
+        </svg>
+        <span class="visually-hidden">Close chapter list</span>
+      </button>
+    </div>
+    <div class="reader-chapter-panel__body">
+      <div class="reader-chapter-links" data-role="chapter-links" aria-label="Chapters"></div>
+    </div>
+  </aside>
   <script type="application/json" id="reader-data">{{ {'chapters': chapters, 'title': display_title or job.original_filename, 'chapterTimings': chapter_timings}|tojson }}</script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
@@ -326,6 +451,9 @@
     const playerToggleBtn = document.querySelector('[data-action="player-toggle"]');
     const playbackRateSelect = document.querySelector('[data-role="playback-rate"]');
     const chapterLinksEl = document.querySelector('[data-role="chapter-links"]');
+    const chapterPanel = document.querySelector('[data-role="chapter-panel"]');
+    const chapterPanelToggleBtn = document.querySelector('[data-action="toggle-chapters"]');
+    const chapterPanelCloseBtn = document.querySelector('[data-action="close-chapter-panel"]');
     const bodyDataset = document.body.dataset;
     const assetBase = bodyDataset.assetBase || '';
     const epubUrl = bodyDataset.epubUrl || '';
@@ -770,6 +898,75 @@
     let scheduledSync = 0;
 
     let chapterLinkButtons = [];
+    let chapterPanelOpen = false;
+    let chapterPanelRestoreFocus = null;
+
+    const focusFirstChapterButton = () => {
+      if (!chapterPanelOpen || !chapterLinkButtons.length) {
+        return;
+      }
+      const firstInteractive = chapterLinkButtons.find((button) => button instanceof HTMLButtonElement && !button.disabled);
+      if (firstInteractive) {
+        try {
+          firstInteractive.focus({ preventScroll: true });
+        } catch (error) {
+          firstInteractive.focus();
+        }
+      }
+    };
+
+    const setChapterPanelOpen = (open) => {
+      if (!chapterPanel) {
+        chapterPanelOpen = false;
+        return;
+      }
+      chapterPanelOpen = Boolean(open);
+      chapterPanel.classList.toggle('is-open', chapterPanelOpen);
+      chapterPanel.setAttribute('aria-hidden', chapterPanelOpen ? 'false' : 'true');
+      if (chapterPanelToggleBtn) {
+        chapterPanelToggleBtn.setAttribute('aria-expanded', chapterPanelOpen ? 'true' : 'false');
+      }
+      if (!chapterPanelOpen && chapterPanelRestoreFocus && typeof chapterPanelRestoreFocus.focus === 'function') {
+        try {
+          chapterPanelRestoreFocus.focus({ preventScroll: true });
+        } catch (error) {
+          // ignore focus restoration failure
+        }
+      }
+      if (!chapterPanelOpen) {
+        chapterPanelRestoreFocus = null;
+      }
+    };
+
+    const openChapterPanel = () => {
+      if (!chapterPanel) {
+        return;
+      }
+      if (!chapterPanelOpen) {
+        const activeElement = document.activeElement;
+        if (activeElement instanceof HTMLElement && activeElement !== document.body) {
+          chapterPanelRestoreFocus = activeElement;
+        } else {
+          chapterPanelRestoreFocus = chapterPanelToggleBtn instanceof HTMLElement ? chapterPanelToggleBtn : null;
+        }
+      }
+      setChapterPanelOpen(true);
+      requestAnimationFrame(() => {
+        focusFirstChapterButton();
+      });
+    };
+
+    const closeChapterPanel = () => {
+      setChapterPanelOpen(false);
+    };
+
+    const toggleChapterPanel = () => {
+      if (chapterPanelOpen) {
+        closeChapterPanel();
+      } else {
+        openChapterPanel();
+      }
+    };
 
     const updateChapterLinkState = () => {
       if (!chapterLinkButtons.length) {
@@ -859,6 +1056,9 @@
         chapterLinkButtons.push(button);
       });
       updateChapterLinkState();
+      if (chapterPanelOpen) {
+        focusFirstChapterButton();
+      }
     };
 
     const updateStatus = () => {
@@ -913,6 +1113,12 @@
       if (titleEl) {
         const chapter = chapters[currentChapterIndex];
         titleEl.textContent = chapter?.title ? `${chapter.title} · ${baseTitle}` : baseTitle;
+      }
+      if (chapterPanelToggleBtn) {
+        chapterPanelToggleBtn.disabled = !hasChapters;
+        if (!hasChapters && chapterPanelOpen) {
+          closeChapterPanel();
+        }
       }
       updatePlaybackControls();
       updateChapterLinkState();
@@ -1677,6 +1883,50 @@
       updatePlaybackControls();
     });
 
+    chapterPanelToggleBtn?.addEventListener('click', (event) => {
+      event.preventDefault();
+      toggleChapterPanel();
+    });
+
+    chapterPanelCloseBtn?.addEventListener('click', (event) => {
+      event.preventDefault();
+      closeChapterPanel();
+      if (chapterPanelToggleBtn) {
+        try {
+          chapterPanelToggleBtn.focus({ preventScroll: true });
+        } catch (error) {
+          chapterPanelToggleBtn.focus();
+        }
+      }
+    });
+
+    const handleChapterPanelDismiss = (event) => {
+      if (!chapterPanelOpen || !chapterPanel) {
+        return;
+      }
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (chapterPanel.contains(target)) {
+        return;
+      }
+      if (chapterPanelToggleBtn && chapterPanelToggleBtn.contains(target)) {
+        return;
+      }
+      closeChapterPanel();
+    };
+
+    document.addEventListener('mousedown', handleChapterPanelDismiss);
+    document.addEventListener('touchstart', handleChapterPanelDismiss);
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && chapterPanelOpen) {
+        event.preventDefault();
+        closeChapterPanel();
+      }
+    });
+
     chapterLinksEl?.addEventListener('click', (event) => {
       const target = event.target instanceof Element ? event.target.closest('button[data-chapter-index]') : null;
       if (!(target instanceof HTMLButtonElement)) {
@@ -1688,7 +1938,11 @@
         return;
       }
       const shouldResume = audioEl ? !audioEl.paused : false;
-      navigateToChapter(idx, { preservePlayback: true, forcePlay: shouldResume });
+      navigateToChapter(idx, { preservePlayback: true, forcePlay: shouldResume }).finally(() => {
+        if (chapterPanelOpen) {
+          closeChapterPanel();
+        }
+      });
     });
 
     updatePlaybackControls();
