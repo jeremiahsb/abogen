@@ -148,6 +148,7 @@ def chunk_text(
                 voice_formula=voice_formula,
             ).as_dict()
             payload["normalized_text"] = _normalize_chunk_text(paragraph)
+            payload["original_text"] = paragraph
             chunks.append(payload)
         _attach_display_text(text, chunks)
         return chunks
@@ -177,6 +178,7 @@ def chunk_text(
             ).as_dict()
             payload["normalized_text"] = _normalize_chunk_text(raw_sentence)
             payload["display_text"] = raw_sentence
+            payload["original_text"] = raw_sentence
             chunks.append(payload)
             sentence_index += 1
 
@@ -221,9 +223,11 @@ def _attach_display_text(source: str, chunks: List[Dict[str, object]]) -> None:
             match = _search_source_span(source, candidate, 0)
         if match is None:
             chunk.setdefault("display_text", candidate)
+            chunk.setdefault("original_text", chunk.get("display_text") or candidate)
             continue
         start, end = match
         chunk["display_text"] = source[start:end]
+        chunk["original_text"] = source[start:end]
         cursor = end
 
 

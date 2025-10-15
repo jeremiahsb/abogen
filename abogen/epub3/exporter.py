@@ -243,7 +243,7 @@ class EPUB3PackageBuilder:
                 voice = marker.get("voice")
             else:
                 display_text = chunk_entry.get("display_text")
-                text = str(display_text or chunk_entry.get("text") or "")
+                text = str(chunk_entry.get("text") or "")
                 speaker_id = str(chunk_entry.get("speaker_id") or marker.get("speaker_id") or "narrator")
                 voice = chunk_entry.get("voice") or chunk_entry.get("resolved_voice") or marker.get("voice")
                 level = chunk_entry.get("level") or None
@@ -261,11 +261,15 @@ class EPUB3PackageBuilder:
             group_id = _derive_group_id(raw_group_key, level)
             normalized_group_id = _normalize_chunk_id(group_id) if group_id else None
 
+            original_text = None
+            if chunk_entry is not None:
+                original_text = chunk_entry.get("original_text") or chunk_entry.get("display_text")
+
             overlays.append(
                 ChunkOverlay(
                     id=normalized_id,
                     text=text or self.extraction.chapters[chapter_index].text,
-                    original_text=None,
+                    original_text=str(original_text) if original_text is not None else None,
                     start=_safe_float(marker.get("start")),
                     end=_safe_float(marker.get("end")),
                     speaker_id=speaker_id,
@@ -747,6 +751,10 @@ def _restore_original_chunk_text(chapter_text: str, overlays: List[ChunkOverlay]
 
     cursor = 0
     for chunk in overlays:
+        if chunk.original_text is not None:
+            prepared = _prepare_display_text(chunk.original_text)
+            chunk.text = prepared
+            continue
         candidate = chunk.text or ""
         if not candidate:
             continue

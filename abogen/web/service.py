@@ -1122,6 +1122,10 @@ class ConversionService:
             if normalized_value is not None:
                 chunk["normalized_text"] = str(normalized_value)
 
+            for text_key in ("display_text", "original_text"):
+                if text_key in entry and entry[text_key] is not None:
+                    chunk[text_key] = str(entry[text_key])
+
             speaker_value = entry.get("speaker_id", entry.get("speaker"))
             chunk["speaker_id"] = str(speaker_value) if speaker_value else "narrator"
 

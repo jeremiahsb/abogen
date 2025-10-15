@@ -59,6 +59,8 @@ def test_chunk_text_merges_title_abbreviations() -> None:
     assert "Doctor" in normalized_value
     display_value = str(chunk.get("display_text") or "")
     assert display_value.startswith("Dr.")
+    original_value = str(chunk.get("original_text") or "")
+    assert original_value.startswith("Dr.")
 
 
 def test_chunk_text_display_preserves_whitespace() -> None:
@@ -77,3 +79,5 @@ def test_chunk_text_display_preserves_whitespace() -> None:
     assert first_display.endswith("\n\n")
     second_display = str(chunks[1].get("display_text") or "")
     assert second_display == "Third paragraph."
+    first_original = str(chunks[0].get("original_text") or "")
+    assert first_original.endswith("\n\n")
