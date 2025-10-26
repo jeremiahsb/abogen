@@ -7,6 +7,7 @@ from typing import Pattern
 import re
 
 from abogen.kokoro_text_normalization import ApostropheConfig, normalize_for_pipeline
+from abogen.normalization_settings import build_apostrophe_config, get_runtime_settings
 
 ChunkLevel = Literal["paragraph", "sentence"]
 
@@ -78,7 +79,9 @@ def _normalize_whitespace(value: str) -> str:
 
 
 def _normalize_chunk_text(value: str) -> str:
-    normalized = normalize_for_pipeline(value, config=_PIPELINE_APOSTROPHE_CONFIG)
+    settings = get_runtime_settings()
+    config = build_apostrophe_config(settings=settings, base=_PIPELINE_APOSTROPHE_CONFIG)
+    normalized = normalize_for_pipeline(value, config=config, settings=settings)
     return _normalize_whitespace(normalized)
 
 

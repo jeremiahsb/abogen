@@ -21,6 +21,11 @@ import static_ffmpeg
 from abogen.constants import VOICES_INTERNAL
 from abogen.epub3.exporter import build_epub3_package
 from abogen.kokoro_text_normalization import ApostropheConfig, normalize_for_pipeline
+from abogen.normalization_settings import (
+    build_apostrophe_config,
+    build_llm_configuration,
+    get_runtime_settings,
+)
 from abogen.entity_analysis import normalize_token as normalize_entity_token
 from abogen.text_extractor import ExtractedChapter, extract_from_path
 from abogen.utils import (
@@ -34,6 +39,8 @@ from abogen.utils import (
 )
 from abogen.voice_cache import ensure_voice_assets
 from abogen.voice_formulas import extract_voice_ids, get_new_voice
+from abogen.pronunciation_store import increment_usage
+from abogen.llm_client import LLMClientError
 
 from .service import Job, JobStatus
 
@@ -460,17 +467,13 @@ def _merge_metadata(
 _APOSTROPHE_CONFIG = ApostropheConfig()
 
 
-def _normalize_for_pipeline(text: str) -> str:
-    return normalize_for_pipeline(text, config=_APOSTROPHE_CONFIG)
-
-
 def _compile_pronunciation_rules(
     overrides: Optional[Iterable[Mapping[str, Any]]],
-) -> List[tuple[re.Pattern[str], str]]:
+) -> List[Dict[str, Any]]:
     if not overrides:
         return []
 
-    candidates: List[tuple[str, str]] = []
+    candidates: List[Dict[str, Any]] = []
     seen: set[str] = set()
 
     for entry in overrides:
@@ -499,34 +502,64 @@ def _compile_pronunciation_rules(
         if not token_values:
             continue
 
+        usage_normalized = str(entry.get("normalized") or "").strip()
+        if not usage_normalized and token_values:
+            usage_normalized = normalize_entity_token(token_values[0]) or token_values[0]
+        usage_token = str(entry.get("token") or token_values[0])
+
         for token_value in token_values:
             key = token_value.casefold()
             if key in seen:
                 continue
             seen.add(key)
-            candidates.append((token_value, pronunciation_value))
+            candidates.append(
+                {
+                    "token": token_value,
+                    "normalized": usage_normalized,
+                    "replacement": pronunciation_value,
+                }
+            )
 
     if not candidates:
         return []
 
-    candidates.sort(key=lambda item: len(item[0]), reverse=True)
-    compiled: List[tuple[re.Pattern[str], str]] = []
-    for token_value, pronunciation_value in candidates:
+    candidates.sort(key=lambda item: len(item["token"]), reverse=True)
+    compiled: List[Dict[str, Any]] = []
+    for candidate in candidates:
+        token_value = candidate["token"]
+        pronunciation_value = candidate["replacement"]
         escaped = re.escape(token_value)
         pattern = re.compile(rf"(?i)(?<!\w){escaped}(?P<possessive>'s|\u2019s|\u2019)?(?!\w)")
-        compiled.append((pattern, pronunciation_value))
+        compiled.append(
+            {
+                "pattern": pattern,
+                "replacement": pronunciation_value,
+                "normalized": candidate.get("normalized") or token_value,
+                "token": candidate.get("token") or token_value,
+            }
+        )
 
     return compiled
 
 
-def _apply_pronunciation_rules(text: str, rules: List[tuple[re.Pattern[str], str]]) -> str:
+def _apply_pronunciation_rules(
+    text: str,
+    rules: List[Dict[str, Any]],
+    usage_counter: Optional[Dict[str, int]] = None,
+) -> str:
     if not text or not rules:
         return text
 
     result = text
-    for pattern, pronunciation_value in rules:
+    for rule in rules:
+        pattern = rule["pattern"]
+        pronunciation_value = rule["replacement"]
+        usage_key = str(rule.get("normalized") or "").strip()
+
         def _replacement(match: re.Match[str]) -> str:
             suffix = match.group("possessive") or ""
+            if usage_counter is not None and usage_key:
+                usage_counter[usage_key] = usage_counter.get(usage_key, 0) + 1
             return pronunciation_value + suffix
 
         result = pattern.sub(_replacement, result)
@@ -602,6 +635,25 @@ def _group_chunks_by_chapter(chunks: Iterable[Dict[str, Any]]) -> Dict[int, List
         items.sort(key=lambda payload: _safe_int(payload.get("chunk_index")))
 
     return grouped
+
+
+def _record_override_usage(
+    job: Job,
+    usage_counter: Mapping[str, int],
+    token_map: Mapping[str, str],
+) -> None:
+    if not usage_counter:
+        return
+
+    language = getattr(job, "language", "") or "a"
+    for normalized, amount in usage_counter.items():
+        if amount <= 0:
+            continue
+        token_value = token_map.get(normalized, normalized)
+        try:
+            increment_usage(language=language, token=token_value, amount=int(amount))
+        except Exception:  # pragma: no cover - defensive logging
+            job.add_log(f"Failed to record usage for override {token_value}", level="warning")
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -846,6 +898,19 @@ def run_conversion_job(job: Job) -> None:
     job.add_log("Preparing conversion pipeline")
     canceller = _make_canceller(job)
 
+    normalization_settings = get_runtime_settings()
+    apostrophe_config = build_apostrophe_config(
+        settings=normalization_settings,
+        base=_APOSTROPHE_CONFIG,
+    )
+    apostrophe_mode = str(normalization_settings.get("normalization_apostrophe_mode", "spacy")).lower()
+    if apostrophe_mode == "llm":
+        llm_config = build_llm_configuration(normalization_settings)
+        if not llm_config.is_configured():
+            raise RuntimeError(
+                "LLM-based apostrophe normalization is selected, but the LLM configuration is incomplete."
+            )
+
     sink_stack = ExitStack()
     subtitle_writer: Optional[SubtitleWriter] = None
     chapter_paths: list[Path] = []
@@ -857,6 +922,8 @@ def run_conversion_job(job: Job) -> None:
     pipeline: Any = None
     chunk_groups: Dict[int, List[Dict[str, Any]]] = {}
     active_chapter_configs: List[Dict[str, Any]] = []
+    usage_counter: Dict[str, int] = defaultdict(int)
+    override_token_map: Dict[str, str] = {}
     try:
         pipeline = _load_pipeline(job)
         _initialize_voice_cache(job)
@@ -869,6 +936,15 @@ def run_conversion_job(job: Job) -> None:
                 f"Applying {count} pronunciation override{'s' if count != 1 else ''} during conversion.",
                 level="debug",
             )
+        for override_entry in job.pronunciation_overrides or []:
+            if not isinstance(override_entry, Mapping):
+                continue
+            raw_token = str(override_entry.get("token") or "").strip()
+            normalized_value = str(override_entry.get("normalized") or "").strip()
+            if not normalized_value and raw_token:
+                normalized_value = normalize_entity_token(raw_token) or raw_token
+            if normalized_value:
+                override_token_map.setdefault(normalized_value, raw_token or normalized_value)
 
         if not job.chapters:
             filtered, skipped_info = _auto_select_relevant_chapters(extraction.chapters, file_type)
@@ -986,8 +1062,20 @@ def run_conversion_job(job: Job) -> None:
             nonlocal processed_chars, subtitle_index, current_time
             source_text = str(text or "")
             if pronunciation_rules:
-                source_text = _apply_pronunciation_rules(source_text, pronunciation_rules)
-            normalized = _normalize_for_pipeline(source_text)
+                source_text = _apply_pronunciation_rules(
+                    source_text,
+                    pronunciation_rules,
+                    usage_counter,
+                )
+            try:
+                normalized = normalize_for_pipeline(
+                    source_text,
+                    config=apostrophe_config,
+                    settings=normalization_settings,
+                )
+            except LLMClientError as exc:
+                job.add_log(f"LLM normalization failed: {exc}", level="error")
+                raise
             local_segments = 0
 
             for segment in pipeline(
@@ -1277,6 +1365,9 @@ def run_conversion_job(job: Job) -> None:
             "speakers": dict(getattr(job, "speakers", {}) or {}),
             "generate_epub3": job.generate_epub3,
         }
+
+        if usage_counter:
+            _record_override_usage(job, usage_counter, override_token_map)
 
         if metadata_dir:
             metadata_dir.mkdir(parents=True, exist_ok=True)

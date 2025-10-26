@@ -2,7 +2,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import Callable, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 try:  # pragma: no cover - optional dependency guard
     from num2words import num2words
 except Exception:  # pragma: no cover - graceful degradation
@@ -598,21 +598,152 @@ def apply_phoneme_hints(text: str, iz_marker="‹IZ›") -> str:
 DEFAULT_APOSTROPHE_CONFIG = ApostropheConfig()
 
 
-def normalize_for_pipeline(text: str, *, config: Optional[ApostropheConfig] = None) -> str:
-    """Normalize text for the synthesis pipeline.
+_MUSTACHE_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
+_LLM_SYSTEM_PROMPT = (
+    "You rewrite text for audiobook narration. Expand or clarify contractions and apostrophes "
+    "so the output is explicit and natural to read aloud. Respond with only the rewritten text."
+)
 
-    This expands contractions, normalizes apostrophes, and adds phoneme hints
-    using the provided configuration so downstream chunking and synthesis share
-    the same representation.
-    """
 
-    cfg = config or DEFAULT_APOSTROPHE_CONFIG
-    normalized, _details = normalize_apostrophes(text, cfg)
-    normalized = expand_titles_and_suffixes(normalized)
-    normalized = ensure_terminal_punctuation(normalized)
-    normalized = _normalize_grouped_numbers(normalized, cfg)
+def _render_mustache(template: str, context: Mapping[str, str]) -> str:
+    if not template:
+        return ""
+
+    def _replace(match: re.Match[str]) -> str:
+        key = match.group(1)
+        return context.get(key, "")
+
+    return _MUSTACHE_PATTERN.sub(_replace, template)
+
+
+_SENTENCE_CAPTURE_RE = re.compile(r"[^.!?]+[.!?]+|[^.!?]+$", re.MULTILINE)
+
+
+def _split_sentences_for_llm(text: str) -> List[str]:
+    sentences = [segment.strip() for segment in _SENTENCE_CAPTURE_RE.findall(text or "")]
+    return [segment for segment in sentences if segment]
+
+
+def _normalize_with_llm(
+    text: str,
+    *,
+    settings: Mapping[str, Any],
+    config: ApostropheConfig,
+) -> str:
+    from abogen.normalization_settings import build_llm_configuration, DEFAULT_LLM_PROMPT
+    from abogen.llm_client import generate_completion, LLMClientError
+
+    llm_config = build_llm_configuration(settings)
+    if not llm_config.is_configured():
+        raise LLMClientError("LLM configuration is incomplete")
+
+    prompt_template = str(settings.get("llm_prompt") or DEFAULT_LLM_PROMPT)
+    context_mode = str(settings.get("llm_context_mode") or "sentence").strip().lower()
+    lines = text.splitlines(keepends=True)
+    if not lines:
+        return text
+
+    normalized_lines: List[str] = []
+    for raw_line in lines:
+        newline = ""
+        if raw_line.endswith(("\r", "\n")):
+            stripped_newline = raw_line.rstrip("\r\n")
+            newline = raw_line[len(stripped_newline):]
+            line_body = stripped_newline
+        else:
+            line_body = raw_line
+
+        if not line_body.strip():
+            normalized_lines.append(line_body + newline)
+            continue
+
+        leading_ws = line_body[: len(line_body) - len(line_body.lstrip())]
+        trailing_ws = line_body[len(line_body.rstrip()):]
+        core = line_body[len(leading_ws) : len(line_body) - len(trailing_ws)]
+
+        paragraph_context = core
+        if context_mode == "sentence":
+            sentences = _split_sentences_for_llm(core)
+            if not sentences:
+                normalized_lines.append(line_body + newline)
+                continue
+            rewritten_sentences: List[str] = []
+            for sentence in sentences:
+                prompt_context = {
+                    "text": sentence,
+                    "sentence": sentence,
+                    "paragraph": paragraph_context,
+                }
+                prompt = _render_mustache(prompt_template, prompt_context)
+                completion = generate_completion(
+                    llm_config,
+                    system_message=_LLM_SYSTEM_PROMPT,
+                    user_message=prompt,
+                )
+                rewritten_sentences.append(completion.strip())
+            normalized_core = " ".join(filter(None, rewritten_sentences)) or core
+        else:
+            prompt_context = {
+                "text": core,
+                "sentence": core,
+                "paragraph": paragraph_context,
+            }
+            prompt = _render_mustache(prompt_template, prompt_context)
+            normalized_core = generate_completion(
+                llm_config,
+                system_message=_LLM_SYSTEM_PROMPT,
+                user_message=prompt,
+            ).strip() or core
+
+        rebuilt = f"{leading_ws}{normalized_core}{trailing_ws}{newline}"
+        normalized_lines.append(rebuilt)
+
+    result = "".join(normalized_lines)
+    return result if result else text
+
+
+def normalize_for_pipeline(
+    text: str,
+    *,
+    config: Optional[ApostropheConfig] = None,
+    settings: Optional[Mapping[str, Any]] = None,
+) -> str:
+    """Normalize text for the synthesis pipeline with runtime settings."""
+
+    from abogen.normalization_settings import build_apostrophe_config, get_runtime_settings
+    from abogen.llm_client import LLMClientError
+
+    runtime_settings = settings or get_runtime_settings()
+    base_config = config or DEFAULT_APOSTROPHE_CONFIG
+    cfg = build_apostrophe_config(settings=runtime_settings, base=base_config)
+
+    mode = str(runtime_settings.get("normalization_apostrophe_mode", "spacy")).lower()
+    normalized = text
+
+    if mode == "off":
+        normalized = normalize_unicode_apostrophes(text)
+        if cfg.convert_numbers:
+            normalized = _normalize_grouped_numbers(normalized, cfg)
+        normalized = _cleanup_spacing(normalized)
+    elif mode == "llm":
+        try:
+            normalized = _normalize_with_llm(text, settings=runtime_settings, config=cfg)
+        except LLMClientError:
+            raise
+        if cfg.convert_numbers:
+            normalized = _normalize_grouped_numbers(normalized, cfg)
+        normalized = _cleanup_spacing(normalized)
+    else:
+        normalized, _ = normalize_apostrophes(text, cfg)
+
+    if runtime_settings.get("normalization_titles", True):
+        normalized = expand_titles_and_suffixes(normalized)
+    if runtime_settings.get("normalization_terminal", True):
+        normalized = ensure_terminal_punctuation(normalized)
+
     if cfg.add_phoneme_hints:
         normalized = apply_phoneme_hints(normalized, iz_marker=cfg.sibilant_iz_marker)
+
     return normalized
 
 # ---------- Example Usage ----------

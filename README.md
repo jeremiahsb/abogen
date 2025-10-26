@@ -6,6 +6,7 @@ Abogen is a web-first text-to-speech workstation. Drop in an EPUB, PDF, Markdown
 - Natural-sounding speech powered by Kokoro-82M with per-job voice, speed, GPU toggle, and subtitle style controls
 - Clean dashboard that tracks the status, progress, and logs of every job in real time (thanks to htmx partial updates)
 - Automatic chapter detection and subtitle generation with SRT/ASS exports
+- LLM-assisted text normalization with live previews and configurable prompts
 - Runs well in Docker, ships a REST-style JSON API, and works across macOS, Linux, and Windows
 
 ## Quick start
@@ -55,6 +56,12 @@ Browse to http://localhost:8808. Uploaded source files are stored in `/data/uplo
 | `ABOGEN_TEMP_DIR` | `/data/cache` (Docker) or platform cache dir | Container path for temporary audio working files |
 | `ABOGEN_UID` | `1000` | UID that the container should run as (matches host user) |
 | `ABOGEN_GID` | `1000` | GID that the container should run as (matches host group) |
+| `ABOGEN_LLM_BASE_URL` | `""` | OpenAI-compatible endpoint used to seed the Settings → LLM panel |
+| `ABOGEN_LLM_API_KEY` | `""` | API key passed to the endpoint above |
+| `ABOGEN_LLM_MODEL` | `""` | Default model selected when you refresh the model list |
+| `ABOGEN_LLM_TIMEOUT` | `30` | Timeout (seconds) for server-side LLM requests |
+| `ABOGEN_LLM_CONTEXT_MODE` | `sentence` | Default prompt context window (`sentence`, `paragraph`, `document`) |
+| `ABOGEN_LLM_PROMPT` | `""` | Custom normalization prompt template seeded into the UI |
 
 Set any of these with `-e VAR=value` when starting the container.
 
@@ -123,6 +130,15 @@ Abogen falls back to CPU rendering if no GPU is available.
 
 Multiple jobs can run sequentially; the worker processes them in order.
 
+## LLM-assisted text normalization
+Abogen can hand tricky apostrophes and contractions to an OpenAI-compatible large language model. Configure it from **Settings → LLM**:
+
+1. Enter the base URL for your endpoint (Ollama, OpenAI proxy, etc.) and an API key if required.
+2. Click **Refresh models** to load the catalog, pick a default model, and adjust the timeout or prompt template.
+3. Use the preview box to test the prompt, then save the settings. The Normalization panel can synthesize a short audio preview with the current configuration.
+
+When you are running inside Docker or a CI pipeline, seed the form automatically with `ABOGEN_LLM_*` variables in your `.env` file. The `.env.example` file includes sample values for a local Ollama server.
+
 ## JSON endpoints
 Need machine-readable status updates? The dashboard calls a small set of helper endpoints you can reuse:
 - `GET /api/jobs/<id>` returns job metadata, progress, and log lines in JSON.
@@ -138,6 +154,7 @@ Most behaviour is controlled through the UI, but a few environment variables are
 - `ABOGEN_SETTINGS_DIR` – change where Abogen stores its JSON settings/configuration files.
 - `ABOGEN_TEMP_DIR` – change where temporary uploads and cache files are stored.
 - `ABOGEN_OUTPUT_DIR` – change where rendered audio/subtitles are written.
+- `ABOGEN_LLM_*` – seed the Settings → LLM panel with defaults for base URL, API key, model, timeout, prompt, and context mode.
 
 If unset, Abogen picks sensible defaults suitable for local usage.
 

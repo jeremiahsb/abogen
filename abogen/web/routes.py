@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import io
 import json
 import math
@@ -46,6 +47,17 @@ from abogen.constants import (
     VOICES_INTERNAL,
 )
 from abogen.kokoro_text_normalization import normalize_for_pipeline, normalize_roman_numeral_titles
+from abogen.normalization_settings import (
+    DEFAULT_LLM_PROMPT,
+    NORMALIZATION_SAMPLE_TEXTS,
+    apply_overrides as apply_normalization_overrides,
+    build_apostrophe_config,
+    build_llm_configuration,
+    clear_cached_settings,
+    environment_llm_defaults,
+    get_runtime_settings,
+)
+from abogen.llm_client import LLMClientError, LLMConfiguration, generate_completion, list_models
 from abogen.utils import (
     calculate_text_length,
     get_user_output_path,
@@ -1853,6 +1865,17 @@ SAVE_MODE_LABELS = {
 
 LEGACY_SAVE_MODE_MAP = {label: key for key, label in SAVE_MODE_LABELS.items()}
 
+_APOSTROPHE_MODE_OPTIONS = [
+    {"value": "off", "label": "Off"},
+    {"value": "spacy", "label": "spaCy (built-in)"},
+    {"value": "llm", "label": "LLM assisted"},
+]
+
+_LLM_CONTEXT_OPTIONS = [
+    {"value": "sentence", "label": "Sentence only"},
+    {"value": "paragraph", "label": "Sentence with paragraph context"},
+]
+
 BOOLEAN_SETTINGS = {
     "replace_single_newlines",
     "use_gpu",
@@ -1862,9 +1885,13 @@ BOOLEAN_SETTINGS = {
     "generate_epub3",
     "enable_entity_recognition",
     "auto_prefix_chapter_titles",
+    "normalization_numbers",
+    "normalization_titles",
+    "normalization_terminal",
+    "normalization_phoneme_hints",
 }
 
-FLOAT_SETTINGS = {"silence_between_chapters", "chapter_intro_delay"}
+FLOAT_SETTINGS = {"silence_between_chapters", "chapter_intro_delay", "llm_timeout"}
 INT_SETTINGS = {"max_subtitle_words", "speaker_analysis_threshold"}
 
 
@@ -1873,6 +1900,7 @@ def _has_output_override() -> bool:
 
 
 def _settings_defaults() -> Dict[str, Any]:
+    llm_env_defaults = environment_llm_defaults()
     return {
         "output_format": "wav",
         "subtitle_format": "srt",
@@ -1894,7 +1922,37 @@ def _settings_defaults() -> Dict[str, Any]:
         "speaker_analysis_threshold": _DEFAULT_ANALYSIS_THRESHOLD,
         "speaker_pronunciation_sentence": "This is {{name}} speaking.",
         "speaker_random_languages": [],
+    "llm_base_url": llm_env_defaults.get("llm_base_url", ""),
+    "llm_api_key": llm_env_defaults.get("llm_api_key", ""),
+    "llm_model": llm_env_defaults.get("llm_model", ""),
+    "llm_timeout": llm_env_defaults.get("llm_timeout", 30.0),
+    "llm_prompt": llm_env_defaults.get("llm_prompt", DEFAULT_LLM_PROMPT),
+    "llm_context_mode": llm_env_defaults.get("llm_context_mode", "sentence"),
+        "normalization_numbers": True,
+        "normalization_titles": True,
+        "normalization_terminal": True,
+        "normalization_phoneme_hints": True,
+        "normalization_apostrophe_mode": "spacy",
     }
+
+
+def _llm_ready(settings: Mapping[str, Any]) -> bool:
+    base_url = str(settings.get("llm_base_url") or "").strip()
+    return bool(base_url)
+
+
+_PROMPT_TOKEN_RE = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
+
+
+def _render_prompt_template(template: str, context: Mapping[str, str]) -> str:
+    if not template:
+        return ""
+
+    def _replace(match: re.Match[str]) -> str:
+        key = match.group(1)
+        return context.get(key, "")
+
+    return _PROMPT_TOKEN_RE.sub(_replace, template)
 
 
 def _coerce_bool(value: Any, default: bool) -> bool:
@@ -1959,6 +2017,23 @@ def _normalize_setting_value(key: str, value: Any, defaults: Dict[str, Any]) -> 
         if isinstance(value, str) and value in _CHUNK_LEVEL_VALUES:
             return value
         return defaults[key]
+    if key == "normalization_apostrophe_mode":
+        if isinstance(value, str):
+            normalized_mode = value.strip().lower()
+            if normalized_mode in {"off", "spacy", "llm"}:
+                return normalized_mode
+        return defaults[key]
+    if key == "llm_context_mode":
+        if isinstance(value, str):
+            normalized_scope = value.strip().lower()
+            if normalized_scope in {"sentence", "paragraph"}:
+                return normalized_scope
+        return defaults[key]
+    if key == "llm_prompt":
+        candidate = str(value or "").strip()
+        return candidate if candidate else defaults[key]
+    if key in {"llm_base_url", "llm_api_key", "llm_model"}:
+        return str(value or "").strip()
     if key == "speaker_random_languages":
         if isinstance(value, (list, tuple, set)):
             return [code for code in value if isinstance(code, str) and code in LANGUAGE_DESCRIPTIONS]
@@ -2100,6 +2175,68 @@ def _get_preview_pipeline(language: str, device: str):
         return pipeline
 
 
+def _synthesize_audio_from_normalized(
+    *,
+    normalized_text: str,
+    voice_spec: str,
+    language: str,
+    speed: float,
+    use_gpu: bool,
+    max_seconds: float,
+) -> np.ndarray:
+    if not normalized_text.strip():
+        raise ValueError("Preview text is required")
+
+    device = "cpu"
+    if use_gpu:
+        try:
+            device = _select_device()
+        except Exception:
+            device = "cpu"
+            use_gpu = False
+
+    pipeline = _get_preview_pipeline(language, device)
+    if pipeline is None:
+        raise RuntimeError("Preview pipeline is unavailable")
+
+    voice_choice: Any = voice_spec
+    if voice_spec and "*" in voice_spec:
+        voice_choice = get_new_voice(pipeline, voice_spec, use_gpu)
+
+    segments = pipeline(
+        normalized_text,
+        voice=voice_choice,
+        speed=speed,
+        split_pattern=SPLIT_PATTERN,
+    )
+
+    audio_chunks: List[np.ndarray] = []
+    accumulated = 0
+    max_samples = int(max(1.0, max_seconds) * SAMPLE_RATE)
+
+    for segment in segments:
+        graphemes = getattr(segment, "graphemes", "").strip()
+        if not graphemes:
+            continue
+        audio = _to_float32(getattr(segment, "audio", None))
+        if audio.size == 0:
+            continue
+        remaining = max_samples - accumulated
+        if remaining <= 0:
+            break
+        if audio.shape[0] > remaining:
+            audio = audio[:remaining]
+        audio_chunks.append(audio)
+        accumulated += audio.shape[0]
+        if accumulated >= max_samples:
+            break
+
+    if not audio_chunks:
+        raise RuntimeError("Preview could not be generated")
+
+    return np.concatenate(audio_chunks)
+
+
 @web_bp.app_template_filter("datetimeformat")
 def datetimeformat(value: float, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
     if not value:
@@ -2192,9 +2329,28 @@ def settings_page() -> ResponseReturnValue:
         ]
         updated["speaker_random_languages"] = random_languages
 
+        updated["llm_base_url"] = _normalize_setting_value(
+            "llm_base_url", form.get("llm_base_url"), defaults
+        )
+        updated["llm_api_key"] = _normalize_setting_value(
+            "llm_api_key", form.get("llm_api_key"), defaults
+        )
+        updated["llm_model"] = _normalize_setting_value("llm_model", form.get("llm_model"), defaults)
+        updated["llm_prompt"] = _normalize_setting_value("llm_prompt", form.get("llm_prompt"), defaults)
+        updated["llm_context_mode"] = _normalize_setting_value(
+            "llm_context_mode", form.get("llm_context_mode"), defaults
+        )
+        updated["llm_timeout"] = _normalize_setting_value("llm_timeout", form.get("llm_timeout"), defaults)
+        updated["normalization_apostrophe_mode"] = _normalize_setting_value(
+            "normalization_apostrophe_mode",
+            form.get("normalization_apostrophe_mode"),
+            defaults,
+        )
+
         cfg = load_config() or {}
         cfg.update(updated)
         save_config(cfg)
+        clear_cached_settings()
         return redirect(url_for("web.settings_page", saved="1"))
 
     save_locations = [
@@ -2206,8 +2362,172 @@ def settings_page() -> ResponseReturnValue:
         "save_locations": save_locations,
         "default_output_dir": get_user_output_path(),
         "saved": request.args.get("saved") == "1",
+        "apostrophe_modes": _APOSTROPHE_MODE_OPTIONS,
+        "llm_context_options": _LLM_CONTEXT_OPTIONS,
+        "llm_ready": _llm_ready(current_settings),
+        "normalization_samples": NORMALIZATION_SAMPLE_TEXTS,
     }
     return render_template("settings.html", **context)
+
+
+@api_bp.post("/llm/models")
+def api_llm_models() -> ResponseReturnValue:
+    payload = request.get_json(force=True, silent=False) or {}
+    current_settings = get_runtime_settings()
+
+    base_url = str(payload.get("base_url") or payload.get("llm_base_url") or current_settings.get("llm_base_url") or "").strip()
+    if not base_url:
+        return jsonify({"error": "LLM base URL is required."}), 400
+
+    api_key = str(payload.get("api_key") or payload.get("llm_api_key") or current_settings.get("llm_api_key") or "")
+    timeout = _coerce_float(payload.get("timeout"), current_settings.get("llm_timeout", 30.0))
+
+    overrides = {
+        "llm_base_url": base_url,
+        "llm_api_key": api_key,
+        "llm_timeout": timeout,
+    }
+
+    merged = apply_normalization_overrides(current_settings, overrides)
+    configuration = build_llm_configuration(merged)
+    try:
+        models = list_models(configuration)
+    except LLMClientError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"models": models})
+
+
+@api_bp.post("/llm/preview")
+def api_llm_preview() -> ResponseReturnValue:
+    payload = request.get_json(force=True, silent=False) or {}
+    sample_text = str(payload.get("text") or "").strip()
+    if not sample_text:
+        return jsonify({"error": "Text is required."}), 400
+
+    base_settings = get_runtime_settings()
+    overrides: Dict[str, Any] = {
+        "llm_base_url": str(
+            payload.get("base_url")
+            or payload.get("llm_base_url")
+            or base_settings.get("llm_base_url")
+            or ""
+        ).strip(),
+        "llm_api_key": str(
+            payload.get("api_key")
+            or payload.get("llm_api_key")
+            or base_settings.get("llm_api_key")
+            or ""
+        ),
+        "llm_model": str(
+            payload.get("model")
+            or payload.get("llm_model")
+            or base_settings.get("llm_model")
+            or ""
+        ),
+        "llm_prompt": payload.get("prompt") or payload.get("llm_prompt") or base_settings.get("llm_prompt"),
+        "llm_context_mode": payload.get("context_mode") or base_settings.get("llm_context_mode"),
+        "llm_timeout": _coerce_float(payload.get("timeout"), base_settings.get("llm_timeout", 30.0)),
+        "normalization_apostrophe_mode": "llm",
+    }
+
+    merged = apply_normalization_overrides(base_settings, overrides)
+    if not merged.get("llm_base_url"):
+        return jsonify({"error": "LLM base URL is required."}), 400
+    if not merged.get("llm_model"):
+        return jsonify({"error": "Select an LLM model before previewing."}), 400
+
+    apostrophe_config = build_apostrophe_config(settings=merged)
+    try:
+        normalized_text = normalize_for_pipeline(sample_text, config=apostrophe_config, settings=merged)
+    except LLMClientError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    context = {
+        "text": sample_text,
+        "normalized_text": normalized_text,
+    }
+    return jsonify(context)
+
+
+@api_bp.post("/normalization/preview")
+def api_normalization_preview() -> ResponseReturnValue:
+    payload = request.get_json(force=True, silent=False) or {}
+    sample_text = str(payload.get("text") or "").strip()
+    if not sample_text:
+        return jsonify({"error": "Sample text is required."}), 400
+
+    base_settings = get_runtime_settings()
+    normalization_payload = payload.get("normalization") or {}
+    overrides: Dict[str, Any] = {}
+
+    boolean_keys = (
+        "normalization_numbers",
+        "normalization_titles",
+        "normalization_terminal",
+        "normalization_phoneme_hints",
+    )
+    for key in boolean_keys:
+        if key in normalization_payload:
+            overrides[key] = _coerce_bool(normalization_payload.get(key), base_settings.get(key, True))
+    if "normalization_apostrophe_mode" in normalization_payload:
+        overrides["normalization_apostrophe_mode"] = normalization_payload.get("normalization_apostrophe_mode")
+
+    llm_payload = payload.get("llm") or {}
+    for field in ("llm_base_url", "llm_api_key", "llm_model", "llm_prompt", "llm_context_mode"):
+        if field in llm_payload:
+            overrides[field] = llm_payload[field]
+    if "llm_timeout" in llm_payload:
+        overrides["llm_timeout"] = llm_payload.get("llm_timeout")
+
+    merged = apply_normalization_overrides(base_settings, overrides)
+
+    apostrophe_config = build_apostrophe_config(settings=merged)
+    try:
+        normalized_text = normalize_for_pipeline(sample_text, config=apostrophe_config, settings=merged)
+    except LLMClientError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    voice_spec = str(payload.get("voice") or base_settings.get("default_voice") or "").strip()
+    if not voice_spec and VOICES_INTERNAL:
+        voice_spec = VOICES_INTERNAL[0]
+    language = str(payload.get("language") or base_settings.get("language") or "a").strip() or "a"
+    try:
+        speed = float(payload.get("speed", 1.0) or 1.0)
+    except (TypeError, ValueError):
+        speed = 1.0
+    try:
+        max_seconds = max(1.0, min(15.0, float(payload.get("max_seconds", 8.0) or 8.0)))
+    except (TypeError, ValueError):
+        max_seconds = 8.0
+
+    use_gpu_default = base_settings.get("use_gpu", True)
+    use_gpu = _coerce_bool(payload.get("use_gpu"), use_gpu_default)
+
+    try:
+        audio_data = _synthesize_audio_from_normalized(
+            normalized_text=normalized_text,
+            voice_spec=voice_spec,
+            language=language,
+            speed=speed,
+            use_gpu=use_gpu,
+            max_seconds=max_seconds,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    buffer = io.BytesIO()
+    sf.write(buffer, audio_data, SAMPLE_RATE, format="WAV")
+    audio_base64 = base64.b64encode(buffer.getvalue()).decode("ascii")
+
+    return jsonify(
+        {
+            "normalized_text": normalized_text,
+            "audio_base64": audio_base64,
+            "sample_rate": SAMPLE_RATE,
+        }
+    )
 
 
 @web_bp.get("/voices")
@@ -2365,6 +2685,69 @@ def entities_override_update() -> ResponseReturnValue:
     redirect_params["status"] = status_code
     redirect_params["token"] = token_value
     return redirect(url_for("web.entities_page", **redirect_params))
+
+
+@api_bp.post("/entities/preview")
+def api_entity_pronunciation_preview() -> ResponseReturnValue:
+    payload = request.get_json(force=True, silent=False) or {}
+    token = str(payload.get("token") or "").strip()
+    pronunciation = str(payload.get("pronunciation") or "").strip()
+    if not token and not pronunciation:
+        return jsonify({"error": "Provide a token or pronunciation to preview."}), 400
+
+    settings = _load_settings()
+    sample_template = settings.get("speaker_pronunciation_sentence", "This is {{name}} speaking.")
+    spoken_label = pronunciation or token or ""
+    preview_text = _render_prompt_template(sample_template, {"name": spoken_label, "token": token})
+    if not preview_text.strip():
+        preview_text = spoken_label or token
+    if not preview_text:
+        return jsonify({"error": "Unable to construct preview text."}), 400
+
+    runtime_settings = get_runtime_settings()
+    apostrophe_config = build_apostrophe_config(settings=runtime_settings)
+    try:
+        normalized_text = normalize_for_pipeline(preview_text, config=apostrophe_config, settings=runtime_settings)
+    except LLMClientError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    voice_spec = str(payload.get("voice") or settings.get("default_voice") or "").strip()
+    if not voice_spec and VOICES_INTERNAL:
+        voice_spec = VOICES_INTERNAL[0]
+
+    language = str(payload.get("language") or runtime_settings.get("language") or "a").strip() or "a"
+    use_gpu = runtime_settings.get("use_gpu", True)
+    max_seconds = 6.0
+    try:
+        preview_speed = float(payload.get("speed", 1.0) or 1.0)
+    except (TypeError, ValueError):
+        preview_speed = 1.0
+    try:
+        audio_data = _synthesize_audio_from_normalized(
+            normalized_text=normalized_text,
+            voice_spec=voice_spec,
+            language=language,
+            speed=preview_speed,
+            use_gpu=use_gpu,
+            max_seconds=max_seconds,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    buffer = io.BytesIO()
+    sf.write(buffer, audio_data, SAMPLE_RATE, format="WAV")
+    audio_base64 = base64.b64encode(buffer.getvalue()).decode("ascii")
+
+    return jsonify(
+        {
+            "text": preview_text,
+            "normalized_text": normalized_text,
+            "audio_base64": audio_base64,
+            "sample_rate": SAMPLE_RATE,
+        }
+    )
 
 
 @web_bp.route("/speakers", methods=["GET", "POST"])
