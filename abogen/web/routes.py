@@ -2025,7 +2025,7 @@ def _normalize_setting_value(key: str, value: Any, defaults: Dict[str, Any]) -> 
     if key == "llm_context_mode":
         if isinstance(value, str):
             normalized_scope = value.strip().lower()
-            if normalized_scope in {"sentence", "paragraph"}:
+            if normalized_scope == "sentence":
                 return normalized_scope
         return defaults[key]
     if key == "llm_prompt":

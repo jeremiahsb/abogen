@@ -16,6 +16,13 @@ DEFAULT_LLM_PROMPT = (
     "Sentence: {{ sentence }}"
 )
 
+_LEGACY_REWRITE_ONLY_PROMPT = (
+    "You are assisting with audiobook preparation. Rewrite the provided sentence so apostrophes and "
+    "contractions are unambiguous for text-to-speech. Respond with only the rewritten sentence.\n"
+    "Sentence: {{ sentence }}\n"
+    "Context: {{ paragraph }}"
+)
+
 _SETTINGS_DEFAULTS: Dict[str, Any] = {
     "llm_base_url": "",
     "llm_api_key": "",
@@ -67,7 +74,10 @@ def _environment_defaults() -> Dict[str, Any]:
 
 
 def environment_llm_defaults() -> Dict[str, Any]:
-    return dict(_environment_defaults())
+    defaults = dict(_environment_defaults())
+    if defaults:
+        _apply_llm_migrations(defaults)
+    return defaults
 
 
 def _coerce_bool(value: Any, default: bool) -> bool:
@@ -89,6 +99,16 @@ def _coerce_float(value: Any, default: float) -> float:
         return default
 
 
+def _apply_llm_migrations(settings: Dict[str, Any]) -> None:
+    prompt_value = str(settings.get("llm_prompt") or "")
+    if prompt_value.strip() == _LEGACY_REWRITE_ONLY_PROMPT.strip():
+        settings["llm_prompt"] = DEFAULT_LLM_PROMPT
+
+    context_mode = str(settings.get("llm_context_mode") or "").strip().lower()
+    if context_mode != "sentence":
+        settings["llm_context_mode"] = "sentence"
+
+
 def _extract_settings(source: Mapping[str, Any]) -> Dict[str, Any]:
     env_defaults = _environment_defaults()
     extracted: Dict[str, Any] = {}
@@ -105,6 +125,7 @@ def _extract_settings(source: Mapping[str, Any]) -> Dict[str, Any]:
             extracted[key] = _coerce_float(raw_value, default)
         else:
             extracted[key] = str(raw_value or "") if isinstance(default, str) else raw_value
+    _apply_llm_migrations(extracted)
     return extracted
 
 
@@ -148,4 +169,5 @@ def apply_overrides(base: Mapping[str, Any], overrides: Mapping[str, Any]) -> Di
         if key not in _SETTINGS_DEFAULTS:
             continue
         merged[key] = value
+    _apply_llm_migrations(merged)
     return merged

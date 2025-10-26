@@ -209,7 +209,7 @@
             <div class="field">
               <label for="llm_prompt">Prompt Template</label>
               <textarea id="llm_prompt" name="llm_prompt" rows="6">{{ settings.llm_prompt }}</textarea>
-              <p class="hint">Use placeholders like <code>{{ '{{sentence}}' }}</code> and <code>{{ '{{paragraph}}' }}</code> to inject content.</p>
+              <p class="hint">Use <code>{{ '{{sentence}}' }}</code> for the active sentence. <code>{{ '{{paragraph}}' }}</code> remains available for legacy prompts.</p>
             </div>
             <div class="field field--choices">
               <span class="field__label">Context Mode</span>

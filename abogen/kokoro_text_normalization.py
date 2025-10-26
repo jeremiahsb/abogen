@@ -727,12 +727,13 @@ def _normalize_with_llm(
             normalized_lines.append(line_body + newline)
             continue
 
+        paragraph_context = core
         rewritten_sentences: List[str] = []
         for sentence in sentences:
             prompt_context = {
                 "text": sentence,
                 "sentence": sentence,
-                "paragraph": sentence,
+                "paragraph": paragraph_context,
             }
             prompt = _render_mustache(prompt_template, prompt_context)
             completion = generate_completion(
