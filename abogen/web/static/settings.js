@@ -125,16 +125,36 @@ function updateModelOptions(models) {
     return;
   }
   const fragment = document.createDocumentFragment();
-  models.forEach((modelName) => {
+  let matchedCurrent = false;
+  models.forEach((entry) => {
+    let identifier = '';
+    let label = '';
+    if (typeof entry === 'string') {
+      identifier = entry;
+      label = entry;
+    } else if (entry && typeof entry === 'object') {
+      identifier = String(entry.id || entry.name || entry.label || '').trim();
+      label = String(entry.label || entry.name || identifier || '').trim();
+    }
+    if (!identifier) {
+      return;
+    }
+    if (!label) {
+      label = identifier;
+    }
     const option = document.createElement('option');
-    option.value = modelName;
-    option.textContent = modelName;
-    if (modelName === current) {
+    option.value = identifier;
+    option.textContent = label;
+    if (identifier === current) {
       option.selected = true;
+      matchedCurrent = true;
     }
     fragment.appendChild(option);
   });
   select.appendChild(fragment);
+  if (!matchedCurrent && select.options.length) {
+    select.selectedIndex = 0;
+  }
   select.dataset.currentModel = select.value || '';
   select.disabled = false;
 }

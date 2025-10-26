@@ -133,7 +133,7 @@ Multiple jobs can run sequentially; the worker processes them in order.
 ## LLM-assisted text normalization
 Abogen can hand tricky apostrophes and contractions to an OpenAI-compatible large language model. Configure it from **Settings → LLM**:
 
-1. Enter the base URL for your endpoint (Ollama, OpenAI proxy, etc.) and an API key if required.
+1. Enter the base URL for your endpoint (Ollama, OpenAI proxy, etc.) and an API key if required. Use the server root (for Ollama: `http://localhost:11434`)—Abogen appends `/v1/...` automatically, but it also accepts inputs that already end in `/v1`.
 2. Click **Refresh models** to load the catalog, pick a default model, and adjust the timeout or prompt template.
 3. Use the preview box to test the prompt, then save the settings. The Normalization panel can synthesize a short audio preview with the current configuration.
 

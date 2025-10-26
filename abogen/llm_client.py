@@ -38,7 +38,11 @@ def _normalized_base_url(base_url: str) -> str:
 
 def _build_url(base_url: str, path: str) -> str:
     normalized = _normalized_base_url(base_url)
-    return parse.urljoin(normalized, path.lstrip("/"))
+    trimmed_path = path.lstrip("/")
+    parsed = parse.urlparse(normalized)
+    if parsed.path.rstrip("/").lower().endswith("/v1") and trimmed_path.startswith("v1/"):
+        trimmed_path = trimmed_path[len("v1/"):]
+    return parse.urljoin(normalized, trimmed_path)
 
 
 def _build_headers(api_key: str) -> Dict[str, str]:
