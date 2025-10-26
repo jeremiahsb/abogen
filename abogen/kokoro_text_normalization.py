@@ -1,12 +1,17 @@
 from __future__ import annotations
+
+import json
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 try:  # pragma: no cover - optional dependency guard
     from num2words import num2words
 except Exception:  # pragma: no cover - graceful degradation
     num2words = None  # type: ignore
+
+if TYPE_CHECKING:  # pragma: no cover - type checking only
+    from abogen.llm_client import LLMCompletion
 
 # ---------- Configuration Dataclass ----------
 
@@ -600,9 +605,66 @@ DEFAULT_APOSTROPHE_CONFIG = ApostropheConfig()
 
 _MUSTACHE_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
 _LLM_SYSTEM_PROMPT = (
-    "You rewrite text for audiobook narration. Expand or clarify contractions and apostrophes "
-    "so the output is explicit and natural to read aloud. Respond with only the rewritten text."
+    "You assist with audiobook preparation. Review the sentence, identify any apostrophes or "
+    "contractions that should be expanded for clarity, and respond by calling the "
+    "apply_regex_replacements tool. Each replacement must target a single token, include a precise "
+    "regex pattern, and provide the exact replacement text. If no changes are required, call the tool "
+    "with an empty replacements list. Do not rewrite the sentence directly."
 )
+
+_LLM_REGEX_TOOL_NAME = "apply_regex_replacements"
+_LLM_REGEX_TOOL = {
+    "type": "function",
+    "function": {
+        "name": _LLM_REGEX_TOOL_NAME,
+        "description": (
+            "Return regex substitutions to normalize apostrophes or contractions in the provided sentence."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "replacements": {
+                    "description": "Ordered substitutions to apply to the sentence.",
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "pattern": {
+                                "type": "string",
+                                "description": "Regular expression that matches the token to replace.",
+                            },
+                            "replacement": {
+                                "type": "string",
+                                "description": "Replacement text for the match.",
+                            },
+                            "flags": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Optional re flags such as IGNORECASE.",
+                            },
+                            "count": {
+                                "type": "integer",
+                                "description": "Optional maximum number of replacements (default all).",
+                            },
+                            "reason": {
+                                "type": "string",
+                                "description": "Short explanation of why the replacement is needed.",
+                            },
+                        },
+                        "required": ["pattern", "replacement"],
+                    },
+                }
+            },
+            "required": ["replacements"],
+        },
+    },
+}
+_LLM_REGEX_TOOL_CHOICE = {"type": "function", "function": {"name": _LLM_REGEX_TOOL_NAME}}
+_LLM_ALLOWED_REGEX_FLAGS = {
+    "IGNORECASE": re.IGNORECASE,
+    "MULTILINE": re.MULTILINE,
+    "DOTALL": re.DOTALL,
+}
 
 
 def _render_mustache(template: str, context: Mapping[str, str]) -> str:
@@ -638,7 +700,6 @@ def _normalize_with_llm(
         raise LLMClientError("LLM configuration is incomplete")
 
     prompt_template = str(settings.get("llm_prompt") or DEFAULT_LLM_PROMPT)
-    context_mode = str(settings.get("llm_context_mode") or "sentence").strip().lower()
     lines = text.splitlines(keepends=True)
     if not lines:
         return text
@@ -661,45 +722,160 @@ def _normalize_with_llm(
         trailing_ws = line_body[len(line_body.rstrip()):]
         core = line_body[len(leading_ws) : len(line_body) - len(trailing_ws)]
 
-        paragraph_context = core
-        if context_mode == "sentence":
-            sentences = _split_sentences_for_llm(core)
-            if not sentences:
-                normalized_lines.append(line_body + newline)
-                continue
-            rewritten_sentences: List[str] = []
-            for sentence in sentences:
-                prompt_context = {
-                    "text": sentence,
-                    "sentence": sentence,
-                    "paragraph": paragraph_context,
-                }
-                prompt = _render_mustache(prompt_template, prompt_context)
-                completion = generate_completion(
-                    llm_config,
-                    system_message=_LLM_SYSTEM_PROMPT,
-                    user_message=prompt,
-                )
-                rewritten_sentences.append(completion.strip())
-            normalized_core = " ".join(filter(None, rewritten_sentences)) or core
-        else:
+        sentences = _split_sentences_for_llm(core)
+        if not sentences:
+            normalized_lines.append(line_body + newline)
+            continue
+
+        rewritten_sentences: List[str] = []
+        for sentence in sentences:
             prompt_context = {
-                "text": core,
-                "sentence": core,
-                "paragraph": paragraph_context,
+                "text": sentence,
+                "sentence": sentence,
+                "paragraph": sentence,
             }
             prompt = _render_mustache(prompt_template, prompt_context)
-            normalized_core = generate_completion(
+            completion = generate_completion(
                 llm_config,
                 system_message=_LLM_SYSTEM_PROMPT,
                 user_message=prompt,
-            ).strip() or core
+                tools=[_LLM_REGEX_TOOL],
+                tool_choice=_LLM_REGEX_TOOL_CHOICE,
+            )
+            rewritten_sentences.append(
+                _apply_llm_regex_replacements(sentence, completion)
+            )
+
+        normalized_core = " ".join(filter(None, rewritten_sentences)) or core
 
         rebuilt = f"{leading_ws}{normalized_core}{trailing_ws}{newline}"
         normalized_lines.append(rebuilt)
 
     result = "".join(normalized_lines)
     return result if result else text
+
+
+def _apply_llm_regex_replacements(sentence: str, completion: "LLMCompletion") -> str:
+    replacements = _extract_llm_replacements(completion)
+    if not replacements:
+        return sentence
+
+    updated = sentence
+    for spec in replacements:
+        updated = _apply_single_regex_replacement(updated, spec)
+    return updated
+
+
+def _extract_llm_replacements(completion: "LLMCompletion") -> List[Dict[str, Any]]:
+    if completion is None:
+        return []
+
+    for call in getattr(completion, "tool_calls", ()):  # type: ignore[attr-defined]
+        if getattr(call, "name", None) != _LLM_REGEX_TOOL_NAME:
+            continue
+        payload = _safe_load_json(getattr(call, "arguments", None))
+        replacements = _coerce_replacement_list(payload)
+        if replacements:
+            return replacements
+
+    if getattr(completion, "content", None):
+        payload = _safe_load_json(completion.content)
+        replacements = _coerce_replacement_list(payload)
+        if replacements:
+            return replacements
+
+    return []
+
+
+def _safe_load_json(raw: Optional[str]) -> Any:
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+
+def _coerce_replacement_list(raw: Any) -> List[Dict[str, Any]]:
+    if isinstance(raw, Mapping):
+        candidates = raw.get("replacements")
+    else:
+        candidates = raw
+
+    if not isinstance(candidates, list):
+        return []
+
+    replacements: List[Dict[str, Any]] = []
+    for item in candidates:
+        if not isinstance(item, Mapping):
+            continue
+        pattern = str(item.get("pattern") or "").strip()
+        if not pattern:
+            continue
+        replacement = str(item.get("replacement") or "")
+        entry: Dict[str, Any] = {"pattern": pattern, "replacement": replacement}
+
+        flags = _normalize_flag_field(item.get("flags"))
+        if flags:
+            entry["flags"] = flags
+
+        count = item.get("count")
+        if isinstance(count, int) and count >= 0:
+            entry["count"] = count
+
+        replacements.append(entry)
+
+    return replacements
+
+
+def _normalize_flag_field(raw: Any) -> List[str]:
+    if not raw:
+        return []
+
+    if isinstance(raw, str):
+        raw_iterable: Iterable[Any] = [raw]
+    elif isinstance(raw, Iterable) and not isinstance(raw, (bytes, str, Mapping)):
+        raw_iterable = raw
+    else:
+        return []
+
+    normalized: List[str] = []
+    seen: set[str] = set()
+    for value in raw_iterable:
+        candidate = str(value or "").strip().upper()
+        if not candidate or candidate not in _LLM_ALLOWED_REGEX_FLAGS or candidate in seen:
+            continue
+        seen.add(candidate)
+        normalized.append(candidate)
+    return normalized
+
+
+def _apply_single_regex_replacement(text: str, spec: Mapping[str, Any]) -> str:
+    pattern = str(spec.get("pattern") or "")
+    replacement = str(spec.get("replacement") or "")
+    if not pattern:
+        return text
+
+    flags_value = 0
+    flag_names = spec.get("flags")
+    if isinstance(flag_names, str):
+        flag_iterable: Iterable[Any] = [flag_names]
+    elif isinstance(flag_names, Iterable) and not isinstance(flag_names, (bytes, str, Mapping)):
+        flag_iterable = flag_names
+    else:
+        flag_iterable = []
+
+    for flag_name in flag_iterable:
+        lookup = str(flag_name or "").strip().upper()
+        flags_value |= _LLM_ALLOWED_REGEX_FLAGS.get(lookup, 0)
+
+    count = spec.get("count")
+    count_value = count if isinstance(count, int) and count >= 0 else 0
+
+    try:
+        return re.sub(pattern, replacement, text, count=count_value, flags=flags_value)
+    except re.error:
+        return text
 
 
 def normalize_for_pipeline(

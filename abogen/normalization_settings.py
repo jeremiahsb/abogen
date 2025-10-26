@@ -10,10 +10,10 @@ from abogen.llm_client import LLMConfiguration
 from abogen.utils import load_config
 
 DEFAULT_LLM_PROMPT = (
-    "You are assisting with audiobook preparation. Rewrite the provided sentence so apostrophes and "
-    "contractions are unambiguous for text-to-speech. Respond with only the rewritten sentence.\n"
-    "Sentence: {{ sentence }}\n"
-    "Context: {{ paragraph }}"
+    "You are assisting with audiobook preparation. Analyze the sentence and identify any apostrophes or "
+    "contractions that should be expanded for clarity. Call the apply_regex_replacements tool with precise "
+    "regex substitutions for only the words that need adjustment. If no changes are required, return an empty list.\n"
+    "Sentence: {{ sentence }}"
 )
 
 _SETTINGS_DEFAULTS: Dict[str, Any] = {

@@ -1873,7 +1873,6 @@ _APOSTROPHE_MODE_OPTIONS = [
 
 _LLM_CONTEXT_OPTIONS = [
     {"value": "sentence", "label": "Sentence only"},
-    {"value": "paragraph", "label": "Sentence with paragraph context"},
 ]
 
 BOOLEAN_SETTINGS = {
