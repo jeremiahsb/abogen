@@ -125,6 +125,13 @@
             </div>
             <div class="field field--stack">
               <label class="toggle-pill">
+                <input type="checkbox" name="read_title_intro" value="true" {% if settings.read_title_intro %}checked{% endif %}>
+                <span>Read Book Title Before Narration</span>
+              </label>
+              <p class="hint">When enabled, the narrator speaks the title, optional subtitle, and author names before chapter one.</p>
+            </div>
+            <div class="field field--stack">
+              <label class="toggle-pill">
                 <input type="checkbox" name="auto_prefix_chapter_titles" value="true" {% if settings.auto_prefix_chapter_titles %}checked{% endif %}>
                 <span>Add "Chapter" before numeric chapter titles</span>
               </label>

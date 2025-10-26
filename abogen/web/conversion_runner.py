@@ -130,11 +130,98 @@ def _strip_duplicate_heading_line(text: str, heading: str) -> tuple[str, bool]:
                 removed = True
                 continue
         new_lines.append(line)
-    if not removed:
-        return source_text, False
-    while new_lines and not new_lines[0].strip():
-        new_lines.pop(0)
-    return "\n".join(new_lines), True
+        if not removed:
+            return source_text, False
+        while new_lines and not new_lines[0].strip():
+            new_lines.pop(0)
+        return "\n".join(new_lines), True
+
+def _normalize_metadata_map(values: Optional[Mapping[str, Any]]) -> Dict[str, str]:
+    normalized: Dict[str, str] = {}
+    if not values:
+        return normalized
+    for key, value in values.items():
+        if value is None:
+            continue
+        text = str(value).strip()
+        if not text:
+            continue
+        normalized[str(key).casefold()] = text
+    return normalized
+
+
+def _format_author_sentence(raw: Optional[str]) -> str:
+    if raw is None:
+        return ""
+    normalized = str(raw).strip()
+    if not normalized:
+        return ""
+    lowered = normalized.casefold()
+    if lowered in {"unknown", "various"}:
+        return ""
+
+    working = normalized.replace("&", " and ")
+    segments = [segment.strip() for segment in working.split(",") if segment.strip()]
+    tokens: List[str] = []
+
+    if segments:
+        for segment in segments:
+            parts = [part.strip() for part in re.split(r"\band\b", segment, flags=re.IGNORECASE) if part.strip()]
+            if parts:
+                tokens.extend(parts)
+            else:
+                tokens.append(segment)
+    else:
+        parts = [part.strip() for part in re.split(r"\band\b", working, flags=re.IGNORECASE) if part.strip()]
+        tokens.extend(parts or [normalized])
+
+    cleaned = [token for token in tokens if token and token.casefold() not in {"unknown", "various"}]
+    if not cleaned:
+        return ""
+    if len(cleaned) == 1:
+        return f"By {cleaned[0]}"
+    if len(cleaned) == 2:
+        return f"By {cleaned[0]} and {cleaned[1]}"
+    return f"By {', '.join(cleaned[:-1])}, and {cleaned[-1]}"
+
+
+def _ensure_sentence(text: str) -> str:
+    cleaned = text.strip()
+    if not cleaned:
+        return ""
+    if cleaned[-1] in ".!?":
+        return cleaned
+    return f"{cleaned}."
+
+
+def _build_title_intro_text(
+    metadata: Optional[Mapping[str, Any]],
+    fallback_basename: str,
+) -> str:
+    normalized = _normalize_metadata_map(metadata)
+    fallback_title = Path(fallback_basename).stem if fallback_basename else ""
+    title = normalized.get("title") or normalized.get("book_title") or normalized.get("album") or fallback_title
+    if not title:
+        title = fallback_title
+    subtitle = normalized.get("subtitle") or normalized.get("sub_title")
+    if subtitle and title and subtitle.casefold() == title.casefold():
+        subtitle = ""
+    author_value = ""
+    for candidate in ("artist", "album_artist", "author", "authors", "writer", "composer"):
+        value = normalized.get(candidate)
+        if value:
+            author_value = value
+            break
+
+    sentences: List[str] = []
+    if title:
+        sentences.append(_ensure_sentence(title))
+    if subtitle:
+        sentences.append(_ensure_sentence(subtitle))
+    author_sentence = _format_author_sentence(author_value)
+    if author_sentence:
+        sentences.append(_ensure_sentence(author_sentence))
+    return " ".join(sentences).strip()
 
 
 def _spec_to_voice_ids(spec: Any) -> Set[str]:
@@ -1050,6 +1137,16 @@ def run_conversion_job(job: Job) -> None:
             }
         job.add_log(f"Detected {total_chapters} chapter{'s' if total_chapters != 1 else ''}")
         auto_prefix_titles = getattr(job, "auto_prefix_chapter_titles", True)
+        read_title_intro = getattr(job, "read_title_intro", False)
+        book_intro_text = ""
+        if read_title_intro:
+            book_intro_text = _build_title_intro_text(job.metadata_tags, job.original_filename)
+            if book_intro_text:
+                preview = book_intro_text if len(book_intro_text) <= 120 else f"{book_intro_text[:117]}…"
+                job.add_log(f"Title intro enabled: {preview}", level="debug")
+            else:
+                job.add_log("Title intro enabled but no usable metadata was found.", level="debug")
+        intro_emitted = False
 
         def emit_text(
             text: str,
@@ -1191,6 +1288,21 @@ def run_conversion_job(job: Job) -> None:
                 if speak_heading and first_line:
                     if _headings_equivalent(first_line, heading_text) or (raw_title and _headings_equivalent(first_line, raw_title)):
                         remove_heading_from_body = True
+
+                if not intro_emitted and book_intro_text:
+                    intro_segments = emit_text(
+                        book_intro_text,
+                        voice_choice=voice_choice,
+                        chapter_sink=chapter_sink,
+                        preview_prefix="Book intro",
+                    )
+                    intro_emitted = True
+                    if intro_segments > 0 and job.chapter_intro_delay > 0:
+                        append_silence(
+                            job.chapter_intro_delay,
+                            include_in_chapter=True,
+                            chapter_sink=chapter_sink,
+                        )
 
                 if speak_heading:
                     heading_segments = emit_text(

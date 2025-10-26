@@ -24,6 +24,7 @@
         <li><strong>Separate chapter format:</strong> {{ job.separate_chapters_format|upper }}</li>
         <li><strong>Silence between chapters:</strong> {{ '%.1f'|format(job.silence_between_chapters) }}s</li>
         <li><strong>Chapter intro delay:</strong> {{ '%.1f'|format(job.chapter_intro_delay) }}s</li>
+  <li><strong>Title intro:</strong> {{ 'Yes' if job.read_title_intro else 'No' }}</li>
     <li><strong>Prefix chapter titles:</strong> {{ 'Yes' if job.auto_prefix_chapter_titles else 'No' }}</li>
         <li><strong>Max words per subtitle:</strong> {{ job.max_subtitle_words }}</li>
         <li><strong>Project folder:</strong> {{ 'Yes' if job.save_as_project else 'No' }}</li>

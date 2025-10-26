@@ -25,6 +25,7 @@
     <input type="hidden" name="chunk_level" value="{{ pending.chunk_level }}">
     <input type="hidden" name="speaker_analysis_threshold" value="{{ pending.speaker_analysis_threshold }}">
     <input type="hidden" name="chapter_intro_delay" value="{{ '%.2f'|format(pending.chapter_intro_delay) }}">
+    <input type="hidden" name="read_title_intro" value="{{ 'true' if pending.read_title_intro else 'false' }}">
     {% if pending.generate_epub3 %}
       <input type="hidden" name="generate_epub3" value="true">
     {% endif %}

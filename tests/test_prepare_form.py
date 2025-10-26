@@ -32,6 +32,7 @@ def _make_pending_job() -> PendingJob:
         metadata_tags={},
         chapters=[],
         created_at=0.0,
+        read_title_intro=False,
     )
 
 

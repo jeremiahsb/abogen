@@ -1528,6 +1528,21 @@ def _apply_prepare_form(
         else:
             pending.chapter_intro_delay = 0.0
 
+    intro_values: List[str] = []
+    getter = getattr(form, "getlist", None)
+    if callable(getter):
+        raw_intro_values = getter("read_title_intro")
+        if raw_intro_values:
+            intro_values = list(cast(Iterable[str], raw_intro_values))
+    else:
+        raw_intro = form.get("read_title_intro")
+        if raw_intro is not None:
+            intro_values = [raw_intro]
+    if intro_values:
+        pending.read_title_intro = _coerce_bool(intro_values[-1], pending.read_title_intro)
+    elif hasattr(form, "__contains__") and "read_title_intro" in form:
+        pending.read_title_intro = False
+
     overrides: List[Dict[str, Any]] = []
     selected_total = 0
 
@@ -1635,6 +1650,24 @@ def _apply_book_step_form(
             pending.chapter_intro_delay = max(0.0, float(str(raw_delay).strip() or 0.0))
         except ValueError:
             pass
+
+    intro_default = pending.read_title_intro if isinstance(pending.read_title_intro, bool) else bool(settings.get("read_title_intro", False))
+    intro_values: List[str] = []
+    getter = getattr(form, "getlist", None)
+    if callable(getter):
+        raw_intro_values = getter("read_title_intro")
+        if raw_intro_values:
+            intro_values = list(cast(Iterable[str], raw_intro_values))
+    else:
+        raw_intro_flag = form.get("read_title_intro")
+        if raw_intro_flag is not None:
+            intro_values = [raw_intro_flag]
+    if intro_values:
+        pending.read_title_intro = _coerce_bool(intro_values[-1], intro_default)
+    elif hasattr(form, "__contains__") and "read_title_intro" in form:
+        pending.read_title_intro = False
+    else:
+        pending.read_title_intro = intro_default
 
     speed_value = form.get("speed")
     if speed_value is not None:
@@ -1883,6 +1916,7 @@ BOOLEAN_SETTINGS = {
     "save_as_project",
     "generate_epub3",
     "enable_entity_recognition",
+    "read_title_intro",
     "auto_prefix_chapter_titles",
     "normalization_numbers",
     "normalization_titles",
@@ -1913,6 +1947,7 @@ def _settings_defaults() -> Dict[str, Any]:
         "separate_chapters_format": "wav",
         "silence_between_chapters": 2.0,
         "chapter_intro_delay": 0.5,
+    "read_title_intro": False,
         "max_subtitle_words": 50,
         "chunk_level": "paragraph",
         "enable_entity_recognition": True,
@@ -3375,6 +3410,7 @@ def enqueue_job() -> ResponseReturnValue:
     separate_chapters_format = settings["separate_chapters_format"]
     silence_between_chapters = settings["silence_between_chapters"]
     chapter_intro_delay = settings["chapter_intro_delay"]
+    read_title_intro = settings["read_title_intro"]
     max_subtitle_words = settings["max_subtitle_words"]
     auto_prefix_chapter_titles = settings["auto_prefix_chapter_titles"]
 
@@ -3442,6 +3478,7 @@ def enqueue_job() -> ResponseReturnValue:
         cover_image_path=cover_path,
         cover_image_mime=cover_mime,
         chapter_intro_delay=chapter_intro_delay,
+    read_title_intro=bool(read_title_intro),
         auto_prefix_chapter_titles=bool(auto_prefix_chapter_titles),
         chunk_level=chunk_level_value,
         speaker_mode=speaker_mode_value,
@@ -3722,6 +3759,7 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
         cover_image_path=pending.cover_image_path,
         cover_image_mime=pending.cover_image_mime,
         chapter_intro_delay=pending.chapter_intro_delay,
+    read_title_intro=pending.read_title_intro,
         auto_prefix_chapter_titles=getattr(pending, "auto_prefix_chapter_titles", True),
         chunk_level=pending.chunk_level,
         chunks=processed_chunks,

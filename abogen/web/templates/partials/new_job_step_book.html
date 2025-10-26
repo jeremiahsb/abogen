@@ -55,6 +55,16 @@
     {% set chapter_delay_value = settings_dict.get('chapter_intro_delay', 0.5) %}
   {% endif %}
 {% endif %}
+{% set read_intro_value = form_values.get('read_title_intro') if form_values else None %}
+{% if read_intro_value is not none %}
+  {% set read_title_intro = ((read_intro_value|string)|lower) in ['true', '1', 'yes', 'on'] %}
+{% else %}
+  {% if pending is not none %}
+    {% set read_title_intro = pending.read_title_intro %}
+  {% else %}
+    {% set read_title_intro = settings_dict.get('read_title_intro', False) %}
+  {% endif %}
+{% endif %}
 {% set selected_config = form_values.get('speaker_config') if form_values else None %}
 {% if selected_config is none %}
   {% if pending and pending.applied_speaker_config %}
@@ -264,6 +274,14 @@
           <label for="chapter_intro_delay">Pause after chapter titles (seconds)</label>
           <input type="number" step="0.1" min="0" id="chapter_intro_delay" name="chapter_intro_delay" value="{{ '%.2f'|format(chapter_delay_value|float if chapter_delay_value is not none else 0.5) }}" {{ 'disabled' if readonly else '' }}>
           <p class="hint">Set to 0 to disable the pause after speaking each chapter title.</p>
+        </div>
+        <div class="field field--stack">
+          <label class="toggle-pill">
+            <input type="hidden" name="read_title_intro" value="false">
+            <input type="checkbox" name="read_title_intro" value="true" {% if read_title_intro %}checked{% endif %} {{ 'disabled' if readonly else '' }}>
+            <span>Read title and authors before narration</span>
+          </label>
+          <p class="hint">When enabled, the narrator speaks the book title and author list before chapter one begins.</p>
         </div>
       </div>
     </section>
