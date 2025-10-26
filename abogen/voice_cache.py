@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 from typing import Callable, Dict, Iterable, Optional, Set, Tuple
 
@@ -53,6 +54,11 @@ def ensure_voice_assets(
     if hf_hub_download is None:
         raise RuntimeError("huggingface_hub is required to cache voices")
 
+    effective_cache_dir = cache_dir
+    if effective_cache_dir is None:
+        env_cache_dir = os.environ.get("ABOGEN_VOICE_CACHE_DIR", "").strip()
+        effective_cache_dir = env_cache_dir or None
+
     targets = _normalize_targets(voices)
     if not targets:
         return set(), {}
@@ -70,7 +76,7 @@ def ensure_voice_assets(
             downloaded_flag = _ensure_single_voice_asset(
                 voice_id,
                 repo_id=repo_id,
-                cache_dir=cache_dir,
+                cache_dir=effective_cache_dir,
             )
         except Exception as exc:  # pragma: no cover - network variance
             errors[voice_id] = str(exc)

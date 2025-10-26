@@ -47,8 +47,11 @@ VOLUME ["/data"]
 
 ENV ABOGEN_UPLOAD_ROOT=/data/uploads \
   ABOGEN_OUTPUT_ROOT=/data/outputs \
-  ABOGEN_TEMP_DIR=/data/cache
+  ABOGEN_TEMP_DIR=/data/cache \
+  ABOGEN_VOICE_CACHE_DIR=/data/voice-cache \
+  HF_HOME=/data/huggingface \
+  HUGGINGFACE_HUB_CACHE=/data/huggingface/hub
 
-RUN mkdir -p /data/uploads /data/outputs /data/cache
+RUN mkdir -p /data/uploads /data/outputs /data/cache /data/voice-cache /data/huggingface
 
 CMD ["abogen"]

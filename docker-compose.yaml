@@ -23,6 +23,9 @@ services:
       ABOGEN_OUTPUT_DIR: "/data/outputs"
       ABOGEN_OUTPUT_ROOT: "/data/outputs"
       ABOGEN_TEMP_DIR: "/data/cache"
+      ABOGEN_VOICE_CACHE_DIR: "/data/voice-cache"
+      HF_HOME: "/data/huggingface"
+      HUGGINGFACE_HUB_CACHE: "/data/huggingface/hub"
       HOME: "/tmp/abogen-home"
     # --- GPU support -----------------------------------------------------
     # These settings assume the NVIDIA Container Toolkit is installed.
