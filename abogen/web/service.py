@@ -24,7 +24,7 @@ def _create_set_event() -> threading.Event:
     return event
 
 
-STATE_VERSION = 7
+STATE_VERSION = 8
 
 
 _JOB_LOGGER = logging.getLogger("abogen.jobs")
@@ -107,6 +107,7 @@ class Job:
     chapter_intro_delay: float = 0.5
     read_title_intro: bool = False
     auto_prefix_chapter_titles: bool = True
+    normalize_chapter_opening_caps: bool = True
     status: JobStatus = JobStatus.PENDING
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
@@ -175,6 +176,7 @@ class Job:
                 "chapter_intro_delay": self.chapter_intro_delay,
                 "read_title_intro": getattr(self, "read_title_intro", False),
                 "auto_prefix_chapter_titles": getattr(self, "auto_prefix_chapter_titles", True),
+                "normalize_chapter_opening_caps": getattr(self, "normalize_chapter_opening_caps", True),
             },
             "metadata_tags": dict(self.metadata_tags),
             "chapters": [
@@ -239,6 +241,7 @@ class PendingJob:
     chapter_intro_delay: float = 0.5
     read_title_intro: bool = False
     auto_prefix_chapter_titles: bool = True
+    normalize_chapter_opening_caps: bool = True
     chunk_level: str = "paragraph"
     chunks: List[Dict[str, Any]] = field(default_factory=list)
     speakers: Dict[str, Any] = field(default_factory=dict)
@@ -320,6 +323,7 @@ class ConversionService:
             chapter_intro_delay: float = 0.5,
             read_title_intro: bool = False,
             auto_prefix_chapter_titles: bool = True,
+            normalize_chapter_opening_caps: bool = True,
         chunk_level: str = "paragraph",
         chunks: Optional[Iterable[Any]] = None,
         speakers: Optional[Mapping[str, Any]] = None,
@@ -368,6 +372,7 @@ class ConversionService:
             chapter_intro_delay=chapter_intro_delay,
             read_title_intro=bool(read_title_intro),
             auto_prefix_chapter_titles=bool(auto_prefix_chapter_titles),
+            normalize_chapter_opening_caps=bool(normalize_chapter_opening_caps),
             chunk_level=chunk_level,
             chunks=normalized_chunks,
             speakers=dict(speakers or {}),
@@ -524,6 +529,7 @@ class ConversionService:
                 chapter_intro_delay=job.chapter_intro_delay,
                 read_title_intro=job.read_title_intro,
                 auto_prefix_chapter_titles=job.auto_prefix_chapter_titles,
+                normalize_chapter_opening_caps=job.normalize_chapter_opening_caps,
                 chunk_level=job.chunk_level,
                 chunks=job.chunks,
                 speakers=job.speakers,
@@ -751,6 +757,7 @@ class ConversionService:
             "chapter_intro_delay": job.chapter_intro_delay,
             "read_title_intro": job.read_title_intro,
             "auto_prefix_chapter_titles": job.auto_prefix_chapter_titles,
+            "normalize_chapter_opening_caps": job.normalize_chapter_opening_caps,
             "chunk_level": job.chunk_level,
             "chunks": [dict(entry) for entry in job.chunks],
             "speakers": dict(job.speakers),
@@ -844,6 +851,7 @@ class ConversionService:
             chapter_intro_delay=float(payload.get("chapter_intro_delay", 0.5)),
             read_title_intro=bool(payload.get("read_title_intro", False)),
             auto_prefix_chapter_titles=bool(payload.get("auto_prefix_chapter_titles", True)),
+            normalize_chapter_opening_caps=bool(payload.get("normalize_chapter_opening_caps", True)),
         )
         job.status = JobStatus(payload.get("status", job.status.value))
         job.started_at = payload.get("started_at")
@@ -898,7 +906,8 @@ class ConversionService:
         except Exception:
             return
 
-        if payload.get("version") != STATE_VERSION:
+        version = int(payload.get("version", 0) or 0)
+        if version not in {STATE_VERSION, STATE_VERSION - 1}:
             return
 
         jobs_payload = payload.get("jobs", [])

@@ -33,6 +33,7 @@ def _make_pending_job() -> PendingJob:
         chapters=[],
         created_at=0.0,
         read_title_intro=False,
+        normalize_chapter_opening_caps=True,
     )
 
 

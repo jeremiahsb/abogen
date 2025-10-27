@@ -132,6 +132,13 @@
             </div>
             <div class="field field--stack">
               <label class="toggle-pill">
+                <input type="checkbox" name="normalize_chapter_opening_caps" value="true" {% if settings.normalize_chapter_opening_caps %}checked{% endif %}>
+                <span>Normalize ALL CAPS Chapter Openings</span>
+              </label>
+              <p class="hint">Converts screaming uppercase openings to sentence case while preserving acronyms.</p>
+            </div>
+            <div class="field field--stack">
+              <label class="toggle-pill">
                 <input type="checkbox" name="auto_prefix_chapter_titles" value="true" {% if settings.auto_prefix_chapter_titles %}checked{% endif %}>
                 <span>Add "Chapter" before numeric chapter titles</span>
               </label>

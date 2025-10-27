@@ -75,6 +75,37 @@ def _coerce_truthy(value: Any, default: bool = True) -> bool:
 
 _HEADING_SANITIZE_RE = re.compile(r"[^a-z0-9]+")
 _HEADING_NUMBER_PREFIX_RE = re.compile(r"^\s*(?P<number>(?:\d+|[ivxlcdm]+))(?P<suffix>(?:[\s.:;-].*)?)$", re.IGNORECASE)
+_ACRONYM_ALLOWLIST = {
+    "AI",
+    "API",
+    "CPU",
+    "DIY",
+    "GPU",
+    "HTML",
+    "HTTP",
+    "HTTPS",
+    "ID",
+    "JSON",
+    "MP3",
+    "MP4",
+    "M4B",
+    "NASA",
+    "OCR",
+    "PDF",
+    "SQL",
+    "TV",
+    "TTS",
+    "UK",
+    "UN",
+    "UFO",
+    "OK",
+    "URL",
+    "USA",
+    "US",
+    "VR",
+}
+_ROMAN_NUMERAL_CHARS = frozenset("IVXLCDM")
+_CAPS_WORD_RE = re.compile(r"[A-Z][A-Z0-9'\u2019-]*")
 
 
 def _simplify_heading_text(text: str) -> str:
@@ -130,11 +161,95 @@ def _strip_duplicate_heading_line(text: str, heading: str) -> tuple[str, bool]:
                 removed = True
                 continue
         new_lines.append(line)
-        if not removed:
-            return source_text, False
-        while new_lines and not new_lines[0].strip():
-            new_lines.pop(0)
-        return "\n".join(new_lines), True
+    if not removed:
+        return source_text, False
+    while new_lines and not new_lines[0].strip():
+        new_lines.pop(0)
+    return "\n".join(new_lines), True
+
+
+def _normalize_caps_word(word: str) -> str:
+    upper = word.upper()
+    letters = [char for char in upper if char.isalpha()]
+    if not letters:
+        return word
+    if upper in _ACRONYM_ALLOWLIST:
+        return word
+    if len(letters) <= 1:
+        return word
+    if all(char in _ROMAN_NUMERAL_CHARS for char in letters) and len(letters) <= 7:
+        return word
+
+    parts = re.split(r"(['\-\u2019])", word)
+    normalized_parts: List[str] = []
+    for part in parts:
+        if part in {"'", "-", "\u2019"}:
+            normalized_parts.append(part)
+            continue
+        if not part:
+            continue
+        normalized_parts.append(part[0].upper() + part[1:].lower())
+    return "".join(normalized_parts) or word
+
+
+def _normalize_chapter_opening_caps(text: str) -> tuple[str, bool]:
+    if not text:
+        return text, False
+
+    leading_len = len(text) - len(text.lstrip())
+    leading = text[:leading_len]
+    working = text[leading_len:]
+    if not working:
+        return text, False
+
+    builder: List[str] = []
+    pos = 0
+    changed = False
+
+    while pos < len(working):
+        char = working[pos]
+        if char in "\r\n":
+            builder.append(working[pos:])
+            pos = len(working)
+            break
+        if char.isspace():
+            builder.append(char)
+            pos += 1
+            continue
+        if char.islower():
+            builder.append(working[pos:])
+            pos = len(working)
+            break
+        if not char.isalpha():
+            builder.append(char)
+            pos += 1
+            continue
+
+        match = _CAPS_WORD_RE.match(working, pos)
+        if not match:
+            builder.append(char)
+            pos += 1
+            continue
+
+        word = match.group(0)
+        if any(ch.islower() for ch in word):
+            builder.append(working[pos:])
+            pos = len(working)
+            break
+
+        normalized = _normalize_caps_word(word)
+        if normalized != word:
+            changed = True
+        builder.append(normalized)
+        pos = match.end()
+
+    if pos < len(working):
+        builder.append(working[pos:])
+
+    if not changed:
+        return text, False
+
+    return leading + "".join(builder), True
 
 def _normalize_metadata_map(values: Optional[Mapping[str, Any]]) -> Dict[str, str]:
     normalized: Dict[str, str] = {}
@@ -1247,6 +1362,7 @@ def run_conversion_job(job: Job) -> None:
             heading_text = spoken_title or raw_title
             chapter_display_title = heading_text or f"Chapter {idx}"
             job.add_log(f"Processing chapter {idx}/{total_chapters}: {chapter_display_title}")
+            normalize_opening_caps = bool(getattr(job, "normalize_chapter_opening_caps", True))
 
             chapter_start_time = current_time
             chapter_override = (
@@ -1323,6 +1439,8 @@ def run_conversion_job(job: Job) -> None:
                 chunks_for_chapter = chunk_groups.get(idx - 1, []) if chunk_groups else []
                 body_segments = 0
                 pending_heading_strip = remove_heading_from_body
+                opening_caps_pending = normalize_opening_caps
+                opening_caps_logged = False
                 if chunks_for_chapter:
                     job.add_log(
                         f"Emitting {len(chunks_for_chapter)} {job.chunk_level} chunks for chapter {idx}.",
@@ -1337,14 +1455,33 @@ def run_conversion_job(job: Job) -> None:
                     if not chunk_text:
                         continue
 
+                    mutated_entry = False
                     if pending_heading_strip and heading_text:
                         chunk_text, removed_heading = _strip_duplicate_heading_line(chunk_text, heading_text)
                         if removed_heading:
                             pending_heading_strip = False
                             chunk_entry = dict(chunk_entry)
                             chunk_entry["normalized_text"] = chunk_text
+                            mutated_entry = True
                             if not chunk_text.strip():
                                 continue
+
+                    if opening_caps_pending and chunk_text:
+                        normalized_text, normalized_changed = _normalize_chapter_opening_caps(chunk_text)
+                        if normalized_changed:
+                            if not mutated_entry:
+                                chunk_entry = dict(chunk_entry)
+                                mutated_entry = True
+                            chunk_entry["normalized_text"] = normalized_text
+                            chunk_text = normalized_text
+                            if not opening_caps_logged:
+                                job.add_log(
+                                    f"Normalized uppercase chapter opening for chapter {idx}.",
+                                    level="debug",
+                                )
+                                opening_caps_logged = True
+                        if chunk_text.strip():
+                            opening_caps_pending = False
 
                     chunk_voice_spec = _chunk_voice_spec(
                         job,
@@ -1396,11 +1533,23 @@ def run_conversion_job(job: Job) -> None:
 
                 if body_segments == 0:
                     chapter_body_start = current_time
-                    chapter_text = chapter.text
+                    chapter_text = str(chapter.text or "")
                     if pending_heading_strip and heading_text:
                         chapter_text, removed_heading = _strip_duplicate_heading_line(chapter_text, heading_text)
                         if removed_heading:
                             pending_heading_strip = False
+                    if opening_caps_pending and chapter_text:
+                        normalized_body, normalized_changed = _normalize_chapter_opening_caps(chapter_text)
+                        if normalized_changed:
+                            chapter_text = normalized_body
+                            if not opening_caps_logged:
+                                job.add_log(
+                                    f"Normalized uppercase chapter opening for chapter {idx}.",
+                                    level="debug",
+                                )
+                                opening_caps_logged = True
+                        if str(chapter_text or "").strip():
+                            opening_caps_pending = False
                     emitted = emit_text(
                         chapter_text,
                         voice_choice=voice_choice,
@@ -1418,7 +1567,7 @@ def run_conversion_job(job: Job) -> None:
                                 "speaker_id": "narrator",
                                 "voice": chapter_voice_spec,
                                 "level": job.chunk_level,
-                                "characters": len(chapter.text or ""),
+                                "characters": len(chapter_text or ""),
                             }
                         )
                     elif chunks_for_chapter:

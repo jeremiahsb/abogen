@@ -1543,6 +1543,22 @@ def _apply_prepare_form(
     elif hasattr(form, "__contains__") and "read_title_intro" in form:
         pending.read_title_intro = False
 
+    caps_values: List[str] = []
+    if callable(getter):
+        raw_caps_values = getter("normalize_chapter_opening_caps")
+        if raw_caps_values:
+            caps_values = list(cast(Iterable[str], raw_caps_values))
+    else:
+        raw_caps = form.get("normalize_chapter_opening_caps")
+        if raw_caps is not None:
+            caps_values = [raw_caps]
+    if caps_values:
+        pending.normalize_chapter_opening_caps = _coerce_bool(
+            caps_values[-1], getattr(pending, "normalize_chapter_opening_caps", True)
+        )
+    elif hasattr(form, "__contains__") and "normalize_chapter_opening_caps" in form:
+        pending.normalize_chapter_opening_caps = False
+
     overrides: List[Dict[str, Any]] = []
     selected_total = 0
 
@@ -1668,6 +1684,28 @@ def _apply_book_step_form(
         pending.read_title_intro = False
     else:
         pending.read_title_intro = intro_default
+
+    caps_default = (
+        pending.normalize_chapter_opening_caps
+        if isinstance(getattr(pending, "normalize_chapter_opening_caps", None), bool)
+        else bool(settings.get("normalize_chapter_opening_caps", True))
+    )
+    caps_values: List[str] = []
+    getter = getattr(form, "getlist", None)
+    if callable(getter):
+        raw_caps_values = getter("normalize_chapter_opening_caps")
+        if raw_caps_values:
+            caps_values = list(cast(Iterable[str], raw_caps_values))
+    else:
+        raw_caps_flag = form.get("normalize_chapter_opening_caps")
+        if raw_caps_flag is not None:
+            caps_values = [raw_caps_flag]
+    if caps_values:
+        pending.normalize_chapter_opening_caps = _coerce_bool(caps_values[-1], caps_default)
+    elif hasattr(form, "__contains__") and "normalize_chapter_opening_caps" in form:
+        pending.normalize_chapter_opening_caps = False
+    else:
+        pending.normalize_chapter_opening_caps = caps_default
 
     speed_value = form.get("speed")
     if speed_value is not None:
@@ -1918,6 +1956,7 @@ BOOLEAN_SETTINGS = {
     "enable_entity_recognition",
     "read_title_intro",
     "auto_prefix_chapter_titles",
+    "normalize_chapter_opening_caps",
     "normalization_numbers",
     "normalization_titles",
     "normalization_terminal",
@@ -1947,7 +1986,8 @@ def _settings_defaults() -> Dict[str, Any]:
         "separate_chapters_format": "wav",
         "silence_between_chapters": 2.0,
         "chapter_intro_delay": 0.5,
-    "read_title_intro": False,
+        "read_title_intro": False,
+        "normalize_chapter_opening_caps": True,
         "max_subtitle_words": 50,
         "chunk_level": "paragraph",
         "enable_entity_recognition": True,
@@ -3411,6 +3451,7 @@ def enqueue_job() -> ResponseReturnValue:
     silence_between_chapters = settings["silence_between_chapters"]
     chapter_intro_delay = settings["chapter_intro_delay"]
     read_title_intro = settings["read_title_intro"]
+    normalize_chapter_opening_caps = settings["normalize_chapter_opening_caps"]
     max_subtitle_words = settings["max_subtitle_words"]
     auto_prefix_chapter_titles = settings["auto_prefix_chapter_titles"]
 
@@ -3478,7 +3519,8 @@ def enqueue_job() -> ResponseReturnValue:
         cover_image_path=cover_path,
         cover_image_mime=cover_mime,
         chapter_intro_delay=chapter_intro_delay,
-    read_title_intro=bool(read_title_intro),
+        read_title_intro=bool(read_title_intro),
+        normalize_chapter_opening_caps=bool(normalize_chapter_opening_caps),
         auto_prefix_chapter_titles=bool(auto_prefix_chapter_titles),
         chunk_level=chunk_level_value,
         speaker_mode=speaker_mode_value,
@@ -3759,7 +3801,8 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
         cover_image_path=pending.cover_image_path,
         cover_image_mime=pending.cover_image_mime,
         chapter_intro_delay=pending.chapter_intro_delay,
-    read_title_intro=pending.read_title_intro,
+        read_title_intro=pending.read_title_intro,
+        normalize_chapter_opening_caps=getattr(pending, "normalize_chapter_opening_caps", True),
         auto_prefix_chapter_titles=getattr(pending, "auto_prefix_chapter_titles", True),
         chunk_level=pending.chunk_level,
         chunks=processed_chunks,
