@@ -265,6 +265,7 @@ const handleWizardRedirect = (payload) => {
   modal.hidden = true;
   delete modal.dataset.open;
   document.body.classList.remove("modal-open");
+  resetWizardToInitial();
   dispatchWizardEvent(modal, "done", { redirectUrl: payload.redirect_url });
   if (payload.redirect_url) {
     window.location.assign(payload.redirect_url);
