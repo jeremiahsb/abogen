@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 import threading
@@ -14,8 +15,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Mapping
 
-from abogen.utils import get_internal_cache_path, get_user_settings_dir
+from abogen.utils import get_internal_cache_path, get_user_settings_dir, load_config
 from abogen.voice_cache import bootstrap_voice_cache
+from abogen.integrations.audiobookshelf import (
+    AudiobookshelfClient,
+    AudiobookshelfConfig,
+    AudiobookshelfUploadError,
+)
 
 
 def _create_set_event() -> threading.Event:
@@ -44,6 +50,9 @@ _JOB_LEVEL_MAP: Dict[str, int] = {
     "debug": logging.DEBUG,
     "trace": logging.DEBUG,
 }
+
+
+_PEOPLE_SPLIT_RE = re.compile(r"[;,/&]|\band\b", re.IGNORECASE)
 
 
 def _emit_job_log(job_id: str, level: str, message: str) -> None:
@@ -208,6 +217,193 @@ class Job:
             "manual_overrides": [dict(entry) for entry in self.manual_overrides],
             "pronunciation_overrides": [dict(entry) for entry in self.pronunciation_overrides],
         }
+
+
+def _normalize_metadata_casefold(values: Optional[Mapping[str, Any]]) -> Dict[str, str]:
+    normalized: Dict[str, str] = {}
+    if not values:
+        return normalized
+    for key, value in values.items():
+        if value is None:
+            continue
+        key_text = str(key).strip().lower()
+        if not key_text:
+            continue
+        text = str(value).strip()
+        if text:
+            normalized[key_text] = text
+    return normalized
+
+
+def _split_people_field(raw: Any) -> List[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, (list, tuple, set)):
+        results: List[str] = []
+        for item in raw:
+            results.extend(_split_people_field(item))
+        return results
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    tokens = [_token.strip() for _token in _PEOPLE_SPLIT_RE.split(text) if _token.strip()]
+    seen: set[str] = set()
+    ordered: List[str] = []
+    for token in tokens:
+        key = token.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(token)
+    return ordered
+
+
+_LIST_SPLIT_RE = re.compile(r"[;,\n]")
+
+
+def _split_simple_list(raw: Any) -> List[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, (list, tuple, set)):
+        results: List[str] = []
+        for item in raw:
+            results.extend(_split_simple_list(item))
+        return results
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    tokens = [_token.strip() for _token in _LIST_SPLIT_RE.split(text) if _token.strip()]
+    seen: set[str] = set()
+    ordered: List[str] = []
+    for token in tokens:
+        key = token.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(token)
+    return ordered
+
+
+def _first_nonempty(*values: Optional[str]) -> Optional[str]:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
+def _extract_year(raw: Optional[str]) -> Optional[int]:
+    if not raw:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    match = re.search(r"(19|20)\d{2}", text)
+    if match:
+        try:
+            return int(match.group(0))
+        except ValueError:
+            return None
+    try:
+        parsed = int(text)
+    except ValueError:
+        return None
+    if 0 < parsed < 3000:
+        return parsed
+    return None
+
+
+def _build_audiobookshelf_metadata(job: Job) -> Dict[str, Any]:
+    tags = _normalize_metadata_casefold(job.metadata_tags)
+    filename = Path(job.original_filename or "").stem or job.original_filename or "Audiobook"
+    title = _first_nonempty(
+        tags.get("title"),
+        tags.get("book_title"),
+        tags.get("name"),
+        tags.get("album"),
+        filename,
+    )
+    authors = _split_people_field(
+        tags.get("authors")
+        or tags.get("author")
+        or tags.get("album_artist")
+        or tags.get("artist")
+    )
+    narrators = _split_people_field(tags.get("narrators") or tags.get("narrator"))
+    description = _first_nonempty(tags.get("description"), tags.get("summary"), tags.get("comment"))
+    genres = _split_simple_list(tags.get("genre"))
+    keywords = _split_simple_list(tags.get("tags") or tags.get("keywords"))
+    language = _first_nonempty(tags.get("language"), tags.get("lang")) or job.language or ""
+    series_name = _first_nonempty(tags.get("series"), tags.get("series_name"))
+    series_sequence = _first_nonempty(tags.get("series_index"), tags.get("series_position"))
+    data: Dict[str, Any] = {
+        "title": title,
+        "authors": authors,
+        "narrators": narrators,
+        "description": description,
+        "genres": genres,
+        "tags": keywords,
+        "language": language,
+        "publishedYear": _extract_year(tags.get("published") or tags.get("publication_year") or tags.get("date") or tags.get("year")),
+        "seriesName": series_name,
+        "seriesSequence": series_sequence,
+        "isbn": _first_nonempty(tags.get("isbn"), tags.get("asin")),
+    }
+    # Remove empty values
+    cleaned: Dict[str, Any] = {}
+    for key, value in data.items():
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        if isinstance(value, (list, tuple)) and not value:
+            continue
+        cleaned[key] = value
+    return cleaned
+
+
+def _load_audiobookshelf_chapters(job: Job) -> Optional[List[Dict[str, Any]]]:
+    metadata_ref = job.result.artifacts.get("metadata")
+    if not metadata_ref:
+        return None
+    metadata_path = metadata_ref if isinstance(metadata_ref, Path) else Path(str(metadata_ref))
+    if not metadata_path.exists():
+        return None
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    chapters = payload.get("chapters")
+    if not isinstance(chapters, list):
+        return None
+    cleaned: List[Dict[str, Any]] = []
+    for entry in chapters:
+        if not isinstance(entry, Mapping):
+            continue
+        title = _first_nonempty(entry.get("title"), entry.get("original_title"))
+        start = entry.get("start")
+        end = entry.get("end")
+        if title is None or not isinstance(start, (int, float)):
+            continue
+        chapter_payload: Dict[str, Any] = {
+            "title": title,
+            "start": float(start),
+        }
+        if isinstance(end, (int, float)):
+            chapter_payload["end"] = float(end)
+        cleaned.append(chapter_payload)
+    return cleaned or None
+
+
+def _existing_paths(paths: Iterable[Any]) -> List[Path]:
+    resolved: List[Path] = []
+    for item in paths:
+        candidate = item if isinstance(item, Path) else Path(str(item))
+        if candidate.exists():
+            resolved.append(candidate)
+    return resolved
 
 
 @dataclass
@@ -683,6 +879,7 @@ class ConversionService:
             elif job.status != JobStatus.FAILED:
                 job.status = JobStatus.COMPLETED
                 job.add_log("Job completed", level="success")
+                self._post_completion_hooks(job)
             job.finished_at = time.time()
         finally:
             job.pause_event.set()
@@ -702,6 +899,79 @@ class ConversionService:
         if job_id in self._queue:
             self._queue.remove(job_id)
         self._update_queue_positions_locked()
+
+    def _post_completion_hooks(self, job: Job) -> None:
+        try:
+            self._maybe_send_to_audiobookshelf(job)
+        except AudiobookshelfUploadError as exc:
+            job.add_log(f"Audiobookshelf upload failed: {exc}", level="error")
+        except Exception as exc:  # pragma: no cover - defensive guard
+            job.add_log(f"Audiobookshelf integration error: {exc}", level="error")
+
+    def _maybe_send_to_audiobookshelf(self, job: Job) -> None:
+        cfg = load_config() or {}
+        integration_cfg = cfg.get("audiobookshelf")
+        if not isinstance(integration_cfg, Mapping):
+            return
+        enabled = self._coerce_bool(integration_cfg.get("enabled"), False)
+        auto_send = self._coerce_bool(integration_cfg.get("auto_send"), False)
+        if not (enabled and auto_send):
+            return
+
+        base_url = str(integration_cfg.get("base_url") or "").strip()
+        api_token = str(integration_cfg.get("api_token") or "").strip()
+        library_id = str(integration_cfg.get("library_id") or "").strip()
+        if not base_url or not api_token or not library_id:
+            job.add_log(
+                "Audiobookshelf upload skipped: configure base URL, API token, and library ID first.",
+                level="warning",
+            )
+            return
+
+        audio_ref = job.result.audio_path
+        audio_path = audio_ref if isinstance(audio_ref, Path) else Path(str(audio_ref)) if audio_ref else None
+        if not audio_path or not audio_path.exists():
+            job.add_log("Audiobookshelf upload skipped: audio output not found.", level="warning")
+            return
+
+        timeout_raw = integration_cfg.get("timeout", 30.0)
+        try:
+            timeout_value = float(timeout_raw)
+        except (TypeError, ValueError):
+            timeout_value = 30.0
+
+        config = AudiobookshelfConfig(
+            base_url=base_url,
+            api_token=api_token,
+            library_id=library_id,
+            collection_id=(str(integration_cfg.get("collection_id") or "").strip() or None),
+            verify_ssl=self._coerce_bool(integration_cfg.get("verify_ssl"), True),
+            send_cover=self._coerce_bool(integration_cfg.get("send_cover"), True),
+            send_chapters=self._coerce_bool(integration_cfg.get("send_chapters"), True),
+            send_subtitles=self._coerce_bool(integration_cfg.get("send_subtitles"), False),
+            timeout=timeout_value,
+        )
+
+        cover_ref = job.cover_image_path
+        cover_path = None
+        if config.send_cover and cover_ref:
+            cover_candidate = cover_ref if isinstance(cover_ref, Path) else Path(str(cover_ref))
+            if cover_candidate.exists():
+                cover_path = cover_candidate
+
+        subtitles = _existing_paths(job.result.subtitle_paths) if config.send_subtitles else None
+        chapters = _load_audiobookshelf_chapters(job) if config.send_chapters else None
+        metadata = _build_audiobookshelf_metadata(job)
+
+        client = AudiobookshelfClient(config)
+        client.upload_audiobook(
+            audio_path,
+            metadata=metadata,
+            cover_path=cover_path,
+            chapters=chapters,
+            subtitles=subtitles,
+        )
+        job.add_log("Audiobookshelf upload queued.", level="info")
 
     # Persistence ------------------------------------------------------
     def _serialize_job(self, job: Job) -> Dict[str, Any]:

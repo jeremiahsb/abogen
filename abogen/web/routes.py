@@ -15,6 +15,7 @@ import zipfile
 from datetime import datetime
 from html.parser import HTMLParser
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Set, Tuple, cast
 from xml.etree import ElementTree as ET
 
@@ -35,6 +36,7 @@ from flask.typing import ResponseReturnValue
 import numpy as np
 import soundfile as sf
 
+from werkzeug.datastructures import MultiDict
 from werkzeug.utils import secure_filename
 
 from abogen.chunking import ChunkLevel, build_chunks_for_chapters
@@ -103,6 +105,7 @@ from abogen.speaker_configs import (
     slugify_label,
 )
 from abogen.text_extractor import extract_from_path
+from abogen.integrations.calibre_opds import CalibreOPDSClient, CalibreOPDSError, feed_to_dict
 from .conversion_runner import SPLIT_PATTERN, SAMPLE_RATE, _select_device, _to_float32
 from .service import ConversionService, Job, JobStatus, PendingJob
 
@@ -1967,6 +1970,31 @@ FLOAT_SETTINGS = {"silence_between_chapters", "chapter_intro_delay", "llm_timeou
 INT_SETTINGS = {"max_subtitle_words", "speaker_analysis_threshold"}
 
 
+def _integration_defaults() -> Dict[str, Dict[str, Any]]:
+    return {
+        "calibre_opds": {
+            "enabled": False,
+            "base_url": "",
+            "username": "",
+            "password": "",
+            "verify_ssl": True,
+        },
+        "audiobookshelf": {
+            "enabled": False,
+            "base_url": "",
+            "api_token": "",
+            "library_id": "",
+            "collection_id": "",
+            "verify_ssl": True,
+            "send_cover": True,
+            "send_chapters": True,
+            "send_subtitles": False,
+            "auto_send": False,
+            "timeout": 30.0,
+        },
+    }
+
+
 def _has_output_override() -> bool:
     return bool(os.environ.get("ABOGEN_OUTPUT_DIR") or os.environ.get("ABOGEN_OUTPUT_ROOT"))
 
@@ -2126,6 +2154,102 @@ def _load_settings() -> Dict[str, Any]:
         raw_value = cfg.get(key, default)
         settings[key] = _normalize_setting_value(key, raw_value, defaults)
     return settings
+
+
+def _load_integration_settings() -> Dict[str, Dict[str, Any]]:
+    defaults = _integration_defaults()
+    cfg = load_config() or {}
+    integrations: Dict[str, Dict[str, Any]] = {}
+    for key, default in defaults.items():
+        stored = cfg.get(key)
+        merged: Dict[str, Any] = dict(default)
+        if isinstance(stored, Mapping):
+            for field, default_value in default.items():
+                value = stored.get(field, default_value)
+                if isinstance(default_value, bool):
+                    merged[field] = _coerce_bool(value, default_value)
+                elif isinstance(default_value, float):
+                    try:
+                        merged[field] = float(value)
+                    except (TypeError, ValueError):
+                        merged[field] = default_value
+                elif isinstance(default_value, int):
+                    try:
+                        merged[field] = int(value)
+                    except (TypeError, ValueError):
+                        merged[field] = default_value
+                else:
+                    merged[field] = str(value or "")
+        if key == "calibre_opds":
+            merged["has_password"] = bool(isinstance(stored, Mapping) and stored.get("password"))
+            merged["password"] = ""
+        elif key == "audiobookshelf":
+            merged["has_api_token"] = bool(isinstance(stored, Mapping) and stored.get("api_token"))
+            merged["api_token"] = ""
+        integrations[key] = merged
+    return integrations
+
+
+def _apply_integration_form(cfg: Dict[str, Any], form: Mapping[str, Any]) -> None:
+    defaults = _integration_defaults()
+
+    current_calibre = dict(cfg.get("calibre_opds") or {})
+    calibre_enabled = _coerce_bool(form.get("calibre_opds_enabled"), False)
+    calibre_base = str(form.get("calibre_opds_base_url") or current_calibre.get("base_url") or "").strip()
+    calibre_username = str(form.get("calibre_opds_username") or current_calibre.get("username") or "").strip()
+    calibre_password_input = str(form.get("calibre_opds_password") or "")
+    calibre_clear = _coerce_bool(form.get("calibre_opds_password_clear"), False)
+    if calibre_password_input:
+        calibre_password = calibre_password_input
+    elif calibre_clear:
+        calibre_password = ""
+    else:
+        calibre_password = str(current_calibre.get("password") or "")
+    calibre_verify = _coerce_bool(form.get("calibre_opds_verify_ssl"), defaults["calibre_opds"]["verify_ssl"])
+    cfg["calibre_opds"] = {
+        "enabled": calibre_enabled,
+        "base_url": calibre_base,
+        "username": calibre_username,
+        "password": calibre_password,
+        "verify_ssl": calibre_verify,
+    }
+
+    current_abs = dict(cfg.get("audiobookshelf") or {})
+    abs_enabled = _coerce_bool(form.get("audiobookshelf_enabled"), False)
+    abs_base = str(form.get("audiobookshelf_base_url") or current_abs.get("base_url") or "").strip()
+    abs_library = str(form.get("audiobookshelf_library_id") or current_abs.get("library_id") or "").strip()
+    abs_collection = str(form.get("audiobookshelf_collection_id") or current_abs.get("collection_id") or "").strip()
+    abs_token_input = str(form.get("audiobookshelf_api_token") or "")
+    abs_token_clear = _coerce_bool(form.get("audiobookshelf_api_token_clear"), False)
+    if abs_token_input:
+        abs_token = abs_token_input
+    elif abs_token_clear:
+        abs_token = ""
+    else:
+        abs_token = str(current_abs.get("api_token") or "")
+    abs_verify = _coerce_bool(form.get("audiobookshelf_verify_ssl"), defaults["audiobookshelf"]["verify_ssl"])
+    abs_send_cover = _coerce_bool(form.get("audiobookshelf_send_cover"), defaults["audiobookshelf"]["send_cover"])
+    abs_send_chapters = _coerce_bool(form.get("audiobookshelf_send_chapters"), defaults["audiobookshelf"]["send_chapters"])
+    abs_send_subtitles = _coerce_bool(form.get("audiobookshelf_send_subtitles"), defaults["audiobookshelf"]["send_subtitles"])
+    abs_auto_send = _coerce_bool(form.get("audiobookshelf_auto_send"), defaults["audiobookshelf"]["auto_send"])
+    timeout_raw = form.get("audiobookshelf_timeout", current_abs.get("timeout", defaults["audiobookshelf"]["timeout"]))
+    try:
+        abs_timeout = float(timeout_raw)
+    except (TypeError, ValueError):
+        abs_timeout = defaults["audiobookshelf"]["timeout"]
+    cfg["audiobookshelf"] = {
+        "enabled": abs_enabled,
+        "base_url": abs_base,
+        "api_token": abs_token,
+        "library_id": abs_library,
+        "collection_id": abs_collection,
+        "verify_ssl": abs_verify,
+        "send_cover": abs_send_cover,
+        "send_chapters": abs_send_chapters,
+        "send_subtitles": abs_send_subtitles,
+        "auto_send": abs_auto_send,
+        "timeout": abs_timeout,
+    }
 
 def _formula_from_profile(entry: Dict[str, Any]) -> Optional[str]:
     voices = entry.get("voices") or []
@@ -2423,6 +2547,7 @@ def settings_page() -> ResponseReturnValue:
 
         cfg = load_config() or {}
         cfg.update(updated)
+        _apply_integration_form(cfg, form)
         save_config(cfg)
         clear_cached_settings()
         return redirect(url_for("web.settings_page", saved="1"))
@@ -2440,6 +2565,7 @@ def settings_page() -> ResponseReturnValue:
         "llm_context_options": _LLM_CONTEXT_OPTIONS,
         "llm_ready": _llm_ready(current_settings),
         "normalization_samples": NORMALIZATION_SAMPLE_TEXTS,
+        "integrations": _load_integration_settings(),
     }
     return render_template("settings.html", **context)
 
@@ -3307,6 +3433,214 @@ def api_search_manual_override_candidates(pending_id: str) -> ResponseReturnValu
     return jsonify({"query": query, "limit": limit_value, "results": results})
 
 
+@dataclass
+class PendingBuildResult:
+    pending: PendingJob
+    selected_speaker_config: Optional[str]
+    config_languages: List[str]
+    speaker_config_payload: Optional[Mapping[str, Any]]
+
+
+def _build_pending_job_from_extraction(
+    *,
+    stored_path: Path,
+    original_name: str,
+    extraction: Any,
+    form: Mapping[str, Any],
+    settings: Mapping[str, Any],
+    profiles: Mapping[str, Any],
+    metadata_overrides: Optional[Mapping[str, Any]] = None,
+) -> PendingBuildResult:
+    profiles_map = dict(profiles)
+    cover_path, cover_mime = _persist_cover_image(extraction, stored_path)
+
+    if getattr(extraction, "chapters", None):
+        original_titles = [chapter.title for chapter in extraction.chapters]
+        normalized_titles = normalize_roman_numeral_titles(original_titles)
+        if normalized_titles != original_titles:
+            for chapter, new_title in zip(extraction.chapters, normalized_titles):
+                chapter.title = new_title
+
+    metadata_tags = dict(getattr(extraction, "metadata", {}) or {})
+    if metadata_overrides:
+        for key, value in metadata_overrides.items():
+            if value is None:
+                continue
+            metadata_tags[str(key)] = str(value)
+
+    total_chars = getattr(extraction, "total_characters", None) or calculate_text_length(
+        getattr(extraction, "combined_text", "")
+    )
+    chapters_source = getattr(extraction, "chapters", []) or []
+    total_chapter_count = len(chapters_source)
+    chapters_payload: List[Dict[str, Any]] = []
+    for index, chapter in enumerate(chapters_source):
+        enabled = _should_preselect_chapter(chapter.title, chapter.text, index, total_chapter_count)
+        chapters_payload.append(
+            {
+                "id": f"{index:04d}",
+                "index": index,
+                "title": chapter.title,
+                "text": chapter.text,
+                "characters": calculate_text_length(chapter.text),
+                "enabled": enabled,
+            }
+        )
+
+    if not chapters_payload:
+        chapters_payload.append(
+            {
+                "id": "0000",
+                "index": 0,
+                "title": original_name,
+                "text": "",
+                "characters": 0,
+                "enabled": True,
+            }
+        )
+
+    _ensure_at_least_one_chapter_enabled(chapters_payload)
+
+    language = str(form.get("language") or "a").strip() or "a"
+    default_voice = str(settings.get("default_voice") or "af_alloy")
+    base_voice = str(form.get("voice") or default_voice or "af_alloy").strip()
+    profile_selection = (form.get("voice_profile") or "__standard").strip()
+    custom_formula_raw = str(form.get("voice_formula") or "").strip()
+    selected_speaker_config = (form.get("speaker_config") or "").strip()
+    speaker_config_payload = get_config(selected_speaker_config) if selected_speaker_config else None
+
+    if profile_selection in {"__standard", ""}:
+        profile_name = ""
+        custom_formula = ""
+    elif profile_selection == "__formula":
+        profile_name = ""
+        custom_formula = custom_formula_raw
+    else:
+        profile_name = profile_selection
+        custom_formula = ""
+
+    voice, language, selected_profile = _resolve_voice_choice(
+        language,
+        base_voice,
+        profile_name,
+        custom_formula,
+        profiles_map,
+    )
+
+    try:
+        speed = float(form.get("speed", 1.0))
+    except (TypeError, ValueError):
+        speed = 1.0
+
+    subtitle_mode = str(form.get("subtitle_mode") or "Disabled")
+    output_format = settings["output_format"]
+    subtitle_format = settings["subtitle_format"]
+    save_mode_key = settings["save_mode"]
+    save_mode = SAVE_MODE_LABELS.get(save_mode_key, SAVE_MODE_LABELS["save_next_to_input"])
+    replace_single_newlines = settings["replace_single_newlines"]
+    use_gpu = settings["use_gpu"]
+    save_chapters_separately = settings["save_chapters_separately"]
+    merge_chapters_at_end = settings["merge_chapters_at_end"] or not save_chapters_separately
+    save_as_project = settings["save_as_project"]
+    separate_chapters_format = settings["separate_chapters_format"]
+    silence_between_chapters = settings["silence_between_chapters"]
+    chapter_intro_delay = settings["chapter_intro_delay"]
+    read_title_intro = settings["read_title_intro"]
+    normalize_chapter_opening_caps = settings["normalize_chapter_opening_caps"]
+    max_subtitle_words = settings["max_subtitle_words"]
+    auto_prefix_chapter_titles = settings["auto_prefix_chapter_titles"]
+
+    chunk_level_default = str(settings.get("chunk_level", "paragraph")).strip().lower()
+    raw_chunk_level = str(form.get("chunk_level") or chunk_level_default).strip().lower()
+    if raw_chunk_level not in _CHUNK_LEVEL_VALUES:
+        raw_chunk_level = chunk_level_default if chunk_level_default in _CHUNK_LEVEL_VALUES else "paragraph"
+    chunk_level_value = raw_chunk_level
+    chunk_level_literal = cast(ChunkLevel, chunk_level_value)
+
+    speaker_mode_value = "single"
+
+    generate_epub3_default = bool(settings.get("generate_epub3", False))
+    generate_epub3 = _coerce_bool(form.get("generate_epub3"), generate_epub3_default)
+
+    selected_chapter_sources = [entry for entry in chapters_payload if entry.get("enabled")]
+    raw_chunks = build_chunks_for_chapters(selected_chapter_sources, level=chunk_level_literal)
+    analysis_chunks = build_chunks_for_chapters(selected_chapter_sources, level="sentence")
+
+    analysis_threshold = _coerce_int(
+        settings.get("speaker_analysis_threshold"),
+        _DEFAULT_ANALYSIS_THRESHOLD,
+        minimum=1,
+        maximum=25,
+    )
+
+    initial_analysis = False
+    (
+        processed_chunks,
+        speakers,
+        analysis_payload,
+        config_languages,
+        _,
+    ) = _prepare_speaker_metadata(
+        chapters=selected_chapter_sources,
+        chunks=raw_chunks,
+        analysis_chunks=analysis_chunks,
+        voice=voice,
+        voice_profile=selected_profile or None,
+        threshold=analysis_threshold,
+        run_analysis=initial_analysis,
+        speaker_config=speaker_config_payload,
+        apply_config=bool(speaker_config_payload),
+    )
+
+    pending = PendingJob(
+        id=uuid.uuid4().hex,
+        original_filename=original_name,
+        stored_path=stored_path,
+        language=language,
+        voice=voice,
+        speed=speed,
+        use_gpu=use_gpu,
+        subtitle_mode=subtitle_mode,
+        output_format=output_format,
+        save_mode=save_mode,
+        output_folder=None,
+        replace_single_newlines=replace_single_newlines,
+        subtitle_format=subtitle_format,
+        total_characters=total_chars,
+        save_chapters_separately=save_chapters_separately,
+        merge_chapters_at_end=merge_chapters_at_end,
+        separate_chapters_format=separate_chapters_format,
+        silence_between_chapters=silence_between_chapters,
+        save_as_project=save_as_project,
+        voice_profile=selected_profile or None,
+        max_subtitle_words=max_subtitle_words,
+        metadata_tags=metadata_tags,
+        chapters=chapters_payload,
+        created_at=time.time(),
+        cover_image_path=cover_path,
+        cover_image_mime=cover_mime,
+        chapter_intro_delay=chapter_intro_delay,
+        read_title_intro=bool(read_title_intro),
+        normalize_chapter_opening_caps=bool(normalize_chapter_opening_caps),
+        auto_prefix_chapter_titles=bool(auto_prefix_chapter_titles),
+        chunk_level=chunk_level_value,
+        speaker_mode=speaker_mode_value,
+        generate_epub3=generate_epub3,
+        chunks=processed_chunks,
+        speakers=speakers,
+        speaker_analysis=analysis_payload,
+        speaker_analysis_threshold=analysis_threshold,
+        analysis_requested=initial_analysis,
+    )
+
+    return PendingBuildResult(
+        pending=pending,
+        selected_speaker_config=selected_speaker_config or None,
+        config_languages=list(config_languages or []),
+        speaker_config_payload=speaker_config_payload,
+    )
+
+
 @web_bp.post("/jobs")
 def enqueue_job() -> ResponseReturnValue:
     service = _service()
@@ -3367,179 +3701,25 @@ def enqueue_job() -> ResponseReturnValue:
 
     assert extraction is not None
 
-    cover_path, cover_mime = _persist_cover_image(extraction, stored_path)
-
-    if extraction.chapters:
-        original_titles = [chapter.title for chapter in extraction.chapters]
-        normalized_titles = normalize_roman_numeral_titles(original_titles)
-        if normalized_titles != original_titles:
-            for chapter, new_title in zip(extraction.chapters, normalized_titles):
-                chapter.title = new_title
-
-    metadata_tags = extraction.metadata or {}
-    total_chars = extraction.total_characters or calculate_text_length(extraction.combined_text)
-    total_chapter_count = len(extraction.chapters)
-    chapters_payload: List[Dict[str, Any]] = []
-    for index, chapter in enumerate(extraction.chapters):
-        enabled = _should_preselect_chapter(
-            chapter.title,
-            chapter.text,
-            index,
-            total_chapter_count,
-        )
-        chapters_payload.append(
-            {
-                "id": f"{index:04d}",
-                "index": index,
-                "title": chapter.title,
-                "text": chapter.text,
-                "characters": calculate_text_length(chapter.text),
-                "enabled": enabled,
-            }
-        )
-
-    if not chapters_payload:
-        chapters_payload.append(
-            {
-                "id": "0000",
-                "index": 0,
-                "title": original_name,
-                "text": "",
-                "characters": 0,
-                "enabled": True,
-            }
-        )
-
-    _ensure_at_least_one_chapter_enabled(chapters_payload)
-
-    language = request.form.get("language", "a")
-    base_voice = request.form.get("voice", "af_alloy")
-    profile_selection = (request.form.get("voice_profile") or "__standard").strip()
-    custom_formula_raw = request.form.get("voice_formula", "").strip()
-    selected_speaker_config = (request.form.get("speaker_config") or "").strip()
-    speaker_config_payload = get_config(selected_speaker_config) if selected_speaker_config else None
-
-    if profile_selection in {"__standard", ""}:
-        profile_name = ""
-        custom_formula = ""
-    elif profile_selection == "__formula":
-        profile_name = ""
-        custom_formula = custom_formula_raw
-    else:
-        profile_name = profile_selection
-        custom_formula = ""
-
-    voice, language, selected_profile = _resolve_voice_choice(
-        language,
-        base_voice,
-        profile_name,
-        custom_formula,
-        profiles,
-    )
-    speed = float(request.form.get("speed", "1.0"))
-    subtitle_mode = request.form.get("subtitle_mode", "Disabled")
-    output_format = settings["output_format"]
-    subtitle_format = settings["subtitle_format"]
-    save_mode_key = settings["save_mode"]
-    save_mode = SAVE_MODE_LABELS.get(save_mode_key, SAVE_MODE_LABELS["save_next_to_input"])
-    replace_single_newlines = settings["replace_single_newlines"]
-    use_gpu = settings["use_gpu"]
-    save_chapters_separately = settings["save_chapters_separately"]
-    merge_chapters_at_end = settings["merge_chapters_at_end"] or not save_chapters_separately
-    save_as_project = settings["save_as_project"]
-    separate_chapters_format = settings["separate_chapters_format"]
-    silence_between_chapters = settings["silence_between_chapters"]
-    chapter_intro_delay = settings["chapter_intro_delay"]
-    read_title_intro = settings["read_title_intro"]
-    normalize_chapter_opening_caps = settings["normalize_chapter_opening_caps"]
-    max_subtitle_words = settings["max_subtitle_words"]
-    auto_prefix_chapter_titles = settings["auto_prefix_chapter_titles"]
-
-    chunk_level_default = str(settings.get("chunk_level", "paragraph")).strip().lower()
-    raw_chunk_level = (request.form.get("chunk_level") or chunk_level_default).strip().lower()
-    if raw_chunk_level not in _CHUNK_LEVEL_VALUES:
-        raw_chunk_level = chunk_level_default if chunk_level_default in _CHUNK_LEVEL_VALUES else "paragraph"
-    chunk_level_value = raw_chunk_level
-    chunk_level_literal = cast(ChunkLevel, chunk_level_value)
-
-    speaker_mode_value = "single"
-
-    generate_epub3_default = bool(settings.get("generate_epub3", False))
-    generate_epub3 = _coerce_bool(request.form.get("generate_epub3"), generate_epub3_default)
-
-    selected_chapter_sources = [entry for entry in chapters_payload if entry.get("enabled")]
-    raw_chunks = build_chunks_for_chapters(selected_chapter_sources, level=chunk_level_literal)
-    analysis_chunks = build_chunks_for_chapters(selected_chapter_sources, level="sentence")
-
-    analysis_threshold = _coerce_int(
-        settings.get("speaker_analysis_threshold"),
-        _DEFAULT_ANALYSIS_THRESHOLD,
-        minimum=1,
-        maximum=25,
-    )
-
-    initial_analysis = False
-    processed_chunks, speakers, analysis_payload, config_languages, _ = _prepare_speaker_metadata(
-        chapters=selected_chapter_sources,
-        chunks=raw_chunks,
-        analysis_chunks=analysis_chunks,
-        voice=voice,
-        voice_profile=selected_profile or None,
-        threshold=analysis_threshold,
-        run_analysis=initial_analysis,
-        speaker_config=speaker_config_payload,
-        apply_config=bool(speaker_config_payload),
-    )
-
-    pending = PendingJob(
-        id=uuid.uuid4().hex,
-        original_filename=original_name,
+    build_result = _build_pending_job_from_extraction(
         stored_path=stored_path,
-        language=language,
-        voice=voice,
-        speed=speed,
-        use_gpu=use_gpu,
-        subtitle_mode=subtitle_mode,
-        output_format=output_format,
-        save_mode=save_mode,
-        output_folder=None,
-        replace_single_newlines=replace_single_newlines,
-        subtitle_format=subtitle_format,
-        total_characters=total_chars,
-        save_chapters_separately=save_chapters_separately,
-        merge_chapters_at_end=merge_chapters_at_end,
-        separate_chapters_format=separate_chapters_format,
-        silence_between_chapters=silence_between_chapters,
-        save_as_project=save_as_project,
-        voice_profile=selected_profile or None,
-        max_subtitle_words=max_subtitle_words,
-        metadata_tags=metadata_tags,
-        chapters=chapters_payload,
-        created_at=time.time(),
-        cover_image_path=cover_path,
-        cover_image_mime=cover_mime,
-        chapter_intro_delay=chapter_intro_delay,
-        read_title_intro=bool(read_title_intro),
-        normalize_chapter_opening_caps=bool(normalize_chapter_opening_caps),
-        auto_prefix_chapter_titles=bool(auto_prefix_chapter_titles),
-        chunk_level=chunk_level_value,
-        speaker_mode=speaker_mode_value,
-        generate_epub3=generate_epub3,
-        chunks=processed_chunks,
-        speakers=speakers,
-        speaker_analysis=analysis_payload,
-        speaker_analysis_threshold=analysis_threshold,
-        analysis_requested=initial_analysis,
+        original_name=original_name,
+        extraction=extraction,
+        form=request.form,
+        settings=settings,
+        profiles=profiles,
     )
 
+    pending = build_result.pending
     _refresh_entity_summary(pending, pending.chapters)
 
     service.store_pending_job(pending)
-    pending.applied_speaker_config = selected_speaker_config or None
-    if config_languages:
-        pending.speaker_voice_languages = list(config_languages)
-    elif isinstance(speaker_config_payload, Mapping):
-        languages = speaker_config_payload.get("languages")
+    if build_result.selected_speaker_config:
+        pending.applied_speaker_config = build_result.selected_speaker_config
+    if build_result.config_languages:
+        pending.speaker_voice_languages = list(build_result.config_languages)
+    elif isinstance(build_result.speaker_config_payload, Mapping):
+        languages = build_result.speaker_config_payload.get("languages")
         if isinstance(languages, list):
             pending.speaker_voice_languages = [code for code in languages if isinstance(code, str)]
     if _wants_wizard_json():

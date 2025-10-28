@@ -19,6 +19,7 @@
       <button type="button" class="settings-nav__item" data-section="performance">Performance</button>
       <button type="button" class="settings-nav__item{% if not llm_ready %} is-disabled{% endif %}" data-section="llm">LLM</button>
       <button type="button" class="settings-nav__item" data-section="normalization">Text Normalization</button>
+      <button type="button" class="settings-nav__item" data-section="integrations">Integrations</button>
     </nav>
     <form action="{{ url_for('web.settings_page') }}" method="post" class="settings__form">
       <div class="settings-panels">
@@ -318,6 +319,108 @@
             </div>
           </fieldset>
         </section>
+
+        <section class="settings-panel" data-section="integrations">
+          <fieldset class="settings__section">
+            <legend>Calibre OPDS</legend>
+            <div class="field field--choices">
+              <label class="toggle-pill">
+                <input type="checkbox" name="calibre_opds_enabled" value="true" {% if integrations.calibre_opds.enabled %}checked{% endif %}>
+                <span>Enable Calibre integration</span>
+              </label>
+              <label class="toggle-pill">
+                <input type="checkbox" name="calibre_opds_verify_ssl" value="true" {% if integrations.calibre_opds.verify_ssl %}checked{% endif %}>
+                <span>Verify TLS certificates</span>
+              </label>
+            </div>
+            <div class="field">
+              <label for="calibre_opds_base_url">Base URL</label>
+              <input type="url" id="calibre_opds_base_url" name="calibre_opds_base_url" value="{{ integrations.calibre_opds.base_url }}" placeholder="https://calibre.example.com/opds">
+            </div>
+            <div class="field">
+              <label for="calibre_opds_username">Username</label>
+              <input type="text" id="calibre_opds_username" name="calibre_opds_username" value="{{ integrations.calibre_opds.username }}">
+            </div>
+            <div class="field field--inline">
+              <div class="field__group">
+                <label for="calibre_opds_password">Password</label>
+                <input type="password" id="calibre_opds_password" name="calibre_opds_password" value="" placeholder="{% if integrations.calibre_opds.has_password %}••••••••{% endif %}">
+                <p class="hint">Leave blank to keep the stored password.</p>
+              </div>
+              <div class="field__group field__group--checkbox">
+                <label class="toggle-pill">
+                  <input type="checkbox" name="calibre_opds_password_clear" value="true">
+                  <span>Clear saved password</span>
+                </label>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="settings__section">
+            <legend>Audiobookshelf</legend>
+            <div class="field field--choices">
+              <label class="toggle-pill">
+                <input type="checkbox" name="audiobookshelf_enabled" value="true" {% if integrations.audiobookshelf.enabled %}checked{% endif %}>
+                <span>Enable Audiobookshelf uploads</span>
+              </label>
+              <label class="toggle-pill">
+                <input type="checkbox" name="audiobookshelf_auto_send" value="true" {% if integrations.audiobookshelf.auto_send %}checked{% endif %}>
+                <span>Upload finished jobs automatically</span>
+              </label>
+              <label class="toggle-pill">
+                <input type="checkbox" name="audiobookshelf_verify_ssl" value="true" {% if integrations.audiobookshelf.verify_ssl %}checked{% endif %}>
+                <span>Verify TLS certificates</span>
+              </label>
+            </div>
+            <div class="field">
+              <label for="audiobookshelf_base_url">Base URL</label>
+              <input type="url" id="audiobookshelf_base_url" name="audiobookshelf_base_url" value="{{ integrations.audiobookshelf.base_url }}" placeholder="https://abs.local:13378/api">
+            </div>
+            <div class="field field--inline">
+              <div class="field__group">
+                <label for="audiobookshelf_library_id">Library ID</label>
+                <input type="text" id="audiobookshelf_library_id" name="audiobookshelf_library_id" value="{{ integrations.audiobookshelf.library_id }}">
+              </div>
+              <div class="field__group">
+                <label for="audiobookshelf_collection_id">Collection ID (optional)</label>
+                <input type="text" id="audiobookshelf_collection_id" name="audiobookshelf_collection_id" value="{{ integrations.audiobookshelf.collection_id }}">
+              </div>
+            </div>
+            <div class="field field--inline">
+              <div class="field__group">
+                <label for="audiobookshelf_api_token">API token</label>
+                <input type="password" id="audiobookshelf_api_token" name="audiobookshelf_api_token" value="" placeholder="{% if integrations.audiobookshelf.has_api_token %}••••••••{% endif %}">
+                <p class="hint">Leave blank to keep the stored token.</p>
+              </div>
+              <div class="field__group field__group--checkbox">
+                <label class="toggle-pill">
+                  <input type="checkbox" name="audiobookshelf_api_token_clear" value="true">
+                  <span>Clear saved token</span>
+                </label>
+              </div>
+            </div>
+            <div class="field field--inline">
+              <div class="field__group">
+                <label for="audiobookshelf_timeout">Request timeout (seconds)</label>
+                <input type="number" step="1" min="5" id="audiobookshelf_timeout" name="audiobookshelf_timeout" value="{{ integrations.audiobookshelf.timeout }}">
+              </div>
+            </div>
+            <div class="field field--choices">
+              <label class="toggle-pill">
+                <input type="checkbox" name="audiobookshelf_send_cover" value="true" {% if integrations.audiobookshelf.send_cover %}checked{% endif %}>
+                <span>Include cover artwork</span>
+              </label>
+              <label class="toggle-pill">
+                <input type="checkbox" name="audiobookshelf_send_chapters" value="true" {% if integrations.audiobookshelf.send_chapters %}checked{% endif %}>
+                <span>Send chapter markers</span>
+              </label>
+              <label class="toggle-pill">
+                <input type="checkbox" name="audiobookshelf_send_subtitles" value="true" {% if integrations.audiobookshelf.send_subtitles %}checked{% endif %}>
+                <span>Send subtitle files</span>
+              </label>
+            </div>
+          </fieldset>
+        </section>
       </div>
 
       <div class="settings__actions">
@@ -332,3 +435,4 @@
 {{ super() }}
 <script type="module" src="{{ url_for('static', filename='settings.js') }}"></script>
 {% endblock %}
+
