@@ -279,7 +279,7 @@ if (modal && browser) {
       const queueButton = document.createElement('button');
       queueButton.type = 'button';
       queueButton.className = 'button';
-      queueButton.textContent = 'Queue for conversion';
+      queueButton.textContent = 'Configure conversion';
       queueButton.addEventListener('click', () => importEntry(entry, queueButton));
       actions.appendChild(queueButton);
     } else if (entryType === EntryTypes.NAVIGATION && navigationLink) {
@@ -349,11 +349,13 @@ if (modal && browser) {
       return;
     }
     const button = trigger;
+    const originalLabel = button ? button.textContent : '';
     if (button) {
       button.disabled = true;
       button.dataset.loading = 'true';
+      button.textContent = 'Preparing…';
     }
-    setStatus(`Queueing "${entry.title || 'Untitled'}"…`, 'loading');
+    setStatus('Downloading book from Calibre. This can take a minute…', 'loading');
     try {
       const response = await fetch('/api/integrations/calibre-opds/import', {
         method: 'POST',
@@ -364,9 +366,12 @@ if (modal && browser) {
       if (!response.ok) {
         throw new Error(payload.error || 'Unable to queue this book.');
       }
-      setStatus('Book queued. Opening the conversion wizard…', 'success');
+      setStatus('Preparing the conversion wizard…', 'success');
       if (payload.redirect_url) {
-        window.location.href = payload.redirect_url;
+        closeModal();
+        window.setTimeout(() => {
+          window.location.assign(payload.redirect_url);
+        }, 150);
       }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Unable to queue this book.', 'error');
@@ -374,6 +379,9 @@ if (modal && browser) {
       if (button) {
         button.disabled = false;
         delete button.dataset.loading;
+        if (originalLabel) {
+          button.textContent = originalLabel;
+        }
       }
     }
   };
