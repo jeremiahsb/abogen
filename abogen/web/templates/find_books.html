@@ -31,27 +31,55 @@
       </article>
     </div>
 
-    {% if not opds_available %}
-      <div class="alert alert--warning">Enable the Calibre OPDS integration in settings to browse your library here.</div>
-    {% else %}
-      <div class="find-books__opds">
-        <h2>Calibre catalog</h2>
-        <p class="hint">Navigate Calibre shelves and queue downloadable titles directly into the conversion wizard.</p>
-        <div class="opds-browser" data-role="opds-browser">
-          <form class="opds-browser__search" data-role="opds-search">
-            <label for="opds-search-input">Search your catalog</label>
-            <input type="search" id="opds-search-input" name="q" placeholder="Title, author, or keyword">
-            <button type="submit" class="button">Search</button>
-            <button type="button" class="button button--ghost" data-action="opds-refresh">Reset</button>
-          </form>
-          <div class="opds-browser__status" data-role="opds-status"></div>
-          <div class="opds-browser__nav" data-role="opds-nav"></div>
-          <ul class="opds-browser__results" data-role="opds-results"></ul>
-        </div>
-      </div>
-    {% endif %}
+    <div class="find-books__opds">
+      <h2>Calibre catalog</h2>
+      <p class="hint">Wire abogen to your Calibre OPDS server to browse, search, and import titles without leaving the app.</p>
+      {% if not opds_available %}
+        <div class="alert alert--warning">Enable the Calibre OPDS integration in settings to browse your library here.</div>
+      {% else %}
+        <button type="button" class="button" data-action="open-opds-modal">Browse Calibre catalog</button>
+      {% endif %}
+    </div>
   </div>
 </section>
+
+{% if opds_available %}
+<div class="modal" data-role="opds-modal" hidden>
+  <div class="modal__overlay" data-role="opds-modal-close" tabindex="-1"></div>
+  <div class="modal__content card card--modal opds-modal" role="dialog" aria-modal="true" aria-labelledby="opds-modal-title">
+    <header class="modal__header opds-modal__header">
+      <div class="modal__heading">
+        <p class="modal__eyebrow">Calibre OPDS</p>
+        <h2 class="modal__title" id="opds-modal-title">Browse your catalog</h2>
+      </div>
+      <form class="opds-modal__search" data-role="opds-search">
+        <label class="visually-hidden" for="opds-search-input">Search your Calibre catalog</label>
+        <div class="opds-search__field">
+          <svg class="opds-search__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M15.5 14h-.79l-.28-.27A6.5 6.5 0 0016 9.5 6.5 6.5 0 109.5 16a6.5 6.5 0 004.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1114 9.5 4.5 4.5 0 019.5 14z" />
+          </svg>
+          <input type="search" id="opds-search-input" name="q" placeholder="Search by title, author, or keyword" autocomplete="off">
+        </div>
+        <div class="opds-search__actions">
+          <button type="submit" class="button">Search</button>
+          <button type="button" class="button button--ghost" data-action="opds-refresh">Reset</button>
+        </div>
+      </form>
+      <button type="button" class="button button--ghost opds-modal__close" data-role="opds-modal-close">Close</button>
+    </header>
+    <div class="opds-modal__tabs" data-role="opds-tabs"></div>
+    <div class="modal__body opds-modal__body">
+      <div class="opds-browser" data-role="opds-browser">
+        <div class="opds-modal__status" data-role="opds-status"></div>
+        <div class="opds-modal__nav" data-role="opds-nav"></div>
+        <div class="opds-modal__results-wrap">
+          <ul class="opds-modal__results" data-role="opds-results"></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}

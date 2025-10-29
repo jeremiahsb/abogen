@@ -1,49 +1,42 @@
-const browser = document.querySelector('[data-role="opds-browser"]');
+const modal = document.querySelector('[data-role="opds-modal"]');
+const browser = modal?.querySelector('[data-role="opds-browser"]') || null;
 
-if (browser) {
+if (modal && browser) {
   const statusEl = browser.querySelector('[data-role="opds-status"]');
   const resultsEl = browser.querySelector('[data-role="opds-results"]');
   const navEl = browser.querySelector('[data-role="opds-nav"]');
-  const searchForm = browser.querySelector('[data-role="opds-search"]');
+  const tabsEl = modal.querySelector('[data-role="opds-tabs"]');
+  const searchForm = modal.querySelector('[data-role="opds-search"]');
   const searchInput = searchForm?.querySelector('input[name="q"]');
-  const refreshButton = browser.querySelector('[data-action="opds-refresh"]');
+  const refreshButton = searchForm?.querySelector('[data-action="opds-refresh"]');
+  const openButtons = document.querySelectorAll('[data-action="open-opds-modal"]');
+  const closeTargets = modal.querySelectorAll('[data-role="opds-modal-close"]');
 
-  const state = {
-    query: '',
+  const TabIds = {
+    ROOT: 'root',
+    SEARCH: 'search',
+    CUSTOM: 'custom',
   };
 
-  const ENTRY_TYPES = {
+  const EntryTypes = {
     BOOK: 'book',
     NAVIGATION: 'navigation',
     OTHER: 'other',
   };
 
-  const setStatus = (message, level) => {
-    if (!statusEl) {
-      return;
-    }
-    statusEl.textContent = message || '';
-    if (level) {
-      statusEl.dataset.state = level;
-    } else {
-      delete statusEl.dataset.state;
-    }
+  const state = {
+    query: '',
+    currentHref: '',
+    activeTab: TabIds.ROOT,
+    tabs: [],
+    tabsReady: false,
+    requestToken: 0,
   };
 
-  const clearStatus = () => setStatus('', null);
+  let isOpen = false;
+  let lastTrigger = null;
 
-  const resolveRelLink = (links, rel) => {
-    if (!links) {
-      return null;
-    }
-    if (links[rel]) {
-      return links[rel];
-    }
-    const key = Object.keys(links).find((entry) => entry === rel || entry.endsWith(rel));
-    return key ? links[key] : null;
-  };
-
-  const truncate = (text, limit = 320) => {
+  const truncate = (text, limit = 160) => {
     if (!text || typeof text !== 'string') {
       return '';
     }
@@ -60,34 +53,152 @@ if (browser) {
     return authors.filter((author) => !!author).join(', ');
   };
 
+  const setStatus = (message, level) => {
+    if (!statusEl) {
+      return;
+    }
+    statusEl.textContent = message || '';
+    if (level) {
+      statusEl.dataset.state = level;
+    } else {
+      delete statusEl.dataset.state;
+    }
+  };
+
+  const clearStatus = () => setStatus('', null);
+
+  const focusSearch = () => {
+    if (!searchInput) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      try {
+        searchInput.focus({ preventScroll: true });
+      } catch (error) {
+        // Ignore focus issues
+      }
+    });
+  };
+
+  const resolveRelLink = (links, rel) => {
+    if (!links) {
+      return null;
+    }
+    if (links[rel]) {
+      return links[rel];
+    }
+    const key = Object.keys(links).find((entry) => entry === rel || entry.endsWith(rel));
+    return key ? links[key] : null;
+  };
+
   const findNavigationLink = (entry) => {
     if (!entry || !Array.isArray(entry.links)) {
       return null;
     }
     const candidates = entry.links.filter((link) => link && link.href);
-    return candidates.find((link) => {
-      const rel = (link.rel || '').toLowerCase();
-      const type = (link.type || '').toLowerCase();
-      if (!link.href) {
+    return (
+      candidates.find((link) => {
+        const rel = (link.rel || '').toLowerCase();
+        const type = (link.type || '').toLowerCase();
+        if (!link.href) {
+          return false;
+        }
+        if (rel.includes('acquisition')) {
+          return false;
+        }
+        if (rel === 'self') {
+          return false;
+        }
+        if (type.includes('opds-catalog')) {
+          return true;
+        }
+        if (rel.includes('subsection') || rel.includes('collection')) {
+          return true;
+        }
+        if (rel.startsWith('http://opds-spec.org/sort') || rel.startsWith('http://opds-spec.org/group')) {
+          return true;
+        }
         return false;
+      }) || null
+    );
+  };
+
+  const resolveTabIdForHref = (href) => {
+    if (!href) {
+      return TabIds.ROOT;
+    }
+    const matching = state.tabs.find((tab) => tab.href === href);
+    return matching ? matching.id : null;
+  };
+
+  const buildTabsFromFeed = (feed) => {
+    if (!feed || !Array.isArray(feed.entries)) {
+      return;
+    }
+    const seen = new Set();
+    const nextTabs = [];
+    feed.entries.forEach((entry) => {
+      const navLink = findNavigationLink(entry);
+      if (!navLink || !navLink.href) {
+        return;
       }
-      if (rel.includes('acquisition')) {
-        return false;
+      if (seen.has(navLink.href)) {
+        return;
       }
-      if (rel === 'self') {
-        return false;
+      seen.add(navLink.href);
+      const label = entry.title || navLink.title || 'Catalog view';
+      nextTabs.push({
+        id: navLink.href,
+        label,
+        href: navLink.href,
+      });
+    });
+    state.tabs = nextTabs;
+    state.tabsReady = true;
+    renderTabs();
+  };
+
+  const renderTabs = () => {
+    if (!tabsEl) {
+      return;
+    }
+    tabsEl.innerHTML = '';
+    const tabs = [];
+    tabs.push({ id: TabIds.ROOT, label: 'Catalog home', href: '' });
+    state.tabs.forEach((tab) => tabs.push(tab));
+    if (state.activeTab === TabIds.SEARCH && state.query) {
+      tabs.push({
+        id: TabIds.SEARCH,
+        label: `Search: "${truncate(state.query, 32)}"`,
+        href: '',
+        isSearch: true,
+      });
+    }
+    tabs.forEach((tab) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'opds-tab';
+      if (tab.isSearch) {
+        button.classList.add('opds-tab--search');
       }
-      if (type.includes('opds-catalog')) {
-        return true;
+      if (state.activeTab === tab.id || (tab.id !== TabIds.SEARCH && state.activeTab === tab.href)) {
+        button.classList.add('is-active');
       }
-      if (rel.includes('subsection') || rel.includes('collection')) {
-        return true;
-      }
-      if (rel.startsWith('http://opds-spec.org/sort') || rel.startsWith('http://opds-spec.org/group')) {
-        return true;
-      }
-      return false;
-    }) || null;
+      button.textContent = tab.label;
+      button.addEventListener('click', () => {
+        if (tab.id === TabIds.SEARCH) {
+          loadFeed({ href: '', query: state.query, activeTab: TabIds.SEARCH });
+          return;
+        }
+        if (tab.id === TabIds.ROOT) {
+          loadFeed({ href: '', query: '', activeTab: TabIds.ROOT, updateTabs: true });
+          return;
+        }
+        loadFeed({ href: tab.href, query: '', activeTab: tab.id });
+      });
+      tabsEl.appendChild(button);
+    });
+    tabsEl.classList.toggle('is-empty', tabs.length <= 1);
   };
 
   const renderNav = (links) => {
@@ -96,9 +207,9 @@ if (browser) {
     }
     navEl.innerHTML = '';
     const descriptors = [
-      { key: 'up', label: 'Up' },
-      { key: 'previous', label: 'Previous' },
-      { key: 'next', label: 'Next' },
+      { key: 'up', label: 'Up one level' },
+      { key: 'previous', label: 'Previous page' },
+      { key: 'next', label: 'Next page' },
     ];
     descriptors.forEach(({ key, label }) => {
       const link = resolveRelLink(links, key) || resolveRelLink(links, `/${key}`);
@@ -108,15 +219,15 @@ if (browser) {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'button button--ghost';
-      button.dataset.href = link.href;
-      button.dataset.rel = key;
       button.textContent = label;
       button.addEventListener('click', () => {
-        clearStatus();
-        loadFeed({ href: link.href, query: state.query });
+        const targetQuery = key === 'up' ? '' : state.query;
+        const tabId = resolveTabIdForHref(link.href);
+        loadFeed({ href: link.href, query: targetQuery, activeTab: tabId || (targetQuery ? TabIds.SEARCH : TabIds.CUSTOM) });
       });
       navEl.appendChild(button);
     });
+    navEl.hidden = !navEl.childElementCount;
   };
 
   const createEntry = (entry) => {
@@ -141,10 +252,11 @@ if (browser) {
 
     item.appendChild(header);
 
-    if (entry.summary) {
+    const summarySource = entry.summary || entry?.alternate?.title || entry?.download?.title || '';
+    if (summarySource) {
       const summary = document.createElement('p');
       summary.className = 'opds-browser__summary';
-      summary.textContent = truncate(entry.summary, 380);
+      summary.textContent = truncate(summarySource, 420);
       item.appendChild(summary);
     }
 
@@ -155,34 +267,35 @@ if (browser) {
     const alternateLink = entry.alternate && entry.alternate.href ? entry.alternate.href : null;
     const navigationLink = findNavigationLink(entry);
 
-    let entryType = ENTRY_TYPES.OTHER;
+    let entryType = EntryTypes.OTHER;
     if (downloadLink) {
-      entryType = ENTRY_TYPES.BOOK;
+      entryType = EntryTypes.BOOK;
     } else if (navigationLink && navigationLink.href) {
-      entryType = ENTRY_TYPES.NAVIGATION;
+      entryType = EntryTypes.NAVIGATION;
       item.classList.add('opds-browser__entry--navigation');
     }
 
-    if (entryType === ENTRY_TYPES.BOOK) {
+    if (entryType === EntryTypes.BOOK) {
       const queueButton = document.createElement('button');
       queueButton.type = 'button';
       queueButton.className = 'button';
       queueButton.textContent = 'Queue for conversion';
       queueButton.addEventListener('click', () => importEntry(entry, queueButton));
       actions.appendChild(queueButton);
-    } else if (entryType === ENTRY_TYPES.NAVIGATION && navigationLink) {
+    } else if (entryType === EntryTypes.NAVIGATION && navigationLink) {
       const browseButton = document.createElement('button');
       browseButton.type = 'button';
       browseButton.className = 'button button--ghost';
       browseButton.textContent = 'Browse view';
       browseButton.addEventListener('click', () => {
         clearStatus();
-        loadFeed({ href: navigationLink.href, query: '' });
+        const tabId = resolveTabIdForHref(navigationLink.href);
+        loadFeed({ href: navigationLink.href, query: '', activeTab: tabId || TabIds.CUSTOM });
       });
       actions.appendChild(browseButton);
     }
 
-    if (alternateLink && entryType !== ENTRY_TYPES.NAVIGATION) {
+    if (alternateLink && entryType !== EntryTypes.NAVIGATION) {
       const previewLink = document.createElement('a');
       previewLink.className = 'button button--ghost';
       previewLink.href = alternateLink;
@@ -205,21 +318,21 @@ if (browser) {
 
   const renderEntries = (entries) => {
     if (!resultsEl) {
-      return { [ENTRY_TYPES.BOOK]: 0, [ENTRY_TYPES.NAVIGATION]: 0, [ENTRY_TYPES.OTHER]: 0 };
+      return { [EntryTypes.BOOK]: 0, [EntryTypes.NAVIGATION]: 0, [EntryTypes.OTHER]: 0 };
     }
     resultsEl.innerHTML = '';
     if (!Array.isArray(entries) || !entries.length) {
       const empty = document.createElement('li');
       empty.className = 'opds-browser__empty';
-      empty.textContent = 'No books found in this view.';
+      empty.textContent = 'No catalog entries found here yet.';
       resultsEl.appendChild(empty);
-      return { [ENTRY_TYPES.BOOK]: 0, [ENTRY_TYPES.NAVIGATION]: 0, [ENTRY_TYPES.OTHER]: 0 };
+      return { [EntryTypes.BOOK]: 0, [EntryTypes.NAVIGATION]: 0, [EntryTypes.OTHER]: 0 };
     }
     const fragment = document.createDocumentFragment();
     const stats = {
-      [ENTRY_TYPES.BOOK]: 0,
-      [ENTRY_TYPES.NAVIGATION]: 0,
-      [ENTRY_TYPES.OTHER]: 0,
+      [EntryTypes.BOOK]: 0,
+      [EntryTypes.NAVIGATION]: 0,
+      [EntryTypes.OTHER]: 0,
     };
     entries.forEach((entry) => {
       const { element, type } = createEntry(entry);
@@ -240,7 +353,7 @@ if (browser) {
       button.disabled = true;
       button.dataset.loading = 'true';
     }
-    setStatus(`Queueing “${entry.title || 'Untitled'}”…`, 'loading');
+    setStatus(`Queueing "${entry.title || 'Untitled'}"…`, 'loading');
     try {
       const response = await fetch('/api/integrations/calibre-opds/import', {
         method: 'POST',
@@ -265,7 +378,7 @@ if (browser) {
     }
   };
 
-  const loadFeed = async ({ href = '', query = '' } = {}) => {
+  const loadFeed = async ({ href = '', query = '', activeTab = null, updateTabs = false } = {}) => {
     const params = new URLSearchParams();
     if (href) {
       params.set('href', href);
@@ -273,23 +386,59 @@ if (browser) {
     if (query) {
       params.set('q', query);
     }
+
+    const requestId = ++state.requestToken;
     setStatus('Loading catalog…', 'loading');
+
     try {
       const url = `/api/integrations/calibre-opds/feed${params.toString() ? `?${params.toString()}` : ''}`;
       const response = await fetch(url);
       const payload = await response.json();
+      if (requestId !== state.requestToken) {
+        return;
+      }
       if (!response.ok) {
         throw new Error(payload.error || 'Unable to load the Calibre catalog.');
       }
       const feed = payload.feed || {};
+      state.currentHref = href;
       state.query = query;
-      if (searchInput && typeof query === 'string') {
-        searchInput.value = query;
+      if (typeof activeTab === 'string') {
+        state.activeTab = activeTab;
+      } else if (query) {
+        state.activeTab = TabIds.SEARCH;
+      } else if (href) {
+        state.activeTab = resolveTabIdForHref(href) || TabIds.CUSTOM;
+      } else {
+        state.activeTab = TabIds.ROOT;
       }
+
+      if (searchInput) {
+        searchInput.value = query || '';
+      }
+
+      if (updateTabs || !state.tabsReady) {
+        buildTabsFromFeed(feed);
+      } else {
+        renderTabs();
+      }
+
       renderNav(feed.links);
       const stats = renderEntries(feed.entries || []);
-      const books = stats?.[ENTRY_TYPES.BOOK] || 0;
-      const views = stats?.[ENTRY_TYPES.NAVIGATION] || 0;
+      const books = stats?.[EntryTypes.BOOK] || 0;
+      const views = stats?.[EntryTypes.NAVIGATION] || 0;
+
+      if (query) {
+        if (books) {
+          setStatus(`Found ${books} book${books === 1 ? '' : 's'} for "${query}".`, 'success');
+        } else if (views) {
+          setStatus(`Browse ${views} catalog view${views === 1 ? '' : 's'} related to "${query}".`, 'info');
+        } else {
+          setStatus(`No results for "${query}".`, 'error');
+        }
+        return;
+      }
+
       if (books && views) {
         setStatus(`Showing ${books} book${books === 1 ? '' : 's'} and ${views} catalog view${views === 1 ? '' : 's'}.`, 'success');
       } else if (books) {
@@ -297,9 +446,12 @@ if (browser) {
       } else if (views) {
         setStatus(`Browse ${views} catalog view${views === 1 ? '' : 's'} to drill deeper.`, 'info');
       } else {
-        setStatus('No books found in this view.', 'info');
+        setStatus('No catalog entries found here yet.', 'info');
       }
     } catch (error) {
+      if (requestId !== state.requestToken) {
+        return;
+      }
       setStatus(error instanceof Error ? error.message : 'Unable to load the Calibre catalog.', 'error');
       renderEntries([]);
       if (navEl) {
@@ -308,20 +460,78 @@ if (browser) {
     }
   };
 
+  const openModal = (trigger) => {
+    if (isOpen) {
+      focusSearch();
+      return;
+    }
+    isOpen = true;
+    lastTrigger = trigger || null;
+    modal.hidden = false;
+    modal.dataset.open = 'true';
+    document.body.classList.add('modal-open');
+    focusSearch();
+    loadFeed({ href: state.currentHref || '', query: state.query || '', activeTab: state.activeTab || TabIds.ROOT, updateTabs: !state.tabsReady });
+  };
+
+  const closeModal = () => {
+    if (!isOpen) {
+      return;
+    }
+    isOpen = false;
+    modal.hidden = true;
+    delete modal.dataset.open;
+    document.body.classList.remove('modal-open');
+    if (lastTrigger instanceof HTMLElement) {
+      lastTrigger.focus({ preventScroll: true });
+    }
+  };
+
+  const handleKeydown = (event) => {
+    if (event.key === 'Escape' && isOpen) {
+      event.preventDefault();
+      closeModal();
+    }
+  };
+
+  document.addEventListener('keydown', handleKeydown);
+
+  openButtons.forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      openModal(button);
+    });
+  });
+
+  closeTargets.forEach((target) => {
+    target.addEventListener('click', (event) => {
+      event.preventDefault();
+      closeModal();
+    });
+  });
+
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) {
+      closeModal();
+    }
+  });
+
   if (searchForm && searchInput) {
     searchForm.addEventListener('submit', (event) => {
       event.preventDefault();
       const query = searchInput.value.trim();
-      loadFeed({ query });
+      if (!query) {
+        loadFeed({ href: '', query: '', activeTab: TabIds.ROOT, updateTabs: true });
+      } else {
+        loadFeed({ href: '', query, activeTab: TabIds.SEARCH });
+      }
     });
   }
 
   if (refreshButton && searchInput) {
     refreshButton.addEventListener('click', () => {
       searchInput.value = '';
-      loadFeed({});
+      loadFeed({ href: '', query: '', activeTab: TabIds.ROOT, updateTabs: true });
     });
   }
-
-  loadFeed({});
 }
