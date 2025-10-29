@@ -12,6 +12,12 @@ if (browser) {
     query: '',
   };
 
+  const ENTRY_TYPES = {
+    BOOK: 'book',
+    NAVIGATION: 'navigation',
+    OTHER: 'other',
+  };
+
   const setStatus = (message, level) => {
     if (!statusEl) {
       return;
@@ -52,6 +58,36 @@ if (browser) {
       return '';
     }
     return authors.filter((author) => !!author).join(', ');
+  };
+
+  const findNavigationLink = (entry) => {
+    if (!entry || !Array.isArray(entry.links)) {
+      return null;
+    }
+    const candidates = entry.links.filter((link) => link && link.href);
+    return candidates.find((link) => {
+      const rel = (link.rel || '').toLowerCase();
+      const type = (link.type || '').toLowerCase();
+      if (!link.href) {
+        return false;
+      }
+      if (rel.includes('acquisition')) {
+        return false;
+      }
+      if (rel === 'self') {
+        return false;
+      }
+      if (type.includes('opds-catalog')) {
+        return true;
+      }
+      if (rel.includes('subsection') || rel.includes('collection')) {
+        return true;
+      }
+      if (rel.startsWith('http://opds-spec.org/sort') || rel.startsWith('http://opds-spec.org/group')) {
+        return true;
+      }
+      return false;
+    }) || null;
   };
 
   const renderNav = (links) => {
@@ -117,17 +153,36 @@ if (browser) {
 
     const downloadLink = entry.download && entry.download.href ? entry.download.href : null;
     const alternateLink = entry.alternate && entry.alternate.href ? entry.alternate.href : null;
+    const navigationLink = findNavigationLink(entry);
 
+    let entryType = ENTRY_TYPES.OTHER;
     if (downloadLink) {
+      entryType = ENTRY_TYPES.BOOK;
+    } else if (navigationLink && navigationLink.href) {
+      entryType = ENTRY_TYPES.NAVIGATION;
+      item.classList.add('opds-browser__entry--navigation');
+    }
+
+    if (entryType === ENTRY_TYPES.BOOK) {
       const queueButton = document.createElement('button');
       queueButton.type = 'button';
       queueButton.className = 'button';
       queueButton.textContent = 'Queue for conversion';
       queueButton.addEventListener('click', () => importEntry(entry, queueButton));
       actions.appendChild(queueButton);
+    } else if (entryType === ENTRY_TYPES.NAVIGATION && navigationLink) {
+      const browseButton = document.createElement('button');
+      browseButton.type = 'button';
+      browseButton.className = 'button button--ghost';
+      browseButton.textContent = 'Browse view';
+      browseButton.addEventListener('click', () => {
+        clearStatus();
+        loadFeed({ href: navigationLink.href, query: '' });
+      });
+      actions.appendChild(browseButton);
     }
 
-    if (alternateLink) {
+    if (alternateLink && entryType !== ENTRY_TYPES.NAVIGATION) {
       const previewLink = document.createElement('a');
       previewLink.className = 'button button--ghost';
       previewLink.href = alternateLink;
@@ -145,12 +200,12 @@ if (browser) {
     }
 
     item.appendChild(actions);
-    return item;
+    return { element: item, type: entryType };
   };
 
   const renderEntries = (entries) => {
     if (!resultsEl) {
-      return;
+      return { [ENTRY_TYPES.BOOK]: 0, [ENTRY_TYPES.NAVIGATION]: 0, [ENTRY_TYPES.OTHER]: 0 };
     }
     resultsEl.innerHTML = '';
     if (!Array.isArray(entries) || !entries.length) {
@@ -158,13 +213,21 @@ if (browser) {
       empty.className = 'opds-browser__empty';
       empty.textContent = 'No books found in this view.';
       resultsEl.appendChild(empty);
-      return;
+      return { [ENTRY_TYPES.BOOK]: 0, [ENTRY_TYPES.NAVIGATION]: 0, [ENTRY_TYPES.OTHER]: 0 };
     }
     const fragment = document.createDocumentFragment();
+    const stats = {
+      [ENTRY_TYPES.BOOK]: 0,
+      [ENTRY_TYPES.NAVIGATION]: 0,
+      [ENTRY_TYPES.OTHER]: 0,
+    };
     entries.forEach((entry) => {
-      fragment.appendChild(createEntry(entry));
+      const { element, type } = createEntry(entry);
+      stats[type] += 1;
+      fragment.appendChild(element);
     });
     resultsEl.appendChild(fragment);
+    return stats;
   };
 
   const importEntry = async (entry, trigger) => {
@@ -220,10 +283,19 @@ if (browser) {
       }
       const feed = payload.feed || {};
       state.query = query;
+      if (searchInput && typeof query === 'string') {
+        searchInput.value = query;
+      }
       renderNav(feed.links);
-      renderEntries(feed.entries || []);
-      if (Array.isArray(feed.entries) && feed.entries.length) {
-        setStatus(`Showing ${feed.entries.length} item${feed.entries.length === 1 ? '' : 's'}.`, 'success');
+      const stats = renderEntries(feed.entries || []);
+      const books = stats?.[ENTRY_TYPES.BOOK] || 0;
+      const views = stats?.[ENTRY_TYPES.NAVIGATION] || 0;
+      if (books && views) {
+        setStatus(`Showing ${books} book${books === 1 ? '' : 's'} and ${views} catalog view${views === 1 ? '' : 's'}.`, 'success');
+      } else if (books) {
+        setStatus(`Found ${books} book${books === 1 ? '' : 's'} in this view.`, 'success');
+      } else if (views) {
+        setStatus(`Browse ${views} catalog view${views === 1 ? '' : 's'} to drill deeper.`, 'info');
       } else {
         setStatus('No books found in this view.', 'info');
       }

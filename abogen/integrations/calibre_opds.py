@@ -320,7 +320,8 @@ class CalibreOPDSClient:
             mime = (link.type or "").lower()
             if mime in _EPUB_MIME_TYPES:
                 return link
-        return iterable[0] if iterable else None
+        # No valid acquisition-style link exposed
+        return None
 
 
 def feed_to_dict(feed: OPDSFeed) -> Dict[str, Any]:
