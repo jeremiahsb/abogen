@@ -6,6 +6,8 @@ const llmNavButton = navButtons.find((button) => button.dataset.section === 'llm
 const statusSelectors = {
   llm: document.querySelector('[data-role="llm-preview-status"]'),
   normalization: document.querySelector('[data-role="normalization-preview-status"]'),
+  calibre: document.querySelector('[data-role="calibre-test-status"]'),
+  audiobookshelf: document.querySelector('[data-role="audiobookshelf-test-status"]'),
 };
 
 const outputAreas = {
@@ -267,6 +269,61 @@ function collectNormalizationSettings() {
   return normalization;
 }
 
+function collectCalibreFields() {
+  if (!form) {
+    return {};
+  }
+  const enabled = Boolean(form.querySelector('input[name="calibre_opds_enabled"]')?.checked);
+  const baseUrl = form.querySelector('#calibre_opds_base_url')?.value?.trim() || '';
+  const username = form.querySelector('#calibre_opds_username')?.value?.trim() || '';
+  const passwordInput = form.querySelector('#calibre_opds_password');
+  const password = passwordInput ? passwordInput.value : '';
+  const hasSecret = passwordInput?.dataset.hasSecret === 'true';
+  const clearSaved = Boolean(form.querySelector('input[name="calibre_opds_password_clear"]')?.checked);
+  const useSavedPassword = !password && hasSecret && !clearSaved;
+  const verify = Boolean(form.querySelector('input[name="calibre_opds_verify_ssl"]')?.checked);
+  return {
+    enabled,
+    base_url: baseUrl,
+    username,
+    password,
+    verify_ssl: verify,
+    use_saved_password: useSavedPassword,
+    clear_saved_password: clearSaved,
+  };
+}
+
+function collectAudiobookshelfFields() {
+  if (!form) {
+    return {};
+  }
+  const baseUrl = form.querySelector('#audiobookshelf_base_url')?.value?.trim() || '';
+  const libraryId = form.querySelector('#audiobookshelf_library_id')?.value?.trim() || '';
+  const collectionId = form.querySelector('#audiobookshelf_collection_id')?.value?.trim() || '';
+  const tokenInput = form.querySelector('#audiobookshelf_api_token');
+  const apiToken = tokenInput?.value?.trim() || '';
+  const hasSecret = tokenInput?.dataset.hasSecret === 'true';
+  const clearToken = Boolean(form.querySelector('input[name="audiobookshelf_api_token_clear"]')?.checked);
+  const useSavedToken = !apiToken && hasSecret && !clearToken;
+  const timeoutInput = form.querySelector('#audiobookshelf_timeout');
+  const timeout = parseNumber(timeoutInput?.value, 30);
+  return {
+    enabled: Boolean(form.querySelector('input[name="audiobookshelf_enabled"]')?.checked),
+    auto_send: Boolean(form.querySelector('input[name="audiobookshelf_auto_send"]')?.checked),
+    verify_ssl: Boolean(form.querySelector('input[name="audiobookshelf_verify_ssl"]')?.checked),
+    base_url: baseUrl,
+    library_id: libraryId,
+    collection_id: collectionId,
+    api_token: apiToken,
+    use_saved_token: useSavedToken,
+    clear_saved_token: clearToken,
+    timeout,
+    send_cover: Boolean(form.querySelector('input[name="audiobookshelf_send_cover"]')?.checked),
+    send_chapters: Boolean(form.querySelector('input[name="audiobookshelf_send_chapters"]')?.checked),
+    send_subtitles: Boolean(form.querySelector('input[name="audiobookshelf_send_subtitles"]')?.checked),
+  };
+}
+
 function updateLLMNavState() {
   if (!llmNavButton) {
     return;
@@ -276,6 +333,69 @@ function updateLLMNavState() {
     llmNavButton.classList.remove('is-disabled');
   } else {
     llmNavButton.classList.add('is-disabled');
+  }
+}
+
+async function testCalibre(button) {
+  const status = statusSelectors.calibre;
+  const fields = collectCalibreFields();
+  if (!status) {
+    return;
+  }
+  if (!fields.base_url) {
+    setStatus(status, 'Enter a Calibre OPDS base URL to test.', 'error');
+    return;
+  }
+  clearStatus(status);
+  setStatus(status, 'Testing connection…');
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/integrations/calibre-opds/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fields),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || 'Calibre test failed.');
+    }
+    setStatus(status, payload.message || 'Connection successful.', 'success');
+  } catch (error) {
+    setStatus(status, error instanceof Error ? error.message : 'Calibre test failed.', 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function testAudiobookshelf(button) {
+  const status = statusSelectors.audiobookshelf;
+  const fields = collectAudiobookshelfFields();
+  if (!status) {
+    return;
+  }
+  const hasToken = Boolean(fields.api_token) || Boolean(fields.use_saved_token);
+  if (!fields.base_url || !hasToken || !fields.library_id) {
+    setStatus(status, 'Enter the base URL, API token, and library ID to test.', 'error');
+    return;
+  }
+  clearStatus(status);
+  setStatus(status, 'Testing connection…');
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/integrations/audiobookshelf/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fields),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || 'Audiobookshelf test failed.');
+    }
+    setStatus(status, payload.message || 'Connection successful.', 'success');
+  } catch (error) {
+    setStatus(status, error instanceof Error ? error.message : 'Audiobookshelf test failed.', 'error');
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -379,6 +499,14 @@ function initActions() {
   const normalizationButton = document.querySelector('[data-action="normalization-preview"]');
   if (normalizationButton) {
     normalizationButton.addEventListener('click', () => previewNormalization(normalizationButton));
+  }
+  const calibreTestButton = document.querySelector('[data-action="calibre-test"]');
+  if (calibreTestButton) {
+    calibreTestButton.addEventListener('click', () => testCalibre(calibreTestButton));
+  }
+  const audiobookshelfTestButton = document.querySelector('[data-action="audiobookshelf-test"]');
+  if (audiobookshelfTestButton) {
+    audiobookshelfTestButton.addEventListener('click', () => testAudiobookshelf(audiobookshelfTestButton));
   }
 }
 

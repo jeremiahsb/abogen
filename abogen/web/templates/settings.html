@@ -344,7 +344,7 @@
             <div class="field field--inline">
               <div class="field__group">
                 <label for="calibre_opds_password">Password</label>
-                <input type="password" id="calibre_opds_password" name="calibre_opds_password" value="" placeholder="{% if integrations.calibre_opds.has_password %}••••••••{% endif %}">
+                <input type="password" id="calibre_opds_password" name="calibre_opds_password" value="" placeholder="{% if integrations.calibre_opds.has_password %}••••••••{% endif %}" data-has-secret="{{ 'true' if integrations.calibre_opds.has_password else 'false' }}">
                 <p class="hint">Leave blank to keep the stored password.</p>
               </div>
               <div class="field__group field__group--checkbox">
@@ -353,6 +353,10 @@
                   <span>Clear saved password</span>
                 </label>
               </div>
+            </div>
+            <div class="field field--inline">
+              <button type="button" class="button button--ghost" data-action="calibre-test">Test connection</button>
+              <span class="field__status" data-role="calibre-test-status" aria-live="polite"></span>
             </div>
           </fieldset>
 
@@ -389,7 +393,7 @@
             <div class="field field--inline">
               <div class="field__group">
                 <label for="audiobookshelf_api_token">API token</label>
-                <input type="password" id="audiobookshelf_api_token" name="audiobookshelf_api_token" value="" placeholder="{% if integrations.audiobookshelf.has_api_token %}••••••••{% endif %}">
+                <input type="password" id="audiobookshelf_api_token" name="audiobookshelf_api_token" value="" placeholder="{% if integrations.audiobookshelf.has_api_token %}••••••••{% endif %}" data-has-secret="{{ 'true' if integrations.audiobookshelf.has_api_token else 'false' }}">
                 <p class="hint">Leave blank to keep the stored token.</p>
               </div>
               <div class="field__group field__group--checkbox">
@@ -418,6 +422,10 @@
                 <input type="checkbox" name="audiobookshelf_send_subtitles" value="true" {% if integrations.audiobookshelf.send_subtitles %}checked{% endif %}>
                 <span>Send subtitle files</span>
               </label>
+            </div>
+            <div class="field field--inline">
+              <button type="button" class="button button--ghost" data-action="audiobookshelf-test">Test connection</button>
+              <span class="field__status" data-role="audiobookshelf-test-status" aria-live="polite"></span>
             </div>
           </fieldset>
         </section>

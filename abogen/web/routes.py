@@ -106,8 +106,21 @@ from abogen.speaker_configs import (
 )
 from abogen.text_extractor import extract_from_path
 from abogen.integrations.calibre_opds import CalibreOPDSClient, CalibreOPDSError, feed_to_dict
+from abogen.integrations.audiobookshelf import (
+    AudiobookshelfClient,
+    AudiobookshelfConfig,
+    AudiobookshelfUploadError,
+)
 from .conversion_runner import SPLIT_PATTERN, SAMPLE_RATE, _select_device, _to_float32
-from .service import ConversionService, Job, JobStatus, PendingJob
+from .service import (
+    ConversionService,
+    Job,
+    JobStatus,
+    PendingJob,
+    _build_audiobookshelf_metadata,
+    _existing_paths,
+    _load_audiobookshelf_chapters,
+)
 
 web_bp = Blueprint("web", __name__)
 api_bp = Blueprint("api", __name__)
@@ -2190,6 +2203,239 @@ def _load_integration_settings() -> Dict[str, Dict[str, Any]]:
     return integrations
 
 
+def _stored_integration_config(name: str) -> Dict[str, Any]:
+    cfg = load_config() or {}
+    entry = cfg.get(name)
+    if isinstance(entry, Mapping):
+        return dict(entry)
+    return {}
+
+
+def _calibre_settings_from_payload(payload: Mapping[str, Any]) -> Dict[str, Any]:
+    defaults = _integration_defaults()["calibre_opds"]
+    stored = _stored_integration_config("calibre_opds")
+
+    base_url = str(
+        payload.get("base_url")
+        or payload.get("calibre_opds_base_url")
+        or stored.get("base_url")
+        or ""
+    ).strip()
+    username = str(
+        payload.get("username")
+        or payload.get("calibre_opds_username")
+        or stored.get("username")
+        or ""
+    ).strip()
+    password_input = str(
+        payload.get("password")
+        or payload.get("calibre_opds_password")
+        or ""
+    ).strip()
+    use_saved_password = _coerce_bool(
+        payload.get("use_saved_password")
+        or payload.get("calibre_opds_use_saved_password"),
+        False,
+    )
+    clear_saved_password = _coerce_bool(
+        payload.get("clear_saved_password")
+        or payload.get("calibre_opds_password_clear"),
+        False,
+    )
+    password = ""
+    if password_input:
+        password = password_input
+    elif use_saved_password and not clear_saved_password:
+        password = str(stored.get("password") or "")
+
+    verify_ssl = _coerce_bool(
+        payload.get("verify_ssl")
+        or payload.get("calibre_opds_verify_ssl"),
+        defaults["verify_ssl"],
+    )
+    enabled = _coerce_bool(
+        payload.get("enabled")
+        or payload.get("calibre_opds_enabled"),
+        _coerce_bool(stored.get("enabled"), False),
+    )
+
+    return {
+        "enabled": enabled,
+        "base_url": base_url,
+        "username": username,
+        "password": password,
+        "verify_ssl": verify_ssl,
+    }
+
+
+def _audiobookshelf_settings_from_payload(payload: Mapping[str, Any]) -> Dict[str, Any]:
+    defaults = _integration_defaults()["audiobookshelf"]
+    stored = _stored_integration_config("audiobookshelf")
+
+    base_url = str(
+        payload.get("base_url")
+        or payload.get("audiobookshelf_base_url")
+        or stored.get("base_url")
+        or ""
+    ).strip()
+    library_id = str(
+        payload.get("library_id")
+        or payload.get("audiobookshelf_library_id")
+        or stored.get("library_id")
+        or ""
+    ).strip()
+    collection_id = str(
+        payload.get("collection_id")
+        or payload.get("audiobookshelf_collection_id")
+        or stored.get("collection_id")
+        or ""
+    ).strip()
+    token_input = str(
+        payload.get("api_token")
+        or payload.get("audiobookshelf_api_token")
+        or ""
+    ).strip()
+    use_saved_token = _coerce_bool(
+        payload.get("use_saved_token")
+        or payload.get("audiobookshelf_use_saved_token"),
+        False,
+    )
+    clear_saved_token = _coerce_bool(
+        payload.get("clear_saved_token")
+        or payload.get("audiobookshelf_api_token_clear"),
+        False,
+    )
+    if token_input:
+        api_token = token_input
+    elif use_saved_token and not clear_saved_token:
+        api_token = str(stored.get("api_token") or "")
+    else:
+        api_token = ""
+
+    verify_ssl = _coerce_bool(
+        payload.get("verify_ssl")
+        or payload.get("audiobookshelf_verify_ssl"),
+        defaults["verify_ssl"],
+    )
+    send_cover = _coerce_bool(
+        payload.get("send_cover")
+        or payload.get("audiobookshelf_send_cover"),
+        defaults["send_cover"],
+    )
+    send_chapters = _coerce_bool(
+        payload.get("send_chapters")
+        or payload.get("audiobookshelf_send_chapters"),
+        defaults["send_chapters"],
+    )
+    send_subtitles = _coerce_bool(
+        payload.get("send_subtitles")
+        or payload.get("audiobookshelf_send_subtitles"),
+        defaults["send_subtitles"],
+    )
+    auto_send = _coerce_bool(
+        payload.get("auto_send")
+        or payload.get("audiobookshelf_auto_send"),
+        defaults["auto_send"],
+    )
+    timeout_raw = (
+        payload.get("timeout")
+        or payload.get("audiobookshelf_timeout")
+        or stored.get("timeout")
+        or defaults["timeout"]
+    )
+    try:
+        timeout = float(timeout_raw)
+    except (TypeError, ValueError):
+        timeout = defaults["timeout"]
+
+    enabled = _coerce_bool(
+        payload.get("enabled")
+        or payload.get("audiobookshelf_enabled"),
+        _coerce_bool(stored.get("enabled"), False),
+    )
+
+    return {
+        "enabled": enabled,
+        "base_url": base_url,
+        "library_id": library_id,
+        "collection_id": collection_id,
+        "api_token": api_token,
+        "verify_ssl": verify_ssl,
+        "send_cover": send_cover,
+        "send_chapters": send_chapters,
+        "send_subtitles": send_subtitles,
+        "auto_send": auto_send,
+        "timeout": timeout,
+    }
+
+
+def _build_audiobookshelf_config(settings: Mapping[str, Any]) -> Optional[AudiobookshelfConfig]:
+    base_url = str(settings.get("base_url") or "").strip()
+    api_token = str(settings.get("api_token") or "").strip()
+    library_id = str(settings.get("library_id") or "").strip()
+    if not (base_url and api_token and library_id):
+        return None
+    try:
+        timeout = float(settings.get("timeout", 30.0))
+    except (TypeError, ValueError):
+        timeout = 30.0
+    return AudiobookshelfConfig(
+        base_url=base_url,
+        api_token=api_token,
+        library_id=library_id,
+        collection_id=(str(settings.get("collection_id") or "").strip() or None),
+        verify_ssl=_coerce_bool(settings.get("verify_ssl"), True),
+        send_cover=_coerce_bool(settings.get("send_cover"), True),
+        send_chapters=_coerce_bool(settings.get("send_chapters"), True),
+        send_subtitles=_coerce_bool(settings.get("send_subtitles"), False),
+        timeout=timeout,
+    )
+
+
+def _calibre_integration_enabled(
+    integrations: Optional[Mapping[str, Any]] = None,
+) -> bool:
+    if integrations is None:
+        integrations = _load_integration_settings()
+    payload = integrations.get("calibre_opds") if isinstance(integrations, Mapping) else None
+    if not isinstance(payload, Mapping):
+        return False
+    base_url = str(payload.get("base_url") or "").strip()
+    enabled_flag = _coerce_bool(payload.get("enabled"), False)
+    return bool(enabled_flag and base_url)
+
+
+def _audiobookshelf_manual_available() -> bool:
+    settings = _stored_integration_config("audiobookshelf")
+    if not settings:
+        return False
+    if not _coerce_bool(settings.get("enabled"), False):
+        return False
+    config = _build_audiobookshelf_config(settings)
+    return config is not None
+
+
+def _build_calibre_client(settings: Mapping[str, Any]) -> CalibreOPDSClient:
+    base_url = str(settings.get("base_url") or "").strip()
+    if not base_url:
+        raise ValueError("Calibre OPDS base URL is required")
+    username = str(settings.get("username") or "").strip() or None
+    password = str(settings.get("password") or "").strip() or None
+    verify_ssl = _coerce_bool(settings.get("verify_ssl"), True)
+    timeout_raw = settings.get("timeout", 15.0)
+    try:
+        timeout = float(timeout_raw)
+    except (TypeError, ValueError):
+        timeout = 15.0
+    return CalibreOPDSClient(
+        base_url,
+        username=username,
+        password=password,
+        timeout=timeout,
+        verify=verify_ssl,
+    )
+
+
 def _apply_integration_form(cfg: Dict[str, Any], form: Mapping[str, Any]) -> None:
     defaults = _integration_defaults()
 
@@ -2446,10 +2692,13 @@ def datetimeformat(value: float, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
 
 @web_bp.get("/")
 def index() -> str:
+    integrations = _load_integration_settings()
     return render_template(
         "index.html",
         options=_template_options(),
         settings=_load_settings(),
+        integrations=integrations,
+        opds_available=_calibre_integration_enabled(integrations),
     )
 
 
@@ -2463,11 +2712,222 @@ def queue_page() -> ResponseReturnValue:
 
 @web_bp.get("/find-books")
 def find_books_page() -> ResponseReturnValue:
-    # Potential integration target: Standard Ebooks OPDS feed
-    # https://standardebooks.org/feeds/opds
-    # Potential integration target: Project Gutenberg OPDS search
-    # https://www.gutenberg.org/ebooks/search.opds/
-    return render_template("find_books.html")
+    integrations = _load_integration_settings()
+    return render_template(
+        "find_books.html",
+        integrations=integrations,
+        opds_available=_calibre_integration_enabled(integrations),
+    )
+
+
+@api_bp.get("/integrations/calibre-opds/feed")
+def calibre_opds_feed() -> ResponseReturnValue:
+    stored_settings = _stored_integration_config("calibre_opds")
+    payload = {
+        "base_url": stored_settings.get("base_url"),
+        "username": stored_settings.get("username"),
+        "password": stored_settings.get("password"),
+        "verify_ssl": stored_settings.get("verify_ssl", True),
+    }
+    if not payload.get("base_url"):
+        return jsonify({"error": "Calibre OPDS base URL is not configured."}), 400
+    try:
+        client = _build_calibre_client(payload)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    href = request.args.get("href", type=str)
+    query = request.args.get("q", type=str)
+    try:
+        if query:
+            feed = client.search(query)
+        else:
+            feed = client.fetch_feed(href)
+    except CalibreOPDSError as exc:
+        return jsonify({"error": str(exc)}), 502
+
+    return jsonify({
+        "feed": feed_to_dict(feed),
+        "href": href or "",
+        "query": query or "",
+    })
+
+
+@api_bp.post("/integrations/calibre-opds/import")
+def calibre_opds_import() -> ResponseReturnValue:
+    if not request.is_json:
+        return jsonify({"error": "Expected JSON payload."}), 400
+    data = request.get_json(silent=True) or {}
+    href = str(data.get("href") or "").strip()
+    title = str(data.get("title") or "").strip()
+    if not href:
+        return jsonify({"error": "Download link missing."}), 400
+
+    stored_settings = _stored_integration_config("calibre_opds")
+    if not stored_settings or not _coerce_bool(stored_settings.get("enabled"), False):
+        return jsonify({"error": "Calibre OPDS integration is not enabled."}), 400
+
+    payload = {
+        "base_url": stored_settings.get("base_url"),
+        "username": stored_settings.get("username"),
+        "password": stored_settings.get("password"),
+        "verify_ssl": stored_settings.get("verify_ssl", True),
+    }
+    try:
+        client = _build_calibre_client(payload)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    try:
+        resource = client.download(href)
+    except (CalibreOPDSError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 502
+
+    filename = resource.filename or (f"{title}.epub" if title else "download.epub")
+    sanitized = secure_filename(filename) or "download.epub"
+    uploads_dir = Path(current_app.config["UPLOAD_FOLDER"])
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    stored_path = uploads_dir / f"{uuid.uuid4().hex}_{sanitized}"
+
+    try:
+        stored_path.write_bytes(resource.content)
+    except OSError as exc:
+        return jsonify({"error": f"Unable to store downloaded book: {exc}"}), 500
+
+    try:
+        extraction = extract_from_path(stored_path)
+    except Exception as exc:  # pragma: no cover - defensive
+        stored_path.unlink(missing_ok=True)
+        return jsonify({"error": f"Unable to read the downloaded book: {exc}"}), 400
+
+    settings = _load_settings()
+    profiles = load_profiles()
+    build_result = _build_pending_job_from_extraction(
+        stored_path=stored_path,
+        original_name=sanitized,
+        extraction=extraction,
+        form=MultiDict(),
+        settings=settings,
+        profiles=profiles,
+    )
+
+    pending = build_result.pending
+    _refresh_entity_summary(pending, pending.chapters)
+    service = _service()
+    service.store_pending_job(pending)
+
+    if build_result.selected_speaker_config:
+        pending.applied_speaker_config = build_result.selected_speaker_config
+    if build_result.config_languages:
+        pending.speaker_voice_languages = list(build_result.config_languages)
+    elif isinstance(build_result.speaker_config_payload, Mapping):
+        languages = build_result.speaker_config_payload.get("languages")
+        if isinstance(languages, list):
+            pending.speaker_voice_languages = [code for code in languages if isinstance(code, str)]
+
+    service.store_pending_job(pending)
+
+    redirect_url = url_for("web.prepare_job", pending_id=pending.id)
+    return jsonify({
+        "pending_id": pending.id,
+        "redirect_url": redirect_url,
+    })
+
+
+@api_bp.post("/integrations/calibre-opds/test")
+def test_calibre_opds() -> ResponseReturnValue:
+    if not request.is_json:
+        return jsonify({"error": "Expected JSON payload."}), 400
+    payload = request.get_json(silent=True) or {}
+    settings = _calibre_settings_from_payload(payload)
+    if not settings.get("base_url"):
+        return jsonify({"error": "Enter a Calibre OPDS base URL before testing."}), 400
+    try:
+        client = _build_calibre_client(settings)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    try:
+        feed = client.fetch_feed()
+    except CalibreOPDSError as exc:
+        return jsonify({"error": str(exc)}), 502
+    entries = len(feed.entries)
+    catalog_title = feed.title or "catalog"
+    return jsonify({
+        "message": f"Connected to {catalog_title}. Found {entries} item{'s' if entries != 1 else ''}.",
+        "entries": entries,
+        "title": catalog_title,
+    })
+
+
+@api_bp.post("/integrations/audiobookshelf/test")
+def test_audiobookshelf() -> ResponseReturnValue:
+    if not request.is_json:
+        return jsonify({"error": "Expected JSON payload."}), 400
+    payload = request.get_json(silent=True) or {}
+    settings = _audiobookshelf_settings_from_payload(payload)
+    config = _build_audiobookshelf_config(settings)
+    if config is None:
+        return jsonify({"error": "Provide base URL, API token, and library ID before testing."}), 400
+
+    try:
+        client = AudiobookshelfClient(config)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    try:
+        with client._open_client() as http_client:  # pylint: disable=protected-access
+            response = http_client.get("/api/libraries", params={"lite": "true"})
+            response.raise_for_status()
+            payload_json = response.json()
+    except Exception as exc:  # pragma: no cover - network guard
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        if status_code:
+            message = f"Audiobookshelf request failed with status {status_code}."
+        else:
+            message = f"Audiobookshelf request failed: {exc}"
+        return jsonify({"error": message}), 502
+
+    libraries: List[Mapping[str, Any]] = []
+    if isinstance(payload_json, list):
+        libraries = [entry for entry in payload_json if isinstance(entry, Mapping)]
+    elif isinstance(payload_json, Mapping):
+        candidates = payload_json.get("libraries") or payload_json.get("items")
+        if isinstance(candidates, list):
+            libraries = [entry for entry in candidates if isinstance(entry, Mapping)]
+
+    library_id = settings.get("library_id", "")
+    library_name = library_id
+    matched = False
+    for entry in libraries:
+        entry_id = str(entry.get("id") or "").strip()
+        if entry_id != library_id:
+            continue
+        matched = True
+        library_name = entry.get("name") or entry.get("label") or library_id
+        break
+
+    if not matched:
+        return jsonify({"error": f"Library '{library_id}' not found on Audiobookshelf."}), 400
+
+    collection_id = str(settings.get("collection_id") or "").strip()
+    if collection_id:
+        try:
+            with client._open_client() as http_client:  # pylint: disable=protected-access
+                collection_resp = http_client.get(f"/api/collections/{collection_id}")
+                collection_resp.raise_for_status()
+        except Exception as exc:  # pragma: no cover - network guard
+            status_code = getattr(getattr(exc, "response", None), "status_code", None)
+            if status_code:
+                message = f"Collection lookup failed with status {status_code}."
+            else:
+                message = f"Collection lookup failed: {exc}"
+            return jsonify({"error": message}), 502
+
+    return jsonify({
+        "message": f"Connected to Audiobookshelf library '{library_name}'.",
+        "library_id": library_id,
+        "collection_id": collection_id or None,
+    })
 
 
 @web_bp.route("/settings", methods=["GET", "POST"])
@@ -4044,6 +4504,7 @@ def _render_jobs_panel() -> str:
         total_finished=len(finished_jobs),
         JobStatus=JobStatus,
         download_flags=download_flags,
+        audiobookshelf_manual_available=_audiobookshelf_manual_available(),
     )
 
 
@@ -4217,6 +4678,76 @@ def retry_job(job_id: str) -> ResponseReturnValue:
     if new_job:
         return redirect(url_for("web.job_detail", job_id=new_job.id))
     return redirect(url_for("web.job_detail", job_id=job_id))
+
+
+@web_bp.post("/jobs/<job_id>/audiobookshelf")
+def send_job_to_audiobookshelf(job_id: str) -> ResponseReturnValue:
+    service = _service()
+    job = service.get_job(job_id)
+    if job is None:
+        abort(404)
+
+    def _panel_response() -> ResponseReturnValue:
+        if request.headers.get("HX-Request"):
+            return _render_jobs_panel()
+        return redirect(url_for("web.job_detail", job_id=job.id))
+
+    if job.status != JobStatus.COMPLETED:
+        return _panel_response()
+
+    settings = _stored_integration_config("audiobookshelf")
+    if not settings or not _coerce_bool(settings.get("enabled"), False):
+        job.add_log("Audiobookshelf upload skipped: integration is disabled.", level="warning")
+        service._persist_state()
+        return _panel_response()
+
+    config = _build_audiobookshelf_config(settings)
+    if config is None:
+        job.add_log(
+            "Audiobookshelf upload skipped: configure base URL, API token, and library ID first.",
+            level="warning",
+        )
+        service._persist_state()
+        return _panel_response()
+
+    audio_path = _locate_job_audio(job)
+    if not audio_path or not audio_path.exists():
+        job.add_log("Audiobookshelf upload skipped: audio output not found.", level="warning")
+        service._persist_state()
+        return _panel_response()
+
+    cover_path = None
+    if config.send_cover and job.cover_image_path:
+        cover_candidate = job.cover_image_path
+        if not isinstance(cover_candidate, Path):
+            cover_candidate = Path(str(cover_candidate))
+        if cover_candidate.exists():
+            cover_path = cover_candidate
+
+    subtitles = _existing_paths(job.result.subtitle_paths) if config.send_subtitles else None
+    chapters = _load_audiobookshelf_chapters(job) if config.send_chapters else None
+    metadata = _build_audiobookshelf_metadata(job)
+
+    job.add_log("Audiobookshelf upload triggered manually.", level="info")
+    try:
+        client = AudiobookshelfClient(config)
+        client.upload_audiobook(
+            audio_path,
+            metadata=metadata,
+            cover_path=cover_path,
+            chapters=chapters,
+            subtitles=subtitles,
+        )
+    except AudiobookshelfUploadError as exc:
+        job.add_log(f"Audiobookshelf upload failed: {exc}", level="error")
+    except Exception as exc:  # pragma: no cover - defensive guard
+        job.add_log(f"Audiobookshelf integration error: {exc}", level="error")
+    else:
+        job.add_log("Audiobookshelf upload queued.", level="success")
+    finally:
+        service._persist_state()
+
+    return _panel_response()
 
 
 @web_bp.post("/jobs/clear-finished")

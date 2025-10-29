@@ -82,6 +82,15 @@
               {% if flags.get('epub3') %}
                 <a class="button button--ghost" href="{{ url_for('web.download_job_epub3', job_id=job.id) }}">Download EPUB 3</a>
               {% endif %}
+              {% if audiobookshelf_manual_available %}
+                <button type="button"
+                        class="button button--ghost"
+                        hx-post="{{ url_for('web.send_job_to_audiobookshelf', job_id=job.id) }}"
+                        hx-target="#jobs-panel"
+                        hx-swap="innerHTML">
+                  Send to Audiobookshelf
+                </button>
+              {% endif %}
             {% endif %}
             {% set reader_source = None %}
             {% if job.status == JobStatus.COMPLETED and job.result %}
