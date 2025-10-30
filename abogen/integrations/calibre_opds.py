@@ -26,6 +26,10 @@ NS = {
 
 
 _TAG_STRIP_RE = re.compile(r"<[^>]+>")
+_SERIES_PREFIX_RE = re.compile(r"^\s*(series|books?)\s*[:\-]\s*", re.IGNORECASE)
+_SERIES_NUMBER_BRACKET_RE = re.compile(r"[\[(]\s*(?:book\s*)?(\d+(?:\.\d+)?)\s*[\])]", re.IGNORECASE)
+_SERIES_NUMBER_HASH_RE = re.compile(r"#\s*(\d+(?:\.\d+)?)")
+_SERIES_NUMBER_BOOK_RE = re.compile(r"\bbook\s+(\d+(?:\.\d+)?)\b", re.IGNORECASE)
 _EPUB_MIME_TYPES = {
     "application/epub+zip",
     "application/zip",
@@ -309,6 +313,15 @@ class CalibreOPDSClient:
                             series_index = float(match.group(0))
                         except ValueError:
                             series_index = None
+
+        if series_name is None or series_index is None:
+            category_series_name, category_series_index = self._extract_series_from_categories(
+                node.findall("atom:category", NS)
+            )
+            if series_name is None and category_series_name:
+                series_name = category_series_name
+            if series_index is None and category_series_index is not None:
+                series_index = category_series_index
         return OPDSEntry(
             id=entry_id or title,
             title=title,
@@ -323,6 +336,79 @@ class CalibreOPDSClient:
             series=series_name,
             series_index=series_index,
         )
+
+    def _extract_series_from_categories(self, category_nodes: List[ET.Element]) -> tuple[Optional[str], Optional[float]]:
+        name: Optional[str] = None
+        index: Optional[float] = None
+        for category in category_nodes:
+            scheme = (category.attrib.get("scheme") or "").strip().lower()
+            label = (category.attrib.get("label") or "").strip()
+            term = (category.attrib.get("term") or "").strip()
+            values: List[str] = []
+            if label:
+                values.append(label)
+            if term and term not in values:
+                values.append(term)
+
+            is_series_hint = "series" in scheme or any("series" in value.lower() for value in values if value)
+            if not is_series_hint:
+                continue
+
+            for value in values:
+                if not value:
+                    continue
+                candidate_name, candidate_index = self._parse_series_value(value)
+                if candidate_name and not name:
+                    name = candidate_name
+                if candidate_index is not None and index is None:
+                    index = candidate_index
+                if name and index is not None:
+                    return name, index
+        return name, index
+
+    def _parse_series_value(self, value: str) -> tuple[Optional[str], Optional[float]]:
+        cleaned = re.sub(r"\s+", " ", value or "").strip()
+        if not cleaned:
+            return None, None
+        cleaned = _SERIES_PREFIX_RE.sub("", cleaned)
+        working = cleaned
+        number: Optional[float] = None
+
+        bracket_match = _SERIES_NUMBER_BRACKET_RE.search(working)
+        if bracket_match:
+            number = self._coerce_series_index(bracket_match.group(1))
+            start, end = bracket_match.span()
+            working = (working[:start] + working[end:]).strip()
+
+        if number is None:
+            hash_match = _SERIES_NUMBER_HASH_RE.search(working)
+            if hash_match:
+                number = self._coerce_series_index(hash_match.group(1))
+                start, end = hash_match.span()
+                working = (working[:start] + working[end:]).strip()
+
+        if number is None:
+            book_match = _SERIES_NUMBER_BOOK_RE.search(working)
+            if book_match:
+                number = self._coerce_series_index(book_match.group(1))
+                start, end = book_match.span()
+                working = (working[:start] + working[end:]).strip()
+
+        name = working.strip(" -–—,:")
+        name = re.sub(r"\s+", " ", name).strip()
+        if not name:
+            name = None
+        return name, number
+
+    @staticmethod
+    def _coerce_series_index(value: str) -> Optional[float]:
+        text = value.strip().replace(",", ".")
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            return None
 
     def _extract_position(self, node: ET.Element) -> Optional[int]:
         candidates = [
