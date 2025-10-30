@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from fractions import Fraction
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 try:  # pragma: no cover - optional dependency guard
@@ -92,6 +93,146 @@ CONTRACTIONS_EXACT = {
 
 # For ambiguous 'd and 's we handle separately
 _NUMBER_WITH_GROUP_RE = re.compile(r"(?<![\w\d])(-?\d{1,3}(?:,\d{3})+)(?![\w\d])")
+_NUMBER_RANGE_SEPARATORS = "-‐‑–—−"
+_WIDE_RANGE_SEPARATORS = {"–", "—"}
+_NUMBER_RANGE_RE = re.compile(
+    rf"(?<!\w)(?P<left>-?\d+)(?P<sep>\s*[{_NUMBER_RANGE_SEPARATORS}]\s*)(?P<right>-?\d+)(?![\w{_NUMBER_RANGE_SEPARATORS}/])"
+)
+_FRACTION_SLASHES = "/⁄"
+_FRACTION_RE = re.compile(
+    rf"(?<!\w)(?P<numerator>-?\d+)\s*[{_FRACTION_SLASHES}]\s*(?P<denominator>-?\d+)(?![\w{_FRACTION_SLASHES}])"
+)
+
+
+def _int_to_words(value: int, language: str) -> Optional[str]:
+    """Convert integer to spelled-out words using configured language."""
+    if num2words is None:
+        return None
+
+    try:
+        words = num2words(abs(value), lang=language)
+    except Exception:  # pragma: no cover - unsupported locale
+        return None
+
+    if value < 0:
+        return f"minus {words}"
+    return words
+
+
+def _int_to_ordinal_words(value: int, language: str) -> Optional[str]:
+    if num2words is None:
+        return None
+
+    try:
+        return num2words(value, lang=language, ordinal=True)
+    except Exception:  # pragma: no cover - unsupported locale
+        return None
+
+
+def _pluralize_fraction_word(base: str) -> str:
+    if base == "half":
+        return "halves"
+    if base == "calf":  # defensive; unlikely but keeps pattern predictable
+        return "calves"
+    if base.endswith("f"):
+        return base[:-1] + "ves"
+    if base.endswith("fe"):
+        return base[:-2] + "ves"
+    return base + "s"
+
+
+def _fraction_denominator_word(denominator: int, numerator: int, language: str) -> Optional[str]:
+    """Return spoken form for fraction denominator respecting plurality."""
+    if denominator == 0:
+        return None
+
+    numerator_abs = abs(numerator)
+    if denominator == 1:
+        return ""
+    if denominator == 2:
+        return "half" if numerator_abs == 1 else "halves"
+    if denominator == 4:
+        return "quarter" if numerator_abs == 1 else "quarters"
+
+    base = _int_to_ordinal_words(denominator, language)
+    if base is None:
+        return None
+    if numerator_abs == 1:
+        return base
+    return _pluralize_fraction_word(base)
+
+
+def _format_fraction_words(numerator: int, denominator: int, language: str) -> Optional[str]:
+    """Return spoken representation of a simple fraction."""
+    if denominator == 0:
+        return None
+
+    fraction = Fraction(numerator, denominator)
+    num = fraction.numerator
+    den = fraction.denominator
+
+    if abs(den) > 100:
+        return None
+
+    numerator_words = _int_to_words(abs(num), language)
+    if numerator_words is None:
+        return None
+
+    denom_word = _fraction_denominator_word(den, num, language)
+    if denom_word is None:
+        return None
+
+    if denom_word:
+        if num < 0:
+            numerator_words = f"minus {numerator_words}"
+        return f"{numerator_words} {denom_word}".strip()
+
+    # If denominator collapses to 1, just speak the integer value.
+    spoken = _int_to_words(num, language)
+    return spoken
+
+
+def _replace_number_range(match: re.Match[str], language: str) -> str:
+    left_raw = match.group("left")
+    right_raw = match.group("right")
+    separator_text = match.group("sep") or ""
+    separator_char = next((ch for ch in separator_text if ch in _NUMBER_RANGE_SEPARATORS), "-")
+    has_whitespace = any(ch.isspace() for ch in separator_text)
+
+    left_digits = len(left_raw.lstrip("-"))
+    right_digits = len(right_raw.lstrip("-"))
+
+    if (left_digits >= 4 or right_digits >= 4) and separator_char not in _WIDE_RANGE_SEPARATORS and not has_whitespace:
+        return match.group(0)
+    if {left_digits, right_digits} == {3, 4} and separator_char not in _WIDE_RANGE_SEPARATORS and not has_whitespace:
+        return match.group(0)
+    try:
+        left = int(left_raw)
+        right = int(right_raw)
+    except ValueError:
+        return match.group(0)
+
+    left_words = _int_to_words(left, language)
+    right_words = _int_to_words(right, language)
+    if not left_words or not right_words:
+        return match.group(0)
+
+    return f"{left_words} to {right_words}"
+
+
+def _replace_fraction(match: re.Match[str], language: str) -> str:
+    numerator_raw = match.group("numerator")
+    denominator_raw = match.group("denominator")
+    try:
+        numerator = int(numerator_raw)
+        denominator = int(denominator_raw)
+    except ValueError:
+        return match.group(0)
+
+    spoken = _format_fraction_words(numerator, denominator, language)
+    if not spoken:
+        return match.group(0)
+    return spoken
 AMBIGUOUS_D_BASES = {"i","you","he","she","we","they"}
 AMBIGUOUS_S_BASES = {"it","that","what","where","who","when","how","there","here"}
 
@@ -559,6 +700,8 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
     if not text or not cfg.convert_numbers:
         return text
 
+    language = (cfg.number_lang or "en").strip() or "en"
+
     def _replace(match: re.Match[str]) -> str:
         token = match.group(1)
         cleaned = token.replace(",", "")
@@ -578,17 +721,15 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
         except ValueError:
             return cleaned
 
-        language = (cfg.number_lang or "en").strip() or "en"
-        try:
-            words = num2words(abs(value), lang=language)
-        except Exception:  # pragma: no cover - unsupported locale
+        words = _int_to_words(value, language)
+        if not words:
             return str(value)
-
-        if value < 0:
-            words = f"minus {words}"
         return words
 
-    return _NUMBER_WITH_GROUP_RE.sub(_replace, text)
+    normalized = _NUMBER_WITH_GROUP_RE.sub(_replace, text)
+    normalized = _NUMBER_RANGE_RE.sub(lambda m: _replace_number_range(m, language), normalized)
+    normalized = _FRACTION_RE.sub(lambda m: _replace_fraction(m, language), normalized)
+    return normalized
 
 # ---------- Optional phoneme hint post-processing ----------
 

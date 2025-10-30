@@ -68,3 +68,13 @@ def test_normalize_roman_titles_preserves_separators() -> None:
 def test_grouped_numbers_are_spelled_out() -> None:
     normalized = _normalize_for_pipeline("The vault holds 35,000 credits")
     assert "thirty-five thousand" in normalized.lower()
+
+
+def test_numeric_ranges_are_spoken_with_to() -> None:
+    normalized = _normalize_for_pipeline("Chapters 1-3")
+    assert "one to three" in normalized.lower()
+
+
+def test_simple_fractions_are_spoken() -> None:
+    normalized = _normalize_for_pipeline("Add 1/2 cup of sugar")
+    assert "one half" in normalized.lower()
