@@ -2759,6 +2759,8 @@ def find_books_page() -> ResponseReturnValue:
         "find_books.html",
         integrations=integrations,
         opds_available=_calibre_integration_enabled(integrations),
+        options=_template_options(),
+        settings=_load_settings(),
     )
 
 

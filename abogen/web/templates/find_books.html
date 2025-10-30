@@ -80,10 +80,18 @@
   </div>
 </div>
 {% endif %}
+{% with pending=None, readonly=False, active_step='settings' %}
+  {% include "partials/upload_modal.html" %}
+{% endwith %}
+{% include "partials/reader_modal.html" %}
 {% endblock %}
 
 {% block scripts %}
   {{ super() }}
+  <script id="voice-sample-texts" type="application/json">{{ options.sample_voice_texts | tojson }}</script>
+  <script type="module" src="{{ url_for('static', filename='dashboard.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='prepare.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='speakers.js') }}"></script>
   {% if opds_available %}
   <script type="module" src="{{ url_for('static', filename='find_books.js') }}"></script>
   {% endif %}

@@ -367,11 +367,22 @@ if (modal && browser) {
         throw new Error(payload.error || 'Unable to queue this book.');
       }
       setStatus('Preparing the conversion wizard…', 'success');
-      if (payload.redirect_url) {
-        closeModal();
-        window.setTimeout(() => {
-          window.location.assign(payload.redirect_url);
-        }, 150);
+      closeModal();
+      const redirectUrl = payload.redirect_url || '';
+      if (redirectUrl) {
+        const wizard = window.AbogenWizard;
+        if (wizard?.requestStep) {
+          try {
+            const target = new URL(redirectUrl, window.location.origin);
+            target.searchParams.set('format', 'json');
+            await wizard.requestStep(target.toString(), { method: 'GET' });
+          } catch (wizardError) {
+            console.error('Unable to open wizard via JSON payload', wizardError);
+            window.location.assign(redirectUrl);
+          }
+        } else {
+          window.location.assign(redirectUrl);
+        }
       }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Unable to queue this book.', 'error');
