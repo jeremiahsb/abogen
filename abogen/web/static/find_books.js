@@ -53,6 +53,55 @@ if (modal && browser) {
     return authors.filter((author) => !!author).join(', ');
   };
 
+  const formatSeriesIndex = (position) => {
+    if (position === null || position === undefined) {
+      return '';
+    }
+    const numeric = Number(position);
+    if (Number.isFinite(numeric)) {
+      if (Math.abs(numeric - Math.round(numeric)) < 0.01) {
+        return String(Math.round(numeric));
+      }
+      return numeric.toLocaleString(undefined, {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 2,
+      });
+    }
+    if (typeof position === 'string') {
+      const trimmed = position.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+    return '';
+  };
+
+  const formatSeriesLabel = (entry) => {
+    if (!entry) {
+      return '';
+    }
+    const rawSeries = typeof entry.series === 'string' ? entry.series.trim() : '';
+    const rawIndex =
+      entry.series_index ??
+      entry.seriesIndex ??
+      entry.series_position ??
+      entry.seriesPosition ??
+      entry.book_number ??
+      entry.bookNumber ??
+      null;
+    const indexLabel = formatSeriesIndex(rawIndex);
+    if (rawSeries && indexLabel) {
+      return `${rawSeries} · Book ${indexLabel}`;
+    }
+    if (rawSeries) {
+      return rawSeries;
+    }
+    if (indexLabel) {
+      return `Book ${indexLabel}`;
+    }
+    return '';
+  };
+
   const setStatus = (message, level) => {
     if (!statusEl) {
       return;
@@ -255,6 +304,14 @@ if (modal && browser) {
       meta.className = 'opds-browser__meta';
       meta.textContent = authors;
       header.appendChild(meta);
+    }
+
+    const seriesMetaText = formatSeriesLabel(entry);
+    if (seriesMetaText) {
+      const seriesMeta = document.createElement('p');
+      seriesMeta.className = 'opds-browser__meta';
+      seriesMeta.textContent = seriesMetaText;
+      header.appendChild(seriesMeta);
     }
 
     item.appendChild(header);
