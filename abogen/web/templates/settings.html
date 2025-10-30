@@ -432,7 +432,8 @@
             </div>
             <div class="field">
               <label for="audiobookshelf_base_url">Base URL</label>
-              <input type="url" id="audiobookshelf_base_url" name="audiobookshelf_base_url" value="{{ integrations.audiobookshelf.base_url }}" placeholder="https://abs.local:13378/api">
+              <input type="url" id="audiobookshelf_base_url" name="audiobookshelf_base_url" value="{{ integrations.audiobookshelf.base_url }}" placeholder="https://abs.local:13378">
+              <p class="hint">Use the server root (no trailing <code>/api</code>); the upload requests add it automatically.</p>
             </div>
             <div class="field field--inline">
               <div class="field__group">

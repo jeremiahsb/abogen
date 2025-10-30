@@ -32,7 +32,12 @@ class AudiobookshelfConfig:
         base = (self.base_url or "").strip()
         if not base:
             raise ValueError("Audiobookshelf base URL is required")
-        return base[:-1] if base.endswith("/") else base
+        normalized = base.rstrip("/")
+        # The web UI historically suggested including '/api' in the base URL; trim
+        # it here so we can safely append `/api/...` endpoints below.
+        if normalized.lower().endswith("/api"):
+            normalized = normalized[:-4]
+        return normalized or base
 
 
 class AudiobookshelfClient:
