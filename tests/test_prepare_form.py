@@ -2,7 +2,7 @@ from pathlib import Path
 
 from werkzeug.datastructures import MultiDict
 
-from abogen.web.routes import _apply_prepare_form
+from abogen.web.routes import _apply_prepare_form, _resolve_voice_setting
 from abogen.web.service import PendingJob
 
 
@@ -62,3 +62,21 @@ def test_apply_prepare_form_handles_custom_mix_for_speakers():
     assert hero["voice_formula"] == "af_nova*0.6+am_liam*0.4"
     assert hero["resolved_voice"] == "af_nova*0.6+am_liam*0.4"
     assert "voice" not in hero or hero["voice"] != "__custom_mix"
+
+
+def test_resolve_voice_setting_handles_profile_reference():
+    profiles = {
+        "Blend": {
+            "language": "b",
+            "voices": [
+                ("af_nova", 1.0),
+                ("am_liam", 1.0),
+            ],
+        }
+    }
+
+    voice, profile_name, language = _resolve_voice_setting("profile:Blend", profiles=profiles)
+
+    assert voice == "af_nova*0.5+am_liam*0.5"
+    assert profile_name == "Blend"
+    assert language == "b"

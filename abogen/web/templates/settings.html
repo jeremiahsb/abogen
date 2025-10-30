@@ -29,9 +29,35 @@
             <div class="field">
               <label for="default_voice">Narrator Voice</label>
               <select id="default_voice" name="default_voice">
-                {% for voice in options.voices %}
-                <option value="{{ voice }}" {% if settings.default_voice == voice %}selected{% endif %}>{{ voice }}</option>
-                {% endfor %}
+                <optgroup label="Standard voices">
+                  {% for voice in options.voices %}
+                  <option value="{{ voice }}" {% if settings.default_voice == voice %}selected{% endif %}>{{ voice }}</option>
+                  {% endfor %}
+                </optgroup>
+                {% if options.voice_profile_options %}
+                <optgroup label="Saved mixes">
+                  {% for profile in options.voice_profile_options %}
+                  {% set profile_value = 'profile:' ~ profile.name %}
+                  <option value="{{ profile_value }}" {% if settings.default_voice == profile_value %}selected{% endif %}>{{ profile.name }}{% if profile.language %} · {{ profile.language|upper }}{% endif %}</option>
+                  {% endfor %}
+                </optgroup>
+                {% endif %}
+                {% set current_default = settings.default_voice %}
+                {% if current_default %}
+                {% set known_default = namespace(value=False) %}
+                {% if current_default in options.voices %}
+                  {% set known_default.value = True %}
+                {% else %}
+                  {% for profile in options.voice_profile_options %}
+                    {% if current_default == 'profile:' ~ profile.name %}
+                      {% set known_default.value = True %}
+                    {% endif %}
+                  {% endfor %}
+                {% endif %}
+                {% if not known_default.value %}
+                  <option value="{{ current_default }}" selected>{{ current_default }}</option>
+                {% endif %}
+                {% endif %}
               </select>
               <p class="hint">Used whenever “Standard voice” is selected for a new job.</p>
             </div>

@@ -340,6 +340,35 @@ def _build_title_intro_text(
     return " ".join(sentences).strip()
 
 
+def _build_outro_text(
+    metadata: Optional[Mapping[str, Any]],
+    fallback_basename: str,
+) -> str:
+    normalized = _normalize_metadata_map(metadata)
+    fallback_title = Path(fallback_basename).stem if fallback_basename else ""
+    title = (
+        normalized.get("title")
+        or normalized.get("book_title")
+        or normalized.get("album")
+        or fallback_title
+    )
+    author_value = ""
+    for candidate in ("authors", "author", "album_artist", "artist", "writer", "composer"):
+        value = normalized.get(candidate)
+        if value:
+            author_value = value
+            break
+    author_sentence = _format_author_sentence(author_value)
+    authors_fragment = author_sentence[3:].strip() if author_sentence.lower().startswith("by ") else author_sentence.strip()
+    if title and authors_fragment:
+        return f"The end of {title} from {authors_fragment}."
+    if title:
+        return f"The end of {title}."
+    if authors_fragment:
+        return f"The end from {authors_fragment}."
+    return "The end."
+
+
 def _spec_to_voice_ids(spec: Any) -> Set[str]:
     text = str(spec or "").strip()
     if not text:
@@ -1631,6 +1660,67 @@ def run_conversion_job(job: Job) -> None:
             if raw_title and raw_title != chapter_display_title:
                 marker["original_title"] = raw_title
             chapter_markers.append(marker)
+
+        outro_text = _build_outro_text(job.metadata_tags, job.original_filename)
+        outro_voice_spec = base_voice_spec or job.voice
+        if outro_voice_spec == "__custom_mix":
+            outro_voice_spec = base_voice_spec or ""
+        if not outro_voice_spec:
+            fallback_voice = next(iter(voice_cache.keys()), "")
+            if fallback_voice and fallback_voice != "__custom_mix":
+                outro_voice_spec = fallback_voice
+        if not outro_voice_spec and VOICES_INTERNAL:
+            outro_voice_spec = VOICES_INTERNAL[0]
+
+        if outro_text and outro_voice_spec:
+            outro_start_time = current_time
+            outro_audio_path: Optional[Path] = None
+            outro_segments = 0
+            outro_index = total_chapters + 1
+            outro_voice_choice = voice_cache.get(outro_voice_spec)
+            if outro_voice_choice is None:
+                outro_voice_choice = _resolve_voice(pipeline, outro_voice_spec, job.use_gpu)
+                voice_cache[outro_voice_spec] = outro_voice_choice
+
+            with ExitStack() as outro_sink_stack:
+                chapter_sink: Optional[AudioSink] = None
+                if chapter_dir is not None:
+                    outro_audio_path = _build_output_path(
+                        chapter_dir,
+                        f"{Path(job.original_filename).stem}_outro",
+                        job.separate_chapters_format,
+                    )
+                    chapter_sink = _open_audio_sink(
+                        outro_audio_path,
+                        job,
+                        outro_sink_stack,
+                        fmt=job.separate_chapters_format,
+                    )
+
+                outro_segments = emit_text(
+                    outro_text,
+                    voice_choice=outro_voice_choice,
+                    chapter_sink=chapter_sink,
+                    preview_prefix="Outro",
+                )
+                outro_end_time = current_time
+
+            if outro_segments > 0:
+                job.add_log(f"Appended outro sequence: {outro_text}")
+                if outro_audio_path is not None:
+                    job.result.artifacts[f"chapter_{outro_index:02d}"] = outro_audio_path
+                    chapter_paths.append(outro_audio_path)
+                chapter_markers.append(
+                    {
+                        "index": outro_index,
+                        "title": "Outro",
+                        "start": outro_start_time,
+                        "end": outro_end_time,
+                        "voice": outro_voice_spec,
+                    }
+                )
+            else:
+                job.add_log("No audio generated for outro sequence.", level="warning")
 
         if not audio_path and chapter_paths:
             job.result.audio_path = chapter_paths[0]

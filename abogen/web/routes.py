@@ -1756,25 +1756,37 @@ def _apply_book_step_form(
 
     profile_selection = (form.get("voice_profile") or pending.voice_profile or "__standard").strip()
     custom_formula_raw = (form.get("voice_formula") or "").strip()
-    narrator_voice = (form.get("voice") or pending.voice or settings.get("default_voice") or "").strip()
+    narrator_voice_raw = (form.get("voice") or pending.voice or settings.get("default_voice") or "").strip()
 
-    if profile_selection in {"__standard", "", None}:
-        profile_name = ""
-        custom_formula = ""
-    elif profile_selection == "__formula":
+    profiles_map = dict(profiles) if isinstance(profiles, Mapping) else dict(profiles or {})
+    resolved_default_voice, inferred_profile, _ = _resolve_voice_setting(
+        narrator_voice_raw,
+        profiles=profiles_map,
+    )
+
+    if profile_selection in {"__standard", "", None} and inferred_profile:
+        profile_selection = inferred_profile
+
+    if profile_selection == "__formula":
         profile_name = ""
         custom_formula = custom_formula_raw
+    elif profile_selection in {"__standard", "", None}:
+        profile_name = ""
+        custom_formula = ""
     else:
         profile_name = profile_selection
         custom_formula = ""
 
-    profile_map = profiles if isinstance(profiles, dict) else dict(profiles)
+    base_voice_spec = resolved_default_voice or narrator_voice_raw
+    if not base_voice_spec and VOICES_INTERNAL:
+        base_voice_spec = VOICES_INTERNAL[0]
+
     voice_choice, resolved_language, selected_profile = _resolve_voice_choice(
         pending.language,
-        narrator_voice,
+        base_voice_spec,
         profile_name,
         custom_formula,
-        profile_map,
+        profiles_map,
     )
 
     if resolved_language:
@@ -1788,7 +1800,8 @@ def _apply_book_step_form(
         pending.voice = voice_choice
     else:
         pending.voice_profile = None
-        pending.voice = voice_choice or narrator_voice
+        fallback_voice = base_voice_spec or narrator_voice_raw
+        pending.voice = voice_choice or fallback_voice
 
     pending.applied_speaker_config = (form.get("speaker_config") or "").strip() or None
 
@@ -1965,6 +1978,49 @@ def _template_options() -> Dict[str, Any]:
             "speaker_pronunciation_sentence", _settings_defaults()["speaker_pronunciation_sentence"]
         ),
     }
+
+
+def _split_profile_spec(value: Any) -> tuple[str, Optional[str]]:
+    text = str(value or "").strip()
+    if not text:
+        return "", None
+    if text.lower().startswith("profile:"):
+        _, _, remainder = text.partition(":")
+        name = remainder.strip()
+        return "", name or None
+    return text, None
+
+
+def _resolve_profile_voice(
+    profile_name: Optional[str],
+    *,
+    profiles: Optional[Mapping[str, Any]] = None,
+) -> tuple[str, Optional[str]]:
+    if not profile_name:
+        return "", None
+    source = profiles if isinstance(profiles, Mapping) else None
+    if source is None:
+        source = load_profiles()
+    entry = source.get(profile_name) if isinstance(source, Mapping) else None
+    if not isinstance(entry, Mapping):
+        return "", None
+    formula = _formula_from_profile(dict(entry)) or ""
+    language = entry.get("language") if isinstance(entry.get("language"), str) else None
+    if isinstance(language, str):
+        language = language.strip().lower() or None
+    return formula, language
+
+
+def _resolve_voice_setting(
+    value: Any,
+    *,
+    profiles: Optional[Mapping[str, Any]] = None,
+) -> tuple[str, Optional[str], Optional[str]]:
+    base_spec, profile_name = _split_profile_spec(value)
+    if profile_name:
+        formula, language = _resolve_profile_voice(profile_name, profiles=profiles)
+        return formula or "", profile_name, language
+    return base_spec, None, None
 
 
 SAVE_MODE_LABELS = {
@@ -2167,8 +2223,14 @@ def _normalize_setting_value(key: str, value: Any, defaults: Dict[str, Any]) -> 
                 return normalized
         return defaults[key]
     if key == "default_voice":
-        if isinstance(value, str) and value in VOICES_INTERNAL:
-            return value
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return defaults[key]
+            spec, profile_name = _split_profile_spec(text)
+            if profile_name:
+                return f"profile:{profile_name}"
+            return spec
         return defaults[key]
     if key == "chunk_level":
         if isinstance(value, str) and value in _CHUNK_LEVEL_VALUES:
@@ -3196,10 +3258,18 @@ def api_normalization_preview() -> ResponseReturnValue:
     except LLMClientError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    voice_spec = str(payload.get("voice") or base_settings.get("default_voice") or "").strip()
+    raw_voice_spec = str(payload.get("voice") or base_settings.get("default_voice") or "").strip()
+    profiles_map = load_profiles()
+    resolved_voice_spec, _, profile_language = _resolve_voice_setting(
+        raw_voice_spec,
+        profiles=profiles_map,
+    )
+    voice_spec = resolved_voice_spec or raw_voice_spec
     if not voice_spec and VOICES_INTERNAL:
         voice_spec = VOICES_INTERNAL[0]
     language = str(payload.get("language") or base_settings.get("language") or "a").strip() or "a"
+    if (not str(payload.get("language") or "").strip()) and profile_language:
+        language = profile_language
     try:
         speed = float(payload.get("speed", 1.0) or 1.0)
     except (TypeError, ValueError):
@@ -3420,11 +3490,19 @@ def api_entity_pronunciation_preview() -> ResponseReturnValue:
     except LLMClientError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    voice_spec = str(payload.get("voice") or settings.get("default_voice") or "").strip()
+    raw_voice_spec = str(payload.get("voice") or settings.get("default_voice") or "").strip()
+    profiles_map = load_profiles()
+    resolved_voice_spec, _, profile_language = _resolve_voice_setting(
+        raw_voice_spec,
+        profiles=profiles_map,
+    )
+    voice_spec = resolved_voice_spec or raw_voice_spec
     if not voice_spec and VOICES_INTERNAL:
         voice_spec = VOICES_INTERNAL[0]
 
     language = str(payload.get("language") or runtime_settings.get("language") or "a").strip() or "a"
+    if (not str(payload.get("language") or "").strip()) and profile_language:
+        language = profile_language
     use_gpu = runtime_settings.get("use_gpu", True)
     max_seconds = 6.0
     try:
@@ -3777,8 +3855,17 @@ def api_preview_voice_mix() -> ResponseReturnValue:
 def api_speaker_preview() -> ResponseReturnValue:
     payload = request.get_json(force=True, silent=False)
     text = (payload.get("text") or "").strip()
-    voice_spec = (payload.get("voice") or "").strip()
-    language = (payload.get("language") or "a").strip() or "a"
+    raw_voice_spec = (payload.get("voice") or "").strip()
+    profiles_map = load_profiles()
+    resolved_voice_spec, _, profile_language = _resolve_voice_setting(
+        raw_voice_spec,
+        profiles=profiles_map,
+    )
+    voice_spec = resolved_voice_spec or raw_voice_spec
+    language_override = payload.get("language")
+    language = (language_override or "a").strip() or "a"
+    if (not isinstance(language_override, str) or not language_override.strip()) and profile_language:
+        language = profile_language
     speed_input = payload.get("speed", 1.0)
     try:
         speed = float(speed_input)
@@ -4011,19 +4098,31 @@ def _build_pending_job_from_extraction(
     _ensure_at_least_one_chapter_enabled(chapters_payload)
 
     language = str(form.get("language") or "a").strip() or "a"
-    default_voice = str(settings.get("default_voice") or "af_alloy")
-    base_voice = str(form.get("voice") or default_voice or "af_alloy").strip()
+    profiles_map = dict(profiles) if isinstance(profiles, Mapping) else dict(profiles or {})
+    default_voice_setting = settings.get("default_voice") or ""
+    resolved_default_voice, inferred_profile, inferred_language = _resolve_voice_setting(
+        default_voice_setting,
+        profiles=profiles_map,
+    )
+    base_voice_input = str(form.get("voice") or "").strip()
     profile_selection = (form.get("voice_profile") or "__standard").strip()
     custom_formula_raw = str(form.get("voice_formula") or "").strip()
+
+    if profile_selection in {"__standard", ""} and inferred_profile:
+        profile_selection = inferred_profile
+
+    base_voice = base_voice_input or resolved_default_voice or str(default_voice_setting).strip()
+    if not base_voice and VOICES_INTERNAL:
+        base_voice = VOICES_INTERNAL[0]
     selected_speaker_config = (form.get("speaker_config") or "").strip()
     speaker_config_payload = get_config(selected_speaker_config) if selected_speaker_config else None
 
-    if profile_selection in {"__standard", ""}:
-        profile_name = ""
-        custom_formula = ""
-    elif profile_selection == "__formula":
+    if profile_selection == "__formula":
         profile_name = ""
         custom_formula = custom_formula_raw
+    elif profile_selection in {"__standard", ""}:
+        profile_name = ""
+        custom_formula = ""
     else:
         profile_name = profile_selection
         custom_formula = ""

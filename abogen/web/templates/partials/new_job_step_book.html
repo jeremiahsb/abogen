@@ -112,6 +112,10 @@
 {% else %}
   {% set narrator_voice = settings_dict.get('default_voice', options.voices[0] if options.voices else '') %}
 {% endif %}
+{% if (not narrator_profile) and narrator_voice and narrator_voice[:8]|lower == 'profile:' %}
+  {% set narrator_profile = narrator_voice[8:]|trim %}
+  {% set narrator_voice = '' %}
+{% endif %}
 {% set normalization_overrides = pending.normalization_overrides if pending and pending.normalization_overrides else {} %}
 {% set apostrophe_toggles = [
   {
