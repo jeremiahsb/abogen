@@ -94,13 +94,15 @@ CONTRACTIONS_EXACT = {
 # For ambiguous 'd and 's we handle separately
 _NUMBER_WITH_GROUP_RE = re.compile(r"(?<![\w\d])(-?\d{1,3}(?:,\d{3})+)(?![\w\d])")
 _NUMBER_RANGE_SEPARATORS = "-‐‑–—−"
+_NUMBER_RANGE_CLASS = re.escape(_NUMBER_RANGE_SEPARATORS)
 _WIDE_RANGE_SEPARATORS = {"–", "—"}
 _NUMBER_RANGE_RE = re.compile(
-    rf"(?<!\w)(?P<left>-?\d+)(?P<sep>\s*[{_NUMBER_RANGE_SEPARATORS}]\s*)(?P<right>-?\d+)(?![\w{_NUMBER_RANGE_SEPARATORS}/])"
+    rf"(?<!\w)(?P<left>-?\d+)(?P<sep>\s*[{_NUMBER_RANGE_CLASS}]\s*)(?P<right>-?\d+)(?![\w{_NUMBER_RANGE_CLASS}/])"
 )
 _FRACTION_SLASHES = "/⁄"
+_FRACTION_SLASH_CLASS = re.escape(_FRACTION_SLASHES)
 _FRACTION_RE = re.compile(
-    rf"(?<!\w)(?P<numerator>-?\d+)\s*[{_FRACTION_SLASHES}]\s*(?P<denominator>-?\d+)(?![\w{_FRACTION_SLASHES}])"
+    rf"(?<!\w)(?P<numerator>-?\d+)\s*[{_FRACTION_SLASH_CLASS}]\s*(?P<denominator>-?\d+)(?![\w{_FRACTION_SLASH_CLASS}])"
 )
 
 
