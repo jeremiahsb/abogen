@@ -167,6 +167,7 @@ def build_apostrophe_config(
     config.leading_elision_mode = (
         "expand" if settings.get("normalization_apostrophes_leading_elisions", True) else "keep"
     )
+    config.ambiguous_past_modal_mode = "contextual" if config.contraction_mode == "expand" else "keep"
     return config
 
 

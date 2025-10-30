@@ -14,6 +14,8 @@ except Exception:  # pragma: no cover - graceful degradation
 if TYPE_CHECKING:  # pragma: no cover - type checking only
     from abogen.llm_client import LLMCompletion
 
+from abogen.spacy_contraction_resolver import resolve_ambiguous_contractions
+
 # ---------- Configuration Dataclass ----------
 
 @dataclass
@@ -27,7 +29,7 @@ class ApostropheConfig:
     acronym_possessive_mode: str = "keep"         # keep|collapse_add_s
     decades_mode: str = "expand"                  # keep|expand
     leading_elision_mode: str = "expand"          # keep|expand
-    ambiguous_past_modal_mode: str = "keep"       # keep|expand_prefer_would|expand_prefer_had
+    ambiguous_past_modal_mode: str = "contextual" # keep|expand_prefer_would|expand_prefer_had|contextual
     add_phoneme_hints: bool = True                # Whether to emit markers like ‹IZ›
     fantasy_marker: str = "‹FAP›"                 # Marker inserted if fantasy_mode == mark
     sibilant_iz_marker: str = "‹IZ›"              # Marker for /ɪz/ insertion
@@ -41,15 +43,6 @@ class ApostropheConfig:
 
 # Common contraction expansions (straightforward unambiguous)
 CONTRACTIONS_EXACT = {
-    "it's": "it is",
-    "that's": "that is",
-    "what's": "what is",
-    "where's": "where is",
-    "who's": "who is",
-    "when's": "when is",
-    "how's": "how is",
-    "there's": "there is",
-    "here's": "here is",
     "let's": "let us",
     "i'm": "i am",
     "you're": "you are",
@@ -65,12 +58,6 @@ CONTRACTIONS_EXACT = {
     "she'll": "she will",
     "we'll": "we will",
     "they'll": "they will",
-    "i'd": "i would",     # ambiguous (had/would), treat default
-    "you'd": "you would",
-    "he'd": "he would",
-    "she'd": "she would",
-    "we'd": "we would",
-    "they'd": "they would",
     "can't": "can not",   # or "cannot"
     "won't": "will not",
     "don't": "do not",
@@ -238,6 +225,16 @@ def _replace_fraction(match: re.Match[str], language: str) -> str:
 AMBIGUOUS_D_BASES = {"i","you","he","she","we","they"}
 AMBIGUOUS_S_BASES = {"it","that","what","where","who","when","how","there","here"}
 
+
+def _is_ambiguous_d(token: str) -> bool:
+    low = token.lower()
+    return low.endswith("'d") and low[:-2] in AMBIGUOUS_D_BASES
+
+
+def _is_ambiguous_s(token: str) -> bool:
+    low = token.lower()
+    return low.endswith("'s") and low[:-2] in AMBIGUOUS_S_BASES
+
 # Irregular possessives that are not formed by simple + 's logic
 IRREGULAR_POSSESSIVES = {
     "children's": "children's",
@@ -319,6 +316,10 @@ def normalize_unicode_apostrophes(text: str) -> str:
 def tokenize(text: str) -> List[str]:
     # Simple tokenization preserving punctuation tokens
     return WORD_TOKEN_RE.findall(text)
+
+
+def tokenize_with_spans(text: str) -> List[Tuple[str, int, int]]:
+    return [(match.group(0), match.start(), match.end()) for match in WORD_TOKEN_RE.finditer(text)]
 
 
 def _cleanup_spacing(text: str) -> str:
@@ -571,39 +572,39 @@ def classify_token(token: str, cfg: ApostropheConfig) -> Tuple[str, str]:
             return "leading_elision", LEADING_ELISION[low]
         return "leading_elision", token
 
-    # 3. Exact contraction
+    # 3. Ambiguous 'd contractions
+    if _is_ambiguous_d(token):
+        base = low[:-2]
+        mode = cfg.ambiguous_past_modal_mode
+        if cfg.contraction_mode == "collapse":
+            return "ambiguous_contraction_d", base + "d"
+        if cfg.contraction_mode == "expand":
+            if mode == "expand_prefer_would":
+                return "ambiguous_contraction_d", base + " would"
+            if mode == "expand_prefer_had":
+                return "ambiguous_contraction_d", base + " had"
+            if mode == "contextual":
+                return "ambiguous_contraction_d", base + " would"
+        return "ambiguous_contraction_d", token
+
+    # 4. Ambiguous 's contractions
+    if _is_ambiguous_s(token):
+        base = low[:-2]
+        if cfg.contraction_mode == "expand":
+            return "ambiguous_contraction_s", base + " is"
+        if cfg.contraction_mode == "collapse":
+            return "ambiguous_contraction_s", base + "s"
+        return "ambiguous_contraction_s", token
+
+    # 5. Exact contraction
     if low in CONTRACTIONS_EXACT:
         if cfg.contraction_mode == "expand":
             return "contraction", CONTRACTIONS_EXACT[low]
         elif cfg.contraction_mode == "collapse":
-            # collapse: remove apostrophe only (it's -> its)
+            # collapse: remove apostrophe only (he's -> hes)
             return "contraction", low.replace("'", "")
         else:
             return "contraction", token
-
-    # 4. Ambiguous 'd
-    if low.endswith("'d"):
-        base = low[:-2]
-        if base in AMBIGUOUS_D_BASES:
-            if cfg.ambiguous_past_modal_mode == "expand_prefer_would":
-                return "ambiguous_contraction_d", base + " would"
-            elif cfg.ambiguous_past_modal_mode == "expand_prefer_had":
-                return "ambiguous_contraction_d", base + " had"
-            elif cfg.contraction_mode == "collapse":
-                return "ambiguous_contraction_d", base + "d"
-            return "ambiguous_contraction_d", token
-
-    # 5. Ambiguous 's
-    if low.endswith("'s"):
-        base = low[:-2]
-        if base in AMBIGUOUS_S_BASES:
-            # treat as contraction 'is' under chosen mode
-            if cfg.contraction_mode == "expand":
-                return "ambiguous_contraction_s", base + " is"
-            elif cfg.contraction_mode == "collapse":
-                return "ambiguous_contraction_s", base + "s"
-            else:
-                return "ambiguous_contraction_s", token
 
     # 6. Irregular possessives (keep or expand logic)
     if low in IRREGULAR_POSSESSIVES:
@@ -684,13 +685,38 @@ def normalize_apostrophes(text: str, cfg: ApostropheConfig | None = None) -> Tup
 
     text = normalize_unicode_apostrophes(text)
     text = _normalize_grouped_numbers(text, cfg)
-    tokens = tokenize(text)
+    token_entries = tokenize_with_spans(text)
 
-    results = []
+    use_contextual_s = cfg.contraction_mode == "expand"
+    use_contextual_d = cfg.contraction_mode == "expand" and cfg.ambiguous_past_modal_mode == "contextual"
+
+    need_contextual = False
+    if (use_contextual_s or use_contextual_d) and token_entries:
+        for token_value, _, _ in token_entries:
+            if use_contextual_s and _is_ambiguous_s(token_value):
+                need_contextual = True
+                break
+            if use_contextual_d and _is_ambiguous_d(token_value):
+                need_contextual = True
+                break
+
+    contextual_resolutions = resolve_ambiguous_contractions(text) if need_contextual else {}
+
+    results: List[Tuple[str, str, str]] = []
     normalized_tokens: List[str] = []
 
-    for tok in tokens:
+    for tok, start, end in token_entries:
         category, norm = classify_token(tok, cfg)
+
+        resolution = contextual_resolutions.get((start, end)) if contextual_resolutions else None
+        if resolution is not None:
+            if resolution.category == "ambiguous_contraction_s" and use_contextual_s:
+                category = resolution.category
+                norm = resolution.expansion
+            elif resolution.category == "ambiguous_contraction_d" and use_contextual_d:
+                category = resolution.category
+                norm = resolution.expansion
+
         results.append((tok, category, norm))
         normalized_tokens.append(norm)
 

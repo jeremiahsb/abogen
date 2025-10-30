@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import pytest
+
 from abogen.kokoro_text_normalization import normalize_roman_numeral_titles
 from abogen.web.conversion_runner import _normalize_for_pipeline
+from abogen.spacy_contraction_resolver import resolve_ambiguous_contractions
+
+
+SPACY_RESOLVER_AVAILABLE = bool(resolve_ambiguous_contractions("It's been a long time."))
 
 
 def test_title_abbreviations_are_expanded():
@@ -103,3 +109,27 @@ def test_decades_can_skip_expansion_when_disabled() -> None:
         normalization_overrides={"normalization_apostrophes_decades": False},
     )
     assert "'90s" in normalized
+
+
+@pytest.mark.skipif(not SPACY_RESOLVER_AVAILABLE, reason="spaCy model unavailable")
+def test_spacy_disambiguates_it_has_from_context() -> None:
+    normalized = _normalize_for_pipeline("It's been a long time.")
+    assert "It has been a long time." == normalized
+
+
+@pytest.mark.skipif(not SPACY_RESOLVER_AVAILABLE, reason="spaCy model unavailable")
+def test_spacy_disambiguates_it_is_from_context() -> None:
+    normalized = _normalize_for_pipeline("It's cold outside.")
+    assert "It is cold outside." == normalized
+
+
+@pytest.mark.skipif(not SPACY_RESOLVER_AVAILABLE, reason="spaCy model unavailable")
+def test_spacy_disambiguates_she_had() -> None:
+    normalized = _normalize_for_pipeline("She'd left before dawn.")
+    assert "She had left before dawn." == normalized
+
+
+@pytest.mark.skipif(not SPACY_RESOLVER_AVAILABLE, reason="spaCy model unavailable")
+def test_spacy_disambiguates_she_would() -> None:
+    normalized = _normalize_for_pipeline("She'd go if invited.")
+    assert "She would go if invited." == normalized
