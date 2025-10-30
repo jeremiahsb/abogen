@@ -213,18 +213,23 @@ if (modal && browser) {
     ];
     descriptors.forEach(({ key, label }) => {
       const link = resolveRelLink(links, key) || resolveRelLink(links, `/${key}`);
-      if (!link || !link.href) {
-        return;
-      }
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'button button--ghost';
       button.textContent = label;
-      button.addEventListener('click', () => {
-        const targetQuery = key === 'up' ? '' : state.query;
-        const tabId = resolveTabIdForHref(link.href);
-        loadFeed({ href: link.href, query: targetQuery, activeTab: tabId || (targetQuery ? TabIds.SEARCH : TabIds.CUSTOM) });
-      });
+      const hasLink = Boolean(link && link.href);
+      if (hasLink) {
+        button.addEventListener('click', () => {
+          const targetQuery = key === 'up' ? '' : state.query;
+          const tabId = resolveTabIdForHref(link.href);
+          loadFeed({ href: link.href, query: targetQuery, activeTab: tabId || (targetQuery ? TabIds.SEARCH : TabIds.CUSTOM) });
+        });
+      } else if (key === 'previous') {
+        button.disabled = true;
+        button.setAttribute('aria-disabled', 'true');
+      } else {
+        return;
+      }
       navEl.appendChild(button);
     });
     navEl.hidden = !navEl.childElementCount;
@@ -237,9 +242,11 @@ if (modal && browser) {
     const header = document.createElement('div');
     header.className = 'opds-browser__entry-head';
 
-    const title = document.createElement('h3');
-    title.className = 'opds-browser__title';
-    title.textContent = entry.title || 'Untitled';
+  const title = document.createElement('h3');
+  title.className = 'opds-browser__title';
+  const positionLabel = Number.isFinite(entry?.position) ? Number(entry.position) : null;
+  const baseTitle = entry.title || 'Untitled';
+  title.textContent = positionLabel !== null ? `${positionLabel}. ${baseTitle}` : baseTitle;
     header.appendChild(title);
 
     const authors = formatAuthors(entry.authors);
@@ -375,6 +382,9 @@ if (modal && browser) {
           try {
             const target = new URL(redirectUrl, window.location.origin);
             target.searchParams.set('format', 'json');
+            if (!target.searchParams.has('step')) {
+              target.searchParams.set('step', 'book');
+            }
             await wizard.requestStep(target.toString(), { method: 'GET' });
           } catch (wizardError) {
             console.error('Unable to open wizard via JSON payload', wizardError);

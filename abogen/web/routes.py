@@ -2871,7 +2871,7 @@ def calibre_opds_import() -> ResponseReturnValue:
 
     service.store_pending_job(pending)
 
-    redirect_url = url_for("web.prepare_job", pending_id=pending.id)
+    redirect_url = url_for("web.prepare_job", pending_id=pending.id, step="book")
     return jsonify({
         "pending_id": pending.id,
         "redirect_url": redirect_url,

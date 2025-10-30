@@ -50,6 +50,7 @@ class OPDSLink:
 class OPDSEntry:
     id: str
     title: str
+    position: Optional[int] = None
     authors: List[str] = field(default_factory=list)
     updated: Optional[str] = None
     summary: Optional[str] = None
@@ -62,6 +63,7 @@ class OPDSEntry:
         return {
             "id": self.id,
             "title": self.title,
+            "position": self.position,
             "authors": list(self.authors),
             "updated": self.updated,
             "summary": self.summary,
@@ -243,6 +245,7 @@ class CalibreOPDSClient:
     def _parse_entry(self, node: ET.Element, base_url: str) -> OPDSEntry:
         entry_id = node.findtext("atom:id", default="", namespaces=NS).strip()
         title = node.findtext("atom:title", default="Untitled", namespaces=NS).strip() or "Untitled"
+        position_value = self._extract_position(node)
         updated = node.findtext("atom:updated", default=None, namespaces=NS)
         summary = node.findtext("atom:summary", default=None, namespaces=NS) or node.findtext(
             "atom:content", default=None, namespaces=NS
@@ -272,6 +275,7 @@ class CalibreOPDSClient:
         return OPDSEntry(
             id=entry_id or title,
             title=title,
+            position=position_value,
             authors=authors,
             updated=updated,
             summary=cleaned_summary,
@@ -280,6 +284,25 @@ class CalibreOPDSClient:
             thumbnail=thumb_link,
             links=list(parsed_links.values()),
         )
+
+    def _extract_position(self, node: ET.Element) -> Optional[int]:
+        candidates = [
+            node.findtext("opds:position", default=None, namespaces=NS),
+            node.findtext("opds:groupPosition", default=None, namespaces=NS),
+            node.findtext("opds:order", default=None, namespaces=NS),
+            node.findtext("dc:identifier", default=None, namespaces=NS),
+        ]
+        for value in candidates:
+            if value is None:
+                continue
+            text = str(value).strip()
+            if not text:
+                continue
+            try:
+                return int(float(text))
+            except (TypeError, ValueError):
+                continue
+        return None
 
     def _parse_links(self, link_nodes: List[ET.Element], base_url: str) -> Dict[str, OPDSLink]:
         results: Dict[str, OPDSLink] = {}
