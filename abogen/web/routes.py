@@ -3044,7 +3044,7 @@ def test_audiobookshelf() -> ResponseReturnValue:
 
     try:
         with client._open_client() as http_client:  # pylint: disable=protected-access
-            response = http_client.get("/api/libraries", params={"lite": "true"})
+            response = http_client.get(client._api_path("libraries"), params={"lite": "true"})
             response.raise_for_status()
             payload_json = response.json()
     except Exception as exc:  # pragma: no cover - network guard
@@ -3081,7 +3081,7 @@ def test_audiobookshelf() -> ResponseReturnValue:
     if collection_id:
         try:
             with client._open_client() as http_client:  # pylint: disable=protected-access
-                collection_resp = http_client.get(f"/api/collections/{collection_id}")
+                collection_resp = http_client.get(client._api_path(f"collections/{collection_id}"))
                 collection_resp.raise_for_status()
         except Exception as exc:  # pragma: no cover - network guard
             status_code = getattr(getattr(exc, "response", None), "status_code", None)

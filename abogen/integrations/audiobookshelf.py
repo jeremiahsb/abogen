@@ -51,6 +51,11 @@ class AudiobookshelfClient:
         self._config = config
         self._base_url = config.normalized_base_url()
 
+    def _api_path(self, suffix: str = "") -> str:
+        """Join the API prefix with the provided suffix without losing proxies."""
+        clean_suffix = suffix.lstrip("/")
+        return f"api/{clean_suffix}" if clean_suffix else "api"
+
     def upload_audiobook(
         self,
         audio_path: Path,
@@ -111,7 +116,7 @@ class AudiobookshelfClient:
             payload["collectionId"] = self._config.collection_id
         try:
             with self._open_client() as client:
-                response = client.post("/api/uploads", json=payload)
+                response = client.post(self._api_path("uploads"), json=payload)
                 response.raise_for_status()
                 return response.json()
         except httpx.HTTPError as exc:
@@ -121,7 +126,7 @@ class AudiobookshelfClient:
         mime_type, _ = mimetypes.guess_type(path.name)
         mime_type = mime_type or "application/octet-stream"
         data = {"kind": kind, "filename": path.name}
-        route = f"/api/uploads/{upload_id}/files"
+        route = self._api_path(f"uploads/{upload_id}/files")
         try:
             with path.open("rb") as handle:
                 files = {"file": (path.name, handle, mime_type)}
@@ -144,7 +149,7 @@ class AudiobookshelfClient:
         return payload
 
     def _finalize_upload(self, upload_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        route = f"/api/uploads/{upload_id}/finish"
+        route = self._api_path(f"uploads/{upload_id}/finish")
         try:
             with self._open_client() as client:
                 response = client.post(route, json=payload)
