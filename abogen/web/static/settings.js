@@ -264,6 +264,11 @@ function collectNormalizationSettings() {
     normalization_titles: Boolean(form.querySelector('input[name="normalization_titles"]')?.checked),
     normalization_terminal: Boolean(form.querySelector('input[name="normalization_terminal"]')?.checked),
     normalization_phoneme_hints: Boolean(form.querySelector('input[name="normalization_phoneme_hints"]')?.checked),
+    normalization_apostrophes_contractions: Boolean(form.querySelector('input[name="normalization_apostrophes_contractions"]')?.checked),
+    normalization_apostrophes_plural_possessives: Boolean(form.querySelector('input[name="normalization_apostrophes_plural_possessives"]')?.checked),
+    normalization_apostrophes_sibilant_possessives: Boolean(form.querySelector('input[name="normalization_apostrophes_sibilant_possessives"]')?.checked),
+    normalization_apostrophes_decades: Boolean(form.querySelector('input[name="normalization_apostrophes_decades"]')?.checked),
+    normalization_apostrophes_leading_elisions: Boolean(form.querySelector('input[name="normalization_apostrophes_leading_elisions"]')?.checked),
     normalization_apostrophe_mode: form.querySelector('input[name="normalization_apostrophe_mode"]:checked')?.value || 'spacy',
   };
   return normalization;

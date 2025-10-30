@@ -31,6 +31,7 @@ def _make_pending_job() -> PendingJob:
         max_subtitle_words=50,
         metadata_tags={},
         chapters=[],
+        normalization_overrides={},
         created_at=0.0,
         read_title_intro=False,
         normalize_chapter_opening_caps=True,

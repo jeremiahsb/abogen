@@ -148,6 +148,7 @@ class Job:
     entity_summary: Dict[str, Any] = field(default_factory=dict)
     manual_overrides: List[Dict[str, Any]] = field(default_factory=list)
     pronunciation_overrides: List[Dict[str, Any]] = field(default_factory=list)
+    normalization_overrides: Dict[str, Any] = field(default_factory=dict)
 
     def add_log(self, message: str, level: str = "info") -> None:
         entry = JobLog(timestamp=time.time(), message=message, level=level)
@@ -216,6 +217,7 @@ class Job:
             "entity_summary": dict(self.entity_summary),
             "manual_overrides": [dict(entry) for entry in self.manual_overrides],
             "pronunciation_overrides": [dict(entry) for entry in self.pronunciation_overrides],
+            "normalization_overrides": dict(self.normalization_overrides),
         }
 
 
@@ -431,6 +433,7 @@ class PendingJob:
     max_subtitle_words: int
     metadata_tags: Dict[str, Any]
     chapters: List[Dict[str, Any]]
+    normalization_overrides: Dict[str, Any]
     created_at: float
     cover_image_path: Optional[Path] = None
     cover_image_mime: Optional[str] = None
@@ -531,6 +534,7 @@ class ConversionService:
         entity_summary: Optional[Mapping[str, Any]] = None,
         manual_overrides: Optional[Iterable[Mapping[str, Any]]] = None,
         pronunciation_overrides: Optional[Iterable[Mapping[str, Any]]] = None,
+        normalization_overrides: Optional[Mapping[str, Any]] = None,
     ) -> Job:
         job_id = uuid.uuid4().hex
         normalized_metadata = self._normalize_metadata_tags(metadata_tags)
@@ -580,6 +584,7 @@ class ConversionService:
             entity_summary=dict(entity_summary or {}),
             manual_overrides=[dict(entry) for entry in manual_overrides] if manual_overrides else [],
             pronunciation_overrides=[dict(entry) for entry in pronunciation_overrides] if pronunciation_overrides else [],
+            normalization_overrides=dict(normalization_overrides or {}),
         )
         with self._lock:
             self._jobs[job_id] = job
@@ -737,6 +742,7 @@ class ConversionService:
                 entity_summary=job.entity_summary,
                 manual_overrides=job.manual_overrides,
                 pronunciation_overrides=job.pronunciation_overrides,
+                normalization_overrides=job.normalization_overrides,
             )
 
             new_job.speaker_voice_languages = list(job.speaker_voice_languages)
@@ -1039,6 +1045,7 @@ class ConversionService:
             "entity_summary": dict(job.entity_summary),
             "manual_overrides": [dict(entry) for entry in job.manual_overrides],
             "pronunciation_overrides": [dict(entry) for entry in job.pronunciation_overrides],
+            "normalization_overrides": dict(job.normalization_overrides),
         }
 
     def _persist_state(self) -> None:
@@ -1164,6 +1171,7 @@ class ConversionService:
         job.pronunciation_overrides = [
             dict(entry) for entry in payload.get("pronunciation_overrides", []) if isinstance(entry, Mapping)
         ]
+        job.normalization_overrides = dict(payload.get("normalization_overrides", {}) or {})
         job.pause_event.set()
         return job
 

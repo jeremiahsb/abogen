@@ -269,6 +269,27 @@
                 <input type="checkbox" name="normalization_phoneme_hints" value="true" {% if settings.normalization_phoneme_hints %}checked{% endif %}>
                 <span>Add phoneme hints for possessives</span>
               </label>
+              <span class="field__caption">Apostrophes</span>
+              <label class="toggle-pill">
+                <input type="checkbox" name="normalization_apostrophes_contractions" value="true" {% if settings.normalization_apostrophes_contractions %}checked{% endif %}>
+                <span>Expand contractions ("it's" -> "it is")</span>
+              </label>
+              <label class="toggle-pill">
+                <input type="checkbox" name="normalization_apostrophes_plural_possessives" value="true" {% if settings.normalization_apostrophes_plural_possessives %}checked{% endif %}>
+                <span>Collapse plural possessives (dogs' -> dogs)</span>
+              </label>
+              <label class="toggle-pill">
+                <input type="checkbox" name="normalization_apostrophes_sibilant_possessives" value="true" {% if settings.normalization_apostrophes_sibilant_possessives %}checked{% endif %}>
+                <span>Add guidance for sibilant possessives (boss's -> boss + IZ marker)</span>
+              </label>
+              <label class="toggle-pill">
+                <input type="checkbox" name="normalization_apostrophes_decades" value="true" {% if settings.normalization_apostrophes_decades %}checked{% endif %}>
+                <span>Expand decades ('90s -> 1990s)</span>
+              </label>
+              <label class="toggle-pill">
+                <input type="checkbox" name="normalization_apostrophes_leading_elisions" value="true" {% if settings.normalization_apostrophes_leading_elisions %}checked{% endif %}>
+                <span>Expand leading elisions ('tis -> it is)</span>
+              </label>
             </div>
             <div class="field">
               <span class="field__label">Apostrophe strategy</span>

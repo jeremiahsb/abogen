@@ -78,3 +78,28 @@ def test_numeric_ranges_are_spoken_with_to() -> None:
 def test_simple_fractions_are_spoken() -> None:
     normalized = _normalize_for_pipeline("Add 1/2 cup of sugar")
     assert "one half" in normalized.lower()
+
+
+def test_contractions_can_be_kept_when_override_disabled() -> None:
+    normalized = _normalize_for_pipeline(
+        "It's a good day.",
+        normalization_overrides={"normalization_apostrophes_contractions": False},
+    )
+    assert "It's" in normalized
+
+
+def test_sibilant_possessives_remain_when_marking_disabled() -> None:
+    normalized = _normalize_for_pipeline(
+        "The boss's chair wobbled.",
+        normalization_overrides={"normalization_apostrophes_sibilant_possessives": False},
+    )
+    assert "boss's" in normalized
+    assert "boss iz" not in normalized.lower()
+
+
+def test_decades_can_skip_expansion_when_disabled() -> None:
+    normalized = _normalize_for_pipeline(
+        "Classic hits from the '90s filled the hall.",
+        normalization_overrides={"normalization_apostrophes_decades": False},
+    )
+    assert "'90s" in normalized

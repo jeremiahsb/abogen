@@ -34,6 +34,11 @@ _SETTINGS_DEFAULTS: Dict[str, Any] = {
     "normalization_titles": True,
     "normalization_terminal": True,
     "normalization_phoneme_hints": True,
+    "normalization_apostrophes_contractions": True,
+    "normalization_apostrophes_plural_possessives": True,
+    "normalization_apostrophes_sibilant_possessives": True,
+    "normalization_apostrophes_decades": True,
+    "normalization_apostrophes_leading_elisions": True,
     "normalization_apostrophe_mode": "spacy",
 }
 
@@ -151,6 +156,17 @@ def build_apostrophe_config(
     config = replace(base or ApostropheConfig())
     config.convert_numbers = bool(settings.get("normalization_numbers", True))
     config.add_phoneme_hints = bool(settings.get("normalization_phoneme_hints", True))
+    config.contraction_mode = "expand" if settings.get("normalization_apostrophes_contractions", True) else "keep"
+    config.plural_possessive_mode = (
+        "collapse" if settings.get("normalization_apostrophes_plural_possessives", True) else "keep"
+    )
+    config.sibilant_possessive_mode = (
+        "mark" if settings.get("normalization_apostrophes_sibilant_possessives", True) else "keep"
+    )
+    config.decades_mode = "expand" if settings.get("normalization_apostrophes_decades", True) else "keep"
+    config.leading_elision_mode = (
+        "expand" if settings.get("normalization_apostrophes_leading_elisions", True) else "keep"
+    )
     return config
 
 

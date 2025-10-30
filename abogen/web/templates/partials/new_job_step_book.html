@@ -112,6 +112,34 @@
 {% else %}
   {% set narrator_voice = settings_dict.get('default_voice', options.voices[0] if options.voices else '') %}
 {% endif %}
+{% set normalization_overrides = pending.normalization_overrides if pending and pending.normalization_overrides else {} %}
+{% set apostrophe_toggles = [
+  {
+    'name': 'normalization_apostrophes_contractions',
+    'label': "Expand contractions (it's -> it is)",
+    'value': normalization_overrides.get('normalization_apostrophes_contractions', settings_dict.get('normalization_apostrophes_contractions', True)),
+  },
+  {
+    'name': 'normalization_apostrophes_plural_possessives',
+    'label': "Collapse plural possessives (dogs' -> dogs)",
+    'value': normalization_overrides.get('normalization_apostrophes_plural_possessives', settings_dict.get('normalization_apostrophes_plural_possessives', True)),
+  },
+  {
+    'name': 'normalization_apostrophes_sibilant_possessives',
+    'label': "Mark sibilant possessives (boss's -> boss + IZ marker)",
+    'value': normalization_overrides.get('normalization_apostrophes_sibilant_possessives', settings_dict.get('normalization_apostrophes_sibilant_possessives', True)),
+  },
+  {
+    'name': 'normalization_apostrophes_decades',
+    'label': "Expand decades ('90s -> 1990s)",
+    'value': normalization_overrides.get('normalization_apostrophes_decades', settings_dict.get('normalization_apostrophes_decades', True)),
+  },
+  {
+    'name': 'normalization_apostrophes_leading_elisions',
+    'label': "Expand leading elisions ('tis -> it is)",
+    'value': normalization_overrides.get('normalization_apostrophes_leading_elisions', settings_dict.get('normalization_apostrophes_leading_elisions', True)),
+  },
+] %}
 {% set voice_formula_value = '' %}
 {% set profile_value = narrator_profile if narrator_profile else '__standard' %}
 {% if profile_value == '__formula' %}
@@ -250,6 +278,21 @@
             <audio class="voice-preview__audio" data-role="voice-preview-audio" controls preload="none" hidden></audio>
           </div>
         </div>
+      </div>
+    </section>
+
+    <section class="form-section">
+      <h3 class="form-section__title">Text normalization</h3>
+      <div class="field-grid field-grid--compact">
+        {% for toggle in apostrophe_toggles %}
+        <div class="field field--stack">
+          <label class="toggle-pill">
+            <input type="hidden" name="{{ toggle.name }}" value="false">
+            <input type="checkbox" name="{{ toggle.name }}" value="true" {% if toggle.value %}checked{% endif %} {{ 'disabled' if readonly else '' }}>
+            <span>{{ toggle.label }}</span>
+          </label>
+        </div>
+        {% endfor %}
       </div>
     </section>
 

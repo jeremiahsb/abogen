@@ -1723,6 +1723,30 @@ def _apply_book_step_form(
     else:
         pending.normalize_chapter_opening_caps = caps_default
 
+    def _extract_checkbox(name: str, default: bool) -> bool:
+        values: List[str] = []
+        getter = getattr(form, "getlist", None)
+        if callable(getter):
+            raw_values = getter(name)
+            if raw_values:
+                values = list(cast(Iterable[str], raw_values))
+        else:
+            raw_flag = form.get(name)
+            if raw_flag is not None:
+                values = [raw_flag]
+        if values:
+            return _coerce_bool(values[-1], default)
+        if hasattr(form, "__contains__") and name in form:
+            return False
+        return default
+
+    overrides_existing = getattr(pending, "normalization_overrides", None)
+    overrides: Dict[str, bool] = dict(overrides_existing or {})
+    for key in _APOSTROPHE_OVERRIDE_KEYS:
+        default_toggle = overrides.get(key, bool(settings.get(key, True)))
+        overrides[key] = _extract_checkbox(key, default_toggle)
+    pending.normalization_overrides = overrides
+
     speed_value = form.get("speed")
     if speed_value is not None:
         try:
@@ -1977,10 +2001,23 @@ BOOLEAN_SETTINGS = {
     "normalization_titles",
     "normalization_terminal",
     "normalization_phoneme_hints",
+    "normalization_apostrophes_contractions",
+    "normalization_apostrophes_plural_possessives",
+    "normalization_apostrophes_sibilant_possessives",
+    "normalization_apostrophes_decades",
+    "normalization_apostrophes_leading_elisions",
 }
 
 FLOAT_SETTINGS = {"silence_between_chapters", "chapter_intro_delay", "llm_timeout"}
 INT_SETTINGS = {"max_subtitle_words", "speaker_analysis_threshold"}
+
+_APOSTROPHE_OVERRIDE_KEYS = (
+    "normalization_apostrophes_contractions",
+    "normalization_apostrophes_plural_possessives",
+    "normalization_apostrophes_sibilant_possessives",
+    "normalization_apostrophes_decades",
+    "normalization_apostrophes_leading_elisions",
+)
 
 
 def _integration_defaults() -> Dict[str, Dict[str, Any]]:
@@ -2047,6 +2084,11 @@ def _settings_defaults() -> Dict[str, Any]:
         "normalization_titles": True,
         "normalization_terminal": True,
         "normalization_phoneme_hints": True,
+        "normalization_apostrophes_contractions": True,
+        "normalization_apostrophes_plural_possessives": True,
+        "normalization_apostrophes_sibilant_possessives": True,
+        "normalization_apostrophes_decades": True,
+        "normalization_apostrophes_leading_elisions": True,
         "normalization_apostrophe_mode": "spacy",
     }
 
@@ -3125,6 +3167,11 @@ def api_normalization_preview() -> ResponseReturnValue:
         "normalization_titles",
         "normalization_terminal",
         "normalization_phoneme_hints",
+        "normalization_apostrophes_contractions",
+        "normalization_apostrophes_plural_possessives",
+        "normalization_apostrophes_sibilant_possessives",
+        "normalization_apostrophes_decades",
+        "normalization_apostrophes_leading_elisions",
     )
     for key in boolean_keys:
         if key in normalization_payload:
@@ -4076,6 +4123,9 @@ def _build_pending_job_from_extraction(
         max_subtitle_words=max_subtitle_words,
         metadata_tags=metadata_tags,
         chapters=chapters_payload,
+        normalization_overrides={
+            key: bool(settings.get(key, True)) for key in _APOSTROPHE_OVERRIDE_KEYS
+        },
         created_at=time.time(),
         cover_image_path=cover_path,
         cover_image_mime=cover_mime,
@@ -4455,6 +4505,7 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
         entity_summary=pending.entity_summary,
         manual_overrides=pending.manual_overrides,
         pronunciation_overrides=pending.pronunciation_overrides,
+        normalization_overrides=pending.normalization_overrides,
     )
 
     if config_languages:

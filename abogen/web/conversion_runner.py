@@ -25,6 +25,7 @@ from abogen.normalization_settings import (
     build_apostrophe_config,
     build_llm_configuration,
     get_runtime_settings,
+    apply_overrides as apply_normalization_overrides,
 )
 from abogen.entity_analysis import normalize_token as normalize_entity_token
 from abogen.text_extractor import ExtractedChapter, extract_from_path
@@ -669,6 +670,20 @@ def _merge_metadata(
 _APOSTROPHE_CONFIG = ApostropheConfig()
 
 
+def _normalize_for_pipeline(
+    text: str,
+    *,
+    normalization_overrides: Optional[Mapping[str, Any]] = None,
+) -> str:
+    """Normalize text for tests or utilities with optional overrides."""
+
+    runtime_settings = get_runtime_settings()
+    if normalization_overrides:
+        runtime_settings = apply_normalization_overrides(runtime_settings, normalization_overrides)
+    apostrophe_config = build_apostrophe_config(settings=runtime_settings, base=_APOSTROPHE_CONFIG)
+    return normalize_for_pipeline(text, config=apostrophe_config, settings=runtime_settings)
+
+
 def _compile_pronunciation_rules(
     overrides: Optional[Iterable[Mapping[str, Any]]],
 ) -> List[Dict[str, Any]]:
@@ -1101,6 +1116,9 @@ def run_conversion_job(job: Job) -> None:
     canceller = _make_canceller(job)
 
     normalization_settings = get_runtime_settings()
+    job_overrides = getattr(job, "normalization_overrides", None)
+    if job_overrides:
+        normalization_settings = apply_normalization_overrides(normalization_settings, job_overrides)
     apostrophe_config = build_apostrophe_config(
         settings=normalization_settings,
         base=_APOSTROPHE_CONFIG,
