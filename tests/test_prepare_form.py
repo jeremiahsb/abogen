@@ -80,3 +80,15 @@ def test_resolve_voice_setting_handles_profile_reference():
     assert voice == "af_nova*0.5+am_liam*0.5"
     assert profile_name == "Blend"
     assert language == "b"
+
+
+def test_apply_prepare_form_updates_closing_outro_flag():
+    pending = _make_pending_job()
+    pending.read_closing_outro = True
+    form = MultiDict({
+        "read_closing_outro": "false",
+    })
+
+    _apply_prepare_form(pending, form)
+
+    assert pending.read_closing_outro is False

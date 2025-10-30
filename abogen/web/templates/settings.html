@@ -159,6 +159,13 @@
             </div>
             <div class="field field--stack">
               <label class="toggle-pill">
+                <input type="checkbox" name="read_closing_outro" value="true" {% if settings.read_closing_outro %}checked{% endif %}>
+                <span>Read Closing Outro After Narration</span>
+              </label>
+              <p class="hint">Adds a brief "The end" line after the final chapter, optionally including series information.</p>
+            </div>
+            <div class="field field--stack">
+              <label class="toggle-pill">
                 <input type="checkbox" name="normalize_chapter_opening_caps" value="true" {% if settings.normalize_chapter_opening_caps %}checked{% endif %}>
                 <span>Normalize ALL CAPS Chapter Openings</span>
               </label>

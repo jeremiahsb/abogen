@@ -115,6 +115,7 @@ class Job:
     max_subtitle_words: int = 50
     chapter_intro_delay: float = 0.5
     read_title_intro: bool = False
+    read_closing_outro: bool = True
     auto_prefix_chapter_titles: bool = True
     normalize_chapter_opening_caps: bool = True
     status: JobStatus = JobStatus.PENDING
@@ -185,6 +186,7 @@ class Job:
                 "max_subtitle_words": self.max_subtitle_words,
                 "chapter_intro_delay": self.chapter_intro_delay,
                 "read_title_intro": getattr(self, "read_title_intro", False),
+                "read_closing_outro": getattr(self, "read_closing_outro", True),
                 "auto_prefix_chapter_titles": getattr(self, "auto_prefix_chapter_titles", True),
                 "normalize_chapter_opening_caps": getattr(self, "normalize_chapter_opening_caps", True),
             },
@@ -439,6 +441,7 @@ class PendingJob:
     cover_image_mime: Optional[str] = None
     chapter_intro_delay: float = 0.5
     read_title_intro: bool = False
+    read_closing_outro: bool = True
     auto_prefix_chapter_titles: bool = True
     normalize_chapter_opening_caps: bool = True
     chunk_level: str = "paragraph"
@@ -521,6 +524,7 @@ class ConversionService:
             cover_image_mime: Optional[str] = None,
             chapter_intro_delay: float = 0.5,
             read_title_intro: bool = False,
+            read_closing_outro: bool = True,
             auto_prefix_chapter_titles: bool = True,
             normalize_chapter_opening_caps: bool = True,
         chunk_level: str = "paragraph",
@@ -571,6 +575,7 @@ class ConversionService:
             cover_image_mime=cover_image_mime,
             chapter_intro_delay=chapter_intro_delay,
             read_title_intro=bool(read_title_intro),
+            read_closing_outro=bool(read_closing_outro),
             auto_prefix_chapter_titles=bool(auto_prefix_chapter_titles),
             normalize_chapter_opening_caps=bool(normalize_chapter_opening_caps),
             chunk_level=chunk_level,

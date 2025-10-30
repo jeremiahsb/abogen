@@ -310,6 +310,82 @@ def _ensure_sentence(text: str) -> str:
     return f"{cleaned}."
 
 
+_SERIES_NAME_KEYS = (
+    "series",
+    "series_name",
+    "series_title",
+)
+_SERIES_NUMBER_KEYS = (
+    "series_index",
+    "series_position",
+    "series_sequence",
+    "book_number",
+    "series_number",
+)
+_SERIES_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _normalize_series_number(value: Any) -> Optional[str]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    candidate = text.replace(",", ".")
+    if candidate.replace(".", "", 1).isdigit():
+        if "." in candidate:
+            normalized = candidate.rstrip("0").rstrip(".")
+            return normalized or "0"
+        try:
+            return str(int(candidate))
+        except ValueError:
+            pass
+    match = _SERIES_NUMBER_RE.search(candidate)
+    if not match:
+        return None
+    normalized = match.group(0)
+    if "." in normalized:
+        normalized = normalized.rstrip("0").rstrip(".")
+        return normalized or "0"
+    try:
+        return str(int(normalized))
+    except ValueError:
+        return normalized
+
+
+def _extract_series_metadata(values: Mapping[str, str]) -> tuple[Optional[str], Optional[str]]:
+    series_name: Optional[str] = None
+    for key in _SERIES_NAME_KEYS:
+        raw = values.get(key)
+        if raw:
+            cleaned = str(raw).strip()
+            if cleaned:
+                series_name = cleaned
+                break
+
+    series_number: Optional[str] = None
+    for key in _SERIES_NUMBER_KEYS:
+        raw = values.get(key)
+        if raw is None:
+            continue
+        normalized = _normalize_series_number(raw)
+        if normalized:
+            series_number = normalized
+            break
+
+    return series_name, series_number
+
+
+def _format_series_sentence(series_name: Optional[str], series_number: Optional[str]) -> str:
+    if not series_name or not series_number:
+        return ""
+    name = series_name.strip()
+    number = series_number.strip()
+    if not name or not number:
+        return ""
+    article = "the " if not name.lower().startswith("the ") else ""
+    phrase = f"Book {number} of {article}{name}"
+    return re.sub(r"\s+", " ", phrase).strip()
+
+
 def _build_title_intro_text(
     metadata: Optional[Mapping[str, Any]],
     fallback_basename: str,
@@ -329,7 +405,12 @@ def _build_title_intro_text(
             author_value = value
             break
 
+    series_name, series_number = _extract_series_metadata(normalized)
+    series_sentence = _format_series_sentence(series_name, series_number)
+
     sentences: List[str] = []
+    if series_sentence:
+        sentences.append(_ensure_sentence(series_sentence))
     if title:
         sentences.append(_ensure_sentence(title))
     if subtitle:
@@ -360,13 +441,24 @@ def _build_outro_text(
             break
     author_sentence = _format_author_sentence(author_value)
     authors_fragment = author_sentence[3:].strip() if author_sentence.lower().startswith("by ") else author_sentence.strip()
+
     if title and authors_fragment:
-        return f"The end of {title} from {authors_fragment}."
-    if title:
-        return f"The end of {title}."
-    if authors_fragment:
-        return f"The end from {authors_fragment}."
-    return "The end."
+        closing_line = f"The end of {title} from {authors_fragment}"
+    elif title:
+        closing_line = f"The end of {title}"
+    elif authors_fragment:
+        closing_line = f"The end from {authors_fragment}"
+    else:
+        closing_line = "The end"
+
+    series_name, series_number = _extract_series_metadata(normalized)
+    series_sentence = _format_series_sentence(series_name, series_number)
+
+    sentences: List[str] = [_ensure_sentence(closing_line)]
+    if series_sentence:
+        sentences.append(_ensure_sentence(series_sentence))
+
+    return " ".join(sentence for sentence in sentences if sentence).strip()
 
 
 def _spec_to_voice_ids(spec: Any) -> Set[str]:
@@ -1661,66 +1753,67 @@ def run_conversion_job(job: Job) -> None:
                 marker["original_title"] = raw_title
             chapter_markers.append(marker)
 
-        outro_text = _build_outro_text(job.metadata_tags, job.original_filename)
-        outro_voice_spec = base_voice_spec or job.voice
-        if outro_voice_spec == "__custom_mix":
-            outro_voice_spec = base_voice_spec or ""
-        if not outro_voice_spec:
-            fallback_voice = next(iter(voice_cache.keys()), "")
-            if fallback_voice and fallback_voice != "__custom_mix":
-                outro_voice_spec = fallback_voice
-        if not outro_voice_spec and VOICES_INTERNAL:
-            outro_voice_spec = VOICES_INTERNAL[0]
+        if getattr(job, "read_closing_outro", True):
+            outro_text = _build_outro_text(job.metadata_tags, job.original_filename)
+            outro_voice_spec = base_voice_spec or job.voice
+            if outro_voice_spec == "__custom_mix":
+                outro_voice_spec = base_voice_spec or ""
+            if not outro_voice_spec:
+                fallback_voice = next(iter(voice_cache.keys()), "")
+                if fallback_voice and fallback_voice != "__custom_mix":
+                    outro_voice_spec = fallback_voice
+            if not outro_voice_spec and VOICES_INTERNAL:
+                outro_voice_spec = VOICES_INTERNAL[0]
 
-        if outro_text and outro_voice_spec:
-            outro_start_time = current_time
-            outro_audio_path: Optional[Path] = None
-            outro_segments = 0
-            outro_index = total_chapters + 1
-            outro_voice_choice = voice_cache.get(outro_voice_spec)
-            if outro_voice_choice is None:
-                outro_voice_choice = _resolve_voice(pipeline, outro_voice_spec, job.use_gpu)
-                voice_cache[outro_voice_spec] = outro_voice_choice
+            if outro_text and outro_voice_spec:
+                outro_start_time = current_time
+                outro_audio_path: Optional[Path] = None
+                outro_segments = 0
+                outro_index = total_chapters + 1
+                outro_voice_choice = voice_cache.get(outro_voice_spec)
+                if outro_voice_choice is None:
+                    outro_voice_choice = _resolve_voice(pipeline, outro_voice_spec, job.use_gpu)
+                    voice_cache[outro_voice_spec] = outro_voice_choice
 
-            with ExitStack() as outro_sink_stack:
-                chapter_sink: Optional[AudioSink] = None
-                if chapter_dir is not None:
-                    outro_audio_path = _build_output_path(
-                        chapter_dir,
-                        f"{Path(job.original_filename).stem}_outro",
-                        job.separate_chapters_format,
+                with ExitStack() as outro_sink_stack:
+                    chapter_sink: Optional[AudioSink] = None
+                    if chapter_dir is not None:
+                        outro_audio_path = _build_output_path(
+                            chapter_dir,
+                            f"{Path(job.original_filename).stem}_outro",
+                            job.separate_chapters_format,
+                        )
+                        chapter_sink = _open_audio_sink(
+                            outro_audio_path,
+                            job,
+                            outro_sink_stack,
+                            fmt=job.separate_chapters_format,
+                        )
+
+                    outro_segments = emit_text(
+                        outro_text,
+                        voice_choice=outro_voice_choice,
+                        chapter_sink=chapter_sink,
+                        preview_prefix="Outro",
                     )
-                    chapter_sink = _open_audio_sink(
-                        outro_audio_path,
-                        job,
-                        outro_sink_stack,
-                        fmt=job.separate_chapters_format,
+                    outro_end_time = current_time
+
+                if outro_segments > 0:
+                    job.add_log(f"Appended outro sequence: {outro_text}")
+                    if outro_audio_path is not None:
+                        job.result.artifacts[f"chapter_{outro_index:02d}"] = outro_audio_path
+                        chapter_paths.append(outro_audio_path)
+                    chapter_markers.append(
+                        {
+                            "index": outro_index,
+                            "title": "Outro",
+                            "start": outro_start_time,
+                            "end": outro_end_time,
+                            "voice": outro_voice_spec,
+                        }
                     )
-
-                outro_segments = emit_text(
-                    outro_text,
-                    voice_choice=outro_voice_choice,
-                    chapter_sink=chapter_sink,
-                    preview_prefix="Outro",
-                )
-                outro_end_time = current_time
-
-            if outro_segments > 0:
-                job.add_log(f"Appended outro sequence: {outro_text}")
-                if outro_audio_path is not None:
-                    job.result.artifacts[f"chapter_{outro_index:02d}"] = outro_audio_path
-                    chapter_paths.append(outro_audio_path)
-                chapter_markers.append(
-                    {
-                        "index": outro_index,
-                        "title": "Outro",
-                        "start": outro_start_time,
-                        "end": outro_end_time,
-                        "voice": outro_voice_spec,
-                    }
-                )
-            else:
-                job.add_log("No audio generated for outro sequence.", level="warning")
+                else:
+                    job.add_log("No audio generated for outro sequence.", level="warning")
 
         if not audio_path and chapter_paths:
             job.result.audio_path = chapter_paths[0]

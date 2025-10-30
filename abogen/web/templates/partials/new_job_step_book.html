@@ -65,6 +65,16 @@
     {% set read_title_intro = settings_dict.get('read_title_intro', False) %}
   {% endif %}
 {% endif %}
+{% set read_outro_value = form_values.get('read_closing_outro') if form_values else None %}
+{% if read_outro_value is not none %}
+  {% set read_closing_outro = ((read_outro_value|string)|lower) in ['true', '1', 'yes', 'on'] %}
+{% else %}
+  {% if pending is not none %}
+    {% set read_closing_outro = pending.read_closing_outro %}
+  {% else %}
+    {% set read_closing_outro = settings_dict.get('read_closing_outro', True) %}
+  {% endif %}
+{% endif %}
 {% set normalize_caps_value = form_values.get('normalize_chapter_opening_caps') if form_values else None %}
 {% if normalize_caps_value is not none %}
   {% set normalize_chapter_opening_caps = ((normalize_caps_value|string)|lower) in ['true', '1', 'yes', 'on'] %}
@@ -339,6 +349,14 @@
             <span>Read title and authors before narration</span>
           </label>
           <p class="hint">When enabled, the narrator speaks the book title and author list before chapter one begins.</p>
+        </div>
+        <div class="field field--stack">
+          <label class="toggle-pill">
+            <input type="hidden" name="read_closing_outro" value="false">
+            <input type="checkbox" name="read_closing_outro" value="true" {% if read_closing_outro %}checked{% endif %} {{ 'disabled' if readonly else '' }}>
+            <span>Read closing outro after narration</span>
+          </label>
+          <p class="hint">Adds a short "The end" statement after the final chapter, including series details when available.</p>
         </div>
         <div class="field field--stack">
           <label class="toggle-pill">

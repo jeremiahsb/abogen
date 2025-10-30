@@ -364,10 +364,28 @@ if (modal && browser) {
     }
     setStatus('Downloading book from Calibre. This can take a minute…', 'loading');
     try {
+      const requestPayload = {
+        href: entry.download.href,
+        title: entry.title || '',
+      };
+      const metadata = {};
+      if (entry.series) {
+        metadata.series = entry.series;
+        metadata.series_name = entry.series;
+      }
+      const seriesIndex = entry.series_index ?? entry.seriesIndex ?? null;
+      if (seriesIndex !== null && seriesIndex !== undefined && seriesIndex !== '') {
+        metadata.series_index = seriesIndex;
+        metadata.series_position = seriesIndex;
+        metadata.book_number = seriesIndex;
+      }
+      if (Object.keys(metadata).length > 0) {
+        requestPayload.metadata = metadata;
+      }
       const response = await fetch('/api/integrations/calibre-opds/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ href: entry.download.href, title: entry.title || '' }),
+        body: JSON.stringify(requestPayload),
       });
       const payload = await response.json();
       if (!response.ok) {

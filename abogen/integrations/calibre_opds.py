@@ -14,7 +14,15 @@ import httpx
 ATOM_NS = "http://www.w3.org/2005/Atom"
 OPDS_NS = "http://opds-spec.org/2010/catalog"
 DC_NS = "http://purl.org/dc/terms/"
-NS = {"atom": ATOM_NS, "opds": OPDS_NS, "dc": DC_NS}
+CALIBRE_CATALOG_NS = "http://calibre.kovidgoyal.net/2009/catalog"
+CALIBRE_METADATA_NS = "http://calibre.kovidgoyal.net/2009/metadata"
+NS = {
+    "atom": ATOM_NS,
+    "opds": OPDS_NS,
+    "dc": DC_NS,
+    "calibre": CALIBRE_CATALOG_NS,
+    "calibre_md": CALIBRE_METADATA_NS,
+}
 
 
 _TAG_STRIP_RE = re.compile(r"<[^>]+>")
@@ -58,6 +66,8 @@ class OPDSEntry:
     alternate: Optional[OPDSLink] = None
     thumbnail: Optional[OPDSLink] = None
     links: List[OPDSLink] = field(default_factory=list)
+    series: Optional[str] = None
+    series_index: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -71,6 +81,8 @@ class OPDSEntry:
             "alternate": self.alternate.to_dict() if self.alternate else None,
             "thumbnail": self.thumbnail.to_dict() if self.thumbnail else None,
             "links": [link.to_dict() for link in self.links],
+            "series": self.series,
+            "series_index": self.series_index,
         }
 
 
@@ -272,6 +284,31 @@ class CalibreOPDSClient:
         thumb_link = parsed_links.get("http://opds-spec.org/image/thumbnail") or parsed_links.get(
             "thumbnail"
         )
+
+        series_name = (
+            node.findtext("calibre:series", default=None, namespaces=NS)
+            or node.findtext("calibre_md:series", default=None, namespaces=NS)
+        )
+        if series_name:
+            series_name = series_name.strip() or None
+
+        series_index_raw = (
+            node.findtext("calibre:series_index", default=None, namespaces=NS)
+            or node.findtext("calibre_md:series_index", default=None, namespaces=NS)
+        )
+        series_index: Optional[float] = None
+        if series_index_raw is not None:
+            text = str(series_index_raw).strip()
+            if text:
+                try:
+                    series_index = float(text)
+                except ValueError:
+                    match = re.search(r"\d+(?:\.\d+)?", text.replace(",", "."))
+                    if match:
+                        try:
+                            series_index = float(match.group(0))
+                        except ValueError:
+                            series_index = None
         return OPDSEntry(
             id=entry_id or title,
             title=title,
@@ -283,6 +320,8 @@ class CalibreOPDSClient:
             alternate=alternate_link,
             thumbnail=thumb_link,
             links=list(parsed_links.values()),
+            series=series_name,
+            series_index=series_index,
         )
 
     def _extract_position(self, node: ET.Element) -> Optional[int]:

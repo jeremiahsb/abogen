@@ -1559,6 +1559,22 @@ def _apply_prepare_form(
     elif hasattr(form, "__contains__") and "read_title_intro" in form:
         pending.read_title_intro = False
 
+    outro_values: List[str] = []
+    if callable(getter):
+        raw_outro_values = getter("read_closing_outro")
+        if raw_outro_values:
+            outro_values = list(cast(Iterable[str], raw_outro_values))
+    else:
+        raw_outro = form.get("read_closing_outro")
+        if raw_outro is not None:
+            outro_values = [raw_outro]
+    if outro_values:
+        pending.read_closing_outro = _coerce_bool(
+            outro_values[-1], getattr(pending, "read_closing_outro", True)
+        )
+    elif hasattr(form, "__contains__") and "read_closing_outro" in form:
+        pending.read_closing_outro = False
+
     caps_values: List[str] = []
     if callable(getter):
         raw_caps_values = getter("normalize_chapter_opening_caps")
@@ -1700,6 +1716,27 @@ def _apply_book_step_form(
         pending.read_title_intro = False
     else:
         pending.read_title_intro = intro_default
+
+    outro_default = (
+        pending.read_closing_outro
+        if isinstance(getattr(pending, "read_closing_outro", None), bool)
+        else bool(settings.get("read_closing_outro", True))
+    )
+    outro_values: List[str] = []
+    if callable(getter):
+        raw_outro_values = getter("read_closing_outro")
+        if raw_outro_values:
+            outro_values = list(cast(Iterable[str], raw_outro_values))
+    else:
+        raw_outro_flag = form.get("read_closing_outro")
+        if raw_outro_flag is not None:
+            outro_values = [raw_outro_flag]
+    if outro_values:
+        pending.read_closing_outro = _coerce_bool(outro_values[-1], outro_default)
+    elif hasattr(form, "__contains__") and "read_closing_outro" in form:
+        pending.read_closing_outro = False
+    else:
+        pending.read_closing_outro = outro_default
 
     caps_default = (
         pending.normalize_chapter_opening_caps
@@ -2051,6 +2088,7 @@ BOOLEAN_SETTINGS = {
     "generate_epub3",
     "enable_entity_recognition",
     "read_title_intro",
+    "read_closing_outro",
     "auto_prefix_chapter_titles",
     "normalize_chapter_opening_caps",
     "normalization_numbers",
@@ -2121,6 +2159,7 @@ def _settings_defaults() -> Dict[str, Any]:
         "silence_between_chapters": 2.0,
         "chapter_intro_delay": 0.5,
         "read_title_intro": False,
+        "read_closing_outro": True,
         "normalize_chapter_opening_caps": True,
         "max_subtitle_words": 50,
         "chunk_level": "paragraph",
@@ -2869,6 +2908,28 @@ def calibre_opds_import() -> ResponseReturnValue:
     if not href:
         return jsonify({"error": "Download link missing."}), 400
 
+    metadata_payload = data.get("metadata") if isinstance(data, Mapping) else None
+    metadata_overrides: Dict[str, Any] = {}
+    if isinstance(metadata_payload, Mapping):
+        raw_series = metadata_payload.get("series") or metadata_payload.get("series_name")
+        series_name = str(raw_series or "").strip()
+        if series_name:
+            metadata_overrides["series"] = series_name
+            metadata_overrides.setdefault("series_name", series_name)
+        series_index_value = (
+            metadata_payload.get("series_index")
+            or metadata_payload.get("series_position")
+            or metadata_payload.get("series_sequence")
+            or metadata_payload.get("book_number")
+        )
+        if series_index_value is not None:
+            series_index_text = str(series_index_value).strip()
+            if series_index_text:
+                metadata_overrides.setdefault("series_index", series_index_text)
+                metadata_overrides.setdefault("series_position", series_index_text)
+                metadata_overrides.setdefault("series_sequence", series_index_text)
+                metadata_overrides.setdefault("book_number", series_index_text)
+
     stored_settings = _stored_integration_config("calibre_opds")
     if not stored_settings or not _coerce_bool(stored_settings.get("enabled"), False):
         return jsonify({"error": "Calibre OPDS integration is not enabled."}), 400
@@ -2915,6 +2976,7 @@ def calibre_opds_import() -> ResponseReturnValue:
         form=MultiDict(),
         settings=settings,
         profiles=profiles,
+        metadata_overrides=metadata_overrides or None,
     )
 
     pending = build_result.pending
@@ -4059,10 +4121,27 @@ def _build_pending_job_from_extraction(
 
     metadata_tags = dict(getattr(extraction, "metadata", {}) or {})
     if metadata_overrides:
+        normalized_keys = {str(existing_key).casefold(): str(existing_key) for existing_key in metadata_tags.keys()}
         for key, value in metadata_overrides.items():
             if value is None:
                 continue
-            metadata_tags[str(key)] = str(value)
+            key_text = str(key or "").strip()
+            if not key_text:
+                continue
+            value_text = str(value).strip()
+            if not value_text:
+                continue
+            lookup = key_text.casefold()
+            existing_key = normalized_keys.get(lookup)
+            if existing_key:
+                existing_value = str(metadata_tags.get(existing_key) or "").strip()
+                if existing_value:
+                    continue
+                target_key = existing_key
+            else:
+                target_key = key_text
+                normalized_keys[lookup] = target_key
+            metadata_tags[target_key] = value_text
 
     total_chars = getattr(extraction, "total_characters", None) or calculate_text_length(
         getattr(extraction, "combined_text", "")
@@ -4154,6 +4233,7 @@ def _build_pending_job_from_extraction(
     silence_between_chapters = settings["silence_between_chapters"]
     chapter_intro_delay = settings["chapter_intro_delay"]
     read_title_intro = settings["read_title_intro"]
+    read_closing_outro = settings.get("read_closing_outro", True)
     normalize_chapter_opening_caps = settings["normalize_chapter_opening_caps"]
     max_subtitle_words = settings["max_subtitle_words"]
     auto_prefix_chapter_titles = settings["auto_prefix_chapter_titles"]
@@ -4232,6 +4312,7 @@ def _build_pending_job_from_extraction(
         cover_image_mime=cover_mime,
         chapter_intro_delay=chapter_intro_delay,
         read_title_intro=bool(read_title_intro),
+    read_closing_outro=bool(read_closing_outro),
         normalize_chapter_opening_caps=bool(normalize_chapter_opening_caps),
         auto_prefix_chapter_titles=bool(auto_prefix_chapter_titles),
         chunk_level=chunk_level_value,
@@ -4593,6 +4674,7 @@ def finalize_job(pending_id: str) -> ResponseReturnValue:
         cover_image_mime=pending.cover_image_mime,
         chapter_intro_delay=pending.chapter_intro_delay,
         read_title_intro=pending.read_title_intro,
+    read_closing_outro=getattr(pending, "read_closing_outro", True),
         normalize_chapter_opening_caps=getattr(pending, "normalize_chapter_opening_caps", True),
         auto_prefix_chapter_titles=getattr(pending, "auto_prefix_chapter_titles", True),
         chunk_level=pending.chunk_level,

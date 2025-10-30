@@ -25,6 +25,7 @@
         <li><strong>Silence between chapters:</strong> {{ '%.1f'|format(job.silence_between_chapters) }}s</li>
         <li><strong>Chapter intro delay:</strong> {{ '%.1f'|format(job.chapter_intro_delay) }}s</li>
         <li><strong>Title intro:</strong> {{ 'Yes' if job.read_title_intro else 'No' }}</li>
+  <li><strong>Closing outro:</strong> {{ 'Yes' if job.read_closing_outro else 'No' }}</li>
         <li><strong>Normalize chapter openings:</strong> {{ 'Yes' if job.normalize_chapter_opening_caps else 'No' }}</li>
         <li><strong>Prefix chapter titles:</strong> {{ 'Yes' if job.auto_prefix_chapter_titles else 'No' }}</li>
         <li><strong>Max words per subtitle:</strong> {{ job.max_subtitle_words }}</li>
