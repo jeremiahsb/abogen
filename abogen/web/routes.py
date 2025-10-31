@@ -2129,6 +2129,7 @@ def _integration_defaults() -> Dict[str, Dict[str, Any]]:
             "api_token": "",
             "library_id": "",
             "collection_id": "",
+            "folder_id": "",
             "verify_ssl": True,
             "send_cover": True,
             "send_chapters": True,
@@ -2433,6 +2434,12 @@ def _audiobookshelf_settings_from_payload(payload: Mapping[str, Any]) -> Dict[st
         or stored.get("collection_id")
         or ""
     ).strip()
+    folder_id = str(
+        payload.get("folder_id")
+        or payload.get("audiobookshelf_folder_id")
+        or stored.get("folder_id")
+        or ""
+    ).strip()
     token_input = str(
         payload.get("api_token")
         or payload.get("audiobookshelf_api_token")
@@ -2502,6 +2509,7 @@ def _audiobookshelf_settings_from_payload(payload: Mapping[str, Any]) -> Dict[st
         "base_url": base_url,
         "library_id": library_id,
         "collection_id": collection_id,
+    "folder_id": folder_id,
         "api_token": api_token,
         "verify_ssl": verify_ssl,
         "send_cover": send_cover,
@@ -2527,6 +2535,7 @@ def _build_audiobookshelf_config(settings: Mapping[str, Any]) -> Optional[Audiob
         api_token=api_token,
         library_id=library_id,
         collection_id=(str(settings.get("collection_id") or "").strip() or None),
+    folder_id=(str(settings.get("folder_id") or "").strip() or None),
         verify_ssl=_coerce_bool(settings.get("verify_ssl"), True),
         send_cover=_coerce_bool(settings.get("send_cover"), True),
         send_chapters=_coerce_bool(settings.get("send_chapters"), True),
@@ -2608,6 +2617,7 @@ def _apply_integration_form(cfg: Dict[str, Any], form: Mapping[str, Any]) -> Non
     abs_base = str(form.get("audiobookshelf_base_url") or current_abs.get("base_url") or "").strip()
     abs_library = str(form.get("audiobookshelf_library_id") or current_abs.get("library_id") or "").strip()
     abs_collection = str(form.get("audiobookshelf_collection_id") or current_abs.get("collection_id") or "").strip()
+    abs_folder = str(form.get("audiobookshelf_folder_id") or current_abs.get("folder_id") or "").strip()
     abs_token_input = str(form.get("audiobookshelf_api_token") or "")
     abs_token_clear = _coerce_bool(form.get("audiobookshelf_api_token_clear"), False)
     if abs_token_input:
@@ -2632,6 +2642,7 @@ def _apply_integration_form(cfg: Dict[str, Any], form: Mapping[str, Any]) -> Non
         "api_token": abs_token,
         "library_id": abs_library,
         "collection_id": abs_collection,
+        "folder_id": abs_folder,
         "verify_ssl": abs_verify,
         "send_cover": abs_send_cover,
         "send_chapters": abs_send_chapters,
@@ -3095,6 +3106,7 @@ def test_audiobookshelf() -> ResponseReturnValue:
         "message": f"Connected to Audiobookshelf library '{library_name}'.",
         "library_id": library_id,
         "collection_id": collection_id or None,
+        "folder_id": settings.get("folder_id") or None,
     })
 
 

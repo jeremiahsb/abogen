@@ -147,6 +147,50 @@ Need machine-readable status updates? The dashboard calls a small set of helper 
 
 More automation hooks are planned; contributions are very welcome if you need additional routes.
 
+## Audiobookshelf integration
+Abogen can push finished audiobooks directly into Audiobookshelf. Configure this under **Settings → Integrations → Audiobookshelf** by providing:
+
+- **Base URL** – the HTTPS origin (and optional path prefix) where your Audiobookshelf server is reachable, for example `https://abs.example.com` or `https://media.example.com/abs`. Do **not** append `/api`.
+- **Library ID** – the identifier of the target Audiobookshelf library (copy it from the library’s settings page in ABS).
+- **API token** – a personal access token generated in Audiobookshelf under *Account → API tokens*.
+
+You can enable automatic uploads for future jobs or trigger individual uploads from the queue once the connection succeeds.
+
+### Reverse proxy checklist (Nginx Proxy Manager)
+When Audiobookshelf sits behind Nginx Proxy Manager (NPM), make sure the API paths and headers reach the backend untouched:
+
+1. Create a **Proxy Host** that points to your ABS container or host (default forward port `13378`).
+2. Under the **SSL** tab, enable your certificate and tick **Force SSL** if you want HTTPS only.
+3. In the **Advanced** tab, append the snippet below so bearer tokens, client IPs, and large uploads survive the proxy hop:
+   ```nginx
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Forwarded-Host $host;
+  proxy_set_header X-Forwarded-Port $server_port;
+  proxy_set_header Authorization $http_authorization;
+  client_max_body_size 5g;
+  proxy_read_timeout 300s;
+  proxy_connect_timeout 300s;
+   ```
+4. Disable **Block Common Exploits** (it strips Authorization headers in some NPM builds).
+5. Enable **Websockets Support** on the main proxy screen (Audiobookshelf uses it for the web UI, and it keeps the reverse proxy configuration consistent).
+6. If you publish Audiobookshelf under a path prefix (for example `/abs`), add a **Custom Location** with `Location: /abs/` and set the **Forward Path** to `/`. That rewrite strips the `/abs` prefix before traffic reaches Audiobookshelf so `/abs/api/...` on the internet becomes `/api/...` on the backend. Use the same prefixed URL in Abogen’s “Base URL” field.
+
+After saving the proxy host, test the API from the machine running Abogen:
+
+```bash
+curl -i "https://abs.example.com/api/uploads" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"libraryId":"YOUR_LIBRARY_ID","mediaType":"audiobook"}'
+```
+
+If you still receive `Cannot GET /api/...`, the proxy is rewriting paths. Double-check the **Custom Locations** table (the `Forward Path` column should be empty for `/abs/`) and review the NPM access/error logs while issuing the curl request to confirm the backend sees the full `/api/uploads` URL.
+
+A JSON response containing an `id` or `uploadId` confirms the proxy is routing API calls correctly. You can then use **Test connection** in Abogen’s settings and the “Send to Audiobookshelf” button on completed jobs.
+
 ## Configuration reference
 Most behaviour is controlled through the UI, but a few environment variables are helpful for automation:
 - `ABOGEN_SECRET_KEY` – provide your own random secret when deploying across multiple replicas.

@@ -956,6 +956,7 @@ class ConversionService:
             api_token=api_token,
             library_id=library_id,
             collection_id=(str(integration_cfg.get("collection_id") or "").strip() or None),
+            folder_id=(str(integration_cfg.get("folder_id") or "").strip() or None),
             verify_ssl=self._coerce_bool(integration_cfg.get("verify_ssl"), True),
             send_cover=self._coerce_bool(integration_cfg.get("send_cover"), True),
             send_chapters=self._coerce_bool(integration_cfg.get("send_chapters"), True),

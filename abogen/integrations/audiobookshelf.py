@@ -22,6 +22,7 @@ class AudiobookshelfConfig:
     api_token: str
     library_id: str
     collection_id: Optional[str] = None
+    folder_id: Optional[str] = None
     verify_ssl: bool = True
     send_cover: bool = True
     send_chapters: bool = True

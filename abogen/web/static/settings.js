@@ -305,6 +305,7 @@ function collectAudiobookshelfFields() {
   const baseUrl = form.querySelector('#audiobookshelf_base_url')?.value?.trim() || '';
   const libraryId = form.querySelector('#audiobookshelf_library_id')?.value?.trim() || '';
   const collectionId = form.querySelector('#audiobookshelf_collection_id')?.value?.trim() || '';
+  const folderId = form.querySelector('#audiobookshelf_folder_id')?.value?.trim() || '';
   const tokenInput = form.querySelector('#audiobookshelf_api_token');
   const apiToken = tokenInput?.value?.trim() || '';
   const hasSecret = tokenInput?.dataset.hasSecret === 'true';
@@ -319,6 +320,7 @@ function collectAudiobookshelfFields() {
     base_url: baseUrl,
     library_id: libraryId,
     collection_id: collectionId,
+  folder_id: folderId,
     api_token: apiToken,
     use_saved_token: useSavedToken,
     clear_saved_token: clearToken,
