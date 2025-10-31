@@ -3054,75 +3054,15 @@ def test_audiobookshelf() -> ResponseReturnValue:
         return jsonify({"error": str(exc)}), 400
 
     try:
-        with client._open_client() as http_client:  # pylint: disable=protected-access
-            response = http_client.get(client._api_path("libraries"), params={"lite": "true"})
-            response.raise_for_status()
-            payload_json = response.json()
-    except Exception as exc:  # pragma: no cover - network guard
-        status_code = getattr(getattr(exc, "response", None), "status_code", None)
-        if status_code:
-            message = f"Audiobookshelf request failed with status {status_code}."
-        else:
-            message = f"Audiobookshelf request failed: {exc}"
-        return jsonify({"error": message}), 502
-
-    libraries: List[Mapping[str, Any]] = []
-    if isinstance(payload_json, list):
-        libraries = [entry for entry in payload_json if isinstance(entry, Mapping)]
-    elif isinstance(payload_json, Mapping):
-        candidates = payload_json.get("libraries") or payload_json.get("items")
-        if isinstance(candidates, list):
-            libraries = [entry for entry in candidates if isinstance(entry, Mapping)]
+        resolved_folder_id, folder_name, library_name = client.resolve_folder()
+    except AudiobookshelfUploadError as exc:
+        cause = exc.__cause__
+        status_code = getattr(getattr(cause, "response", None), "status_code", None)
+        http_status = 502 if status_code and status_code >= 500 else 400
+        return jsonify({"error": str(exc)}), http_status
 
     library_id = settings.get("library_id", "")
-    library_name = library_id
-    matched = False
-    for entry in libraries:
-        entry_id = str(entry.get("id") or "").strip()
-        if entry_id != library_id:
-            continue
-        matched = True
-        library_name = entry.get("name") or entry.get("label") or library_id
-        break
-
-    if not matched:
-        return jsonify({"error": f"Library '{library_id}' not found on Audiobookshelf."}), 400
-
-    folder_id = str(settings.get("folder_id") or "").strip()
-    if not folder_id:
-        return jsonify({"error": "Provide a folder ID before testing."}), 400
-
-    folder_name = folder_id
-    try:
-        with client._open_client() as http_client:  # pylint: disable=protected-access
-            library_resp = http_client.get(client._api_path(f"libraries/{library_id}"))
-            library_resp.raise_for_status()
-            library_payload = library_resp.json()
-    except Exception as exc:  # pragma: no cover - network guard
-        status_code = getattr(getattr(exc, "response", None), "status_code", None)
-        if status_code:
-            message = f"Library lookup failed with status {status_code}."
-        else:
-            message = f"Library lookup failed: {exc}"
-        return jsonify({"error": message}), 502
-
-    folders: List[Mapping[str, Any]] = []
-    if isinstance(library_payload, Mapping):
-        candidates = library_payload.get("libraryFolders") or library_payload.get("folders")
-        if isinstance(candidates, list):
-            folders = [entry for entry in candidates if isinstance(entry, Mapping)]
-
-    folder_matched = False
-    for folder in folders:
-        entry_id = str(folder.get("id") or "").strip()
-        if entry_id != folder_id:
-            continue
-        folder_matched = True
-        folder_name = folder.get("name") or folder.get("label") or folder_id
-        break
-
-    if not folder_matched:
-        return jsonify({"error": f"Folder '{folder_id}' not found in library '{library_name}'."}), 400
+    folder_id = resolved_folder_id
 
     collection_id = str(settings.get("collection_id") or "").strip()
     if collection_id:
@@ -4994,7 +4934,7 @@ def send_job_to_audiobookshelf(job_id: str) -> ResponseReturnValue:
         return _panel_response()
     if not config.folder_id:
         job.add_log(
-            "Audiobookshelf upload skipped: configure a folder ID in the Audiobookshelf settings.",
+            "Audiobookshelf upload skipped: enter the folder name or ID in the Audiobookshelf settings.",
             level="warning",
         )
         service._persist_state()

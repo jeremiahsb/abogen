@@ -941,7 +941,7 @@ class ConversionService:
             return
         if not folder_id:
             job.add_log(
-                "Audiobookshelf upload skipped: configure a folder ID in the Audiobookshelf settings.",
+                "Audiobookshelf upload skipped: enter the folder name or ID in the Audiobookshelf settings.",
                 level="warning",
             )
             return

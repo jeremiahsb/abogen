@@ -54,6 +54,7 @@ class AudiobookshelfClient:
         normalized = config.normalized_base_url() or ""
         self._base_url = normalized.rstrip("/") or normalized
         self._client_base_url = f"{self._base_url}/"
+        self._folder_cache: Optional[Tuple[str, str, str]] = None
 
     def _api_path(self, suffix: str = "") -> str:
         """Join the API prefix with the provided suffix without losing proxies."""
@@ -71,8 +72,6 @@ class AudiobookshelfClient:
     ) -> Dict[str, Any]:
         if not audio_path.exists():
             raise AudiobookshelfUploadError(f"Audio path does not exist: {audio_path}")
-        if not self._config.folder_id:
-            raise AudiobookshelfUploadError("Audiobookshelf folder ID is required for uploads")
 
         form_fields = self._build_upload_fields(audio_path, metadata, chapters)
         file_entries = self._build_file_entries(audio_path, cover_path, subtitles)
@@ -117,13 +116,14 @@ class AudiobookshelfClient:
         metadata: Dict[str, Any],
         chapters: Optional[Iterable[Dict[str, Any]]],
     ) -> Dict[str, str]:
+        folder_id, _, _ = self._ensure_folder()
         title = self._extract_title(metadata, audio_path)
         author = self._extract_author(metadata)
         series = self._extract_series(metadata)
 
         fields: Dict[str, str] = {
             "library": self._config.library_id,
-            "folder": self._config.folder_id or "",
+            "folder": folder_id,
             "title": title,
         }
         if author:
@@ -179,6 +179,91 @@ class AudiobookshelfClient:
             handle = stack.enter_context(path.open("rb"))
             files.append((field_name, (path.name, handle, mime_type)))
         return files
+
+    def resolve_folder(self) -> Tuple[str, str, str]:
+        """Return the resolved folder (id, name, library name)."""
+        return self._ensure_folder()
+
+    def _ensure_folder(self) -> Tuple[str, str, str]:
+        if self._folder_cache:
+            return self._folder_cache
+
+        identifier = (self._config.folder_id or "").strip()
+        if not identifier:
+            raise AudiobookshelfUploadError(
+                "Audiobookshelf folder is required; enter the folder name or ID in Settings."
+            )
+
+        try:
+            with self._open_client() as client:
+                response = client.get(self._api_path(f"libraries/{self._config.library_id}"))
+                response.raise_for_status()
+                library_payload = response.json()
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status == 404:
+                message = f"Audiobookshelf library '{self._config.library_id}' not found."
+            else:
+                detail = (exc.response.text or "").strip()
+                if detail:
+                    detail = detail[:200]
+                    message = (
+                        f"Failed to load Audiobookshelf library '{self._config.library_id}' "
+                        f"(status {status}): {detail}"
+                    )
+                else:
+                    message = (
+                        f"Failed to load Audiobookshelf library '{self._config.library_id}' "
+                        f"(status {status})."
+                    )
+            raise AudiobookshelfUploadError(message) from exc
+        except httpx.HTTPError as exc:
+            raise AudiobookshelfUploadError(
+                f"Failed to reach Audiobookshelf library '{self._config.library_id}': {exc}"
+            ) from exc
+
+        library_name = str(
+            library_payload.get("name")
+            or library_payload.get("label")
+            or self._config.library_id
+        )
+        folders: List[Mapping[str, Any]] = []
+        if isinstance(library_payload, Mapping):
+            candidates = library_payload.get("libraryFolders") or library_payload.get("folders")
+            if isinstance(candidates, list):
+                folders = [entry for entry in candidates if isinstance(entry, Mapping)]
+
+        identifier_lower = identifier.lower()
+        match: Optional[Tuple[str, str]] = None
+        for folder in folders:
+            folder_id = str(folder.get("id") or "").strip()
+            folder_name = str(folder.get("name") or folder.get("label") or "").strip()
+            if folder_id and folder_id == identifier:
+                match = (folder_id, folder_name or folder_id)
+                break
+
+        if not match:
+            for folder in folders:
+                folder_id = str(folder.get("id") or "").strip()
+                folder_name = str(folder.get("name") or folder.get("label") or "").strip()
+                if folder_name and folder_name.lower() == identifier_lower:
+                    match = (folder_id or identifier, folder_name)
+                    break
+
+        if not match:
+            raise AudiobookshelfUploadError(
+                f"Folder '{identifier}' was not found in library '{library_name}'. "
+                "Enter the folder name exactly as it appears in Audiobookshelf or paste the folder ID."
+            )
+
+        folder_id, folder_name = match
+        if not folder_id:
+            raise AudiobookshelfUploadError(
+                f"Unable to determine folder ID for '{identifier}' in library '{library_name}'."
+            )
+
+        self._folder_cache = (folder_id, folder_name or folder_id, library_name)
+        return self._folder_cache
 
     @staticmethod
     def _extract_title(metadata: Mapping[str, Any], audio_path: Path) -> str:
