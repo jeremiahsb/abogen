@@ -932,9 +932,16 @@ class ConversionService:
         base_url = str(integration_cfg.get("base_url") or "").strip()
         api_token = str(integration_cfg.get("api_token") or "").strip()
         library_id = str(integration_cfg.get("library_id") or "").strip()
+        folder_id = str(integration_cfg.get("folder_id") or "").strip()
         if not base_url or not api_token or not library_id:
             job.add_log(
                 "Audiobookshelf upload skipped: configure base URL, API token, and library ID first.",
+                level="warning",
+            )
+            return
+        if not folder_id:
+            job.add_log(
+                "Audiobookshelf upload skipped: configure a folder ID in the Audiobookshelf settings.",
                 level="warning",
             )
             return
@@ -956,7 +963,7 @@ class ConversionService:
             api_token=api_token,
             library_id=library_id,
             collection_id=(str(integration_cfg.get("collection_id") or "").strip() or None),
-            folder_id=(str(integration_cfg.get("folder_id") or "").strip() or None),
+            folder_id=folder_id,
             verify_ssl=self._coerce_bool(integration_cfg.get("verify_ssl"), True),
             send_cover=self._coerce_bool(integration_cfg.get("send_cover"), True),
             send_chapters=self._coerce_bool(integration_cfg.get("send_chapters"), True),

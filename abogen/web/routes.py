@@ -3088,6 +3088,42 @@ def test_audiobookshelf() -> ResponseReturnValue:
     if not matched:
         return jsonify({"error": f"Library '{library_id}' not found on Audiobookshelf."}), 400
 
+    folder_id = str(settings.get("folder_id") or "").strip()
+    if not folder_id:
+        return jsonify({"error": "Provide a folder ID before testing."}), 400
+
+    folder_name = folder_id
+    try:
+        with client._open_client() as http_client:  # pylint: disable=protected-access
+            library_resp = http_client.get(client._api_path(f"libraries/{library_id}"))
+            library_resp.raise_for_status()
+            library_payload = library_resp.json()
+    except Exception as exc:  # pragma: no cover - network guard
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        if status_code:
+            message = f"Library lookup failed with status {status_code}."
+        else:
+            message = f"Library lookup failed: {exc}"
+        return jsonify({"error": message}), 502
+
+    folders: List[Mapping[str, Any]] = []
+    if isinstance(library_payload, Mapping):
+        candidates = library_payload.get("libraryFolders") or library_payload.get("folders")
+        if isinstance(candidates, list):
+            folders = [entry for entry in candidates if isinstance(entry, Mapping)]
+
+    folder_matched = False
+    for folder in folders:
+        entry_id = str(folder.get("id") or "").strip()
+        if entry_id != folder_id:
+            continue
+        folder_matched = True
+        folder_name = folder.get("name") or folder.get("label") or folder_id
+        break
+
+    if not folder_matched:
+        return jsonify({"error": f"Folder '{folder_id}' not found in library '{library_name}'."}), 400
+
     collection_id = str(settings.get("collection_id") or "").strip()
     if collection_id:
         try:
@@ -3103,10 +3139,11 @@ def test_audiobookshelf() -> ResponseReturnValue:
             return jsonify({"error": message}), 502
 
     return jsonify({
-        "message": f"Connected to Audiobookshelf library '{library_name}'.",
+        "message": f"Connected to Audiobookshelf library '{library_name}' (folder '{folder_name}').",
         "library_id": library_id,
         "collection_id": collection_id or None,
-        "folder_id": settings.get("folder_id") or None,
+        "folder_id": folder_id,
+        "folder_name": folder_name,
     })
 
 
@@ -4951,6 +4988,13 @@ def send_job_to_audiobookshelf(job_id: str) -> ResponseReturnValue:
     if config is None:
         job.add_log(
             "Audiobookshelf upload skipped: configure base URL, API token, and library ID first.",
+            level="warning",
+        )
+        service._persist_state()
+        return _panel_response()
+    if not config.folder_id:
+        job.add_log(
+            "Audiobookshelf upload skipped: configure a folder ID in the Audiobookshelf settings.",
             level="warning",
         )
         service._persist_state()

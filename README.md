@@ -152,6 +152,7 @@ Abogen can push finished audiobooks directly into Audiobookshelf. Configure this
 
 - **Base URL** – the HTTPS origin (and optional path prefix) where your Audiobookshelf server is reachable, for example `https://abs.example.com` or `https://media.example.com/abs`. Do **not** append `/api`.
 - **Library ID** – the identifier of the target Audiobookshelf library (copy it from the library’s settings page in ABS).
+- **Folder ID** – the destination folder inside that library. Open the library in Audiobookshelf, select the folder you want new uploads to land in, and copy the `folderId` from the address bar.
 - **API token** – a personal access token generated in Audiobookshelf under *Account → API tokens*.
 
 You can enable automatic uploads for future jobs or trigger individual uploads from the queue once the connection succeeds.
@@ -178,18 +179,16 @@ When Audiobookshelf sits behind Nginx Proxy Manager (NPM), make sure the API pat
 5. Enable **Websockets Support** on the main proxy screen (Audiobookshelf uses it for the web UI, and it keeps the reverse proxy configuration consistent).
 6. If you publish Audiobookshelf under a path prefix (for example `/abs`), add a **Custom Location** with `Location: /abs/` and set the **Forward Path** to `/`. That rewrite strips the `/abs` prefix before traffic reaches Audiobookshelf so `/abs/api/...` on the internet becomes `/api/...` on the backend. Use the same prefixed URL in Abogen’s “Base URL” field.
 
-After saving the proxy host, test the API from the machine running Abogen:
+After saving the proxy host, locate your folder ID and test the API from the machine running Abogen:
 
 ```bash
-curl -i "https://abs.example.com/api/uploads" \
-  -H "Authorization: Bearer YOUR_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"libraryId":"YOUR_LIBRARY_ID","mediaType":"audiobook"}'
+curl -i "https://abs.example.com/api/libraries" \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
 ```
 
-If you still receive `Cannot GET /api/...`, the proxy is rewriting paths. Double-check the **Custom Locations** table (the `Forward Path` column should be empty for `/abs/`) and review the NPM access/error logs while issuing the curl request to confirm the backend sees the full `/api/uploads` URL.
+If you still receive `Cannot GET /api/...`, the proxy is rewriting paths. Double-check the **Custom Locations** table (the `Forward Path` column should be empty for `/abs/`) and review the NPM access/error logs while issuing the curl request to confirm the backend sees the full `/api/libraries` URL.
 
-A JSON response containing an `id` or `uploadId` confirms the proxy is routing API calls correctly. You can then use **Test connection** in Abogen’s settings and the “Send to Audiobookshelf” button on completed jobs.
+A JSON response confirming the libraries list means the proxy is routing API calls correctly. You can then use **Test connection** in Abogen’s settings (it now verifies both the library and folder IDs) and the “Send to Audiobookshelf” button on completed jobs.
 
 ## Configuration reference
 Most behaviour is controlled through the UI, but a few environment variables are helpful for automation:

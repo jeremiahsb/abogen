@@ -381,8 +381,8 @@ async function testAudiobookshelf(button) {
     return;
   }
   const hasToken = Boolean(fields.api_token) || Boolean(fields.use_saved_token);
-  if (!fields.base_url || !hasToken || !fields.library_id) {
-    setStatus(status, 'Enter the base URL, API token, and library ID to test.', 'error');
+  if (!fields.base_url || !hasToken || !fields.library_id || !fields.folder_id) {
+    setStatus(status, 'Enter the base URL, API token, library ID, and folder ID to test.', 'error');
     return;
   }
   clearStatus(status);

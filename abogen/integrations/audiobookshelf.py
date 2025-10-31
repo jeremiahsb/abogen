@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import httpx
 
@@ -42,7 +43,7 @@ class AudiobookshelfConfig:
 
 
 class AudiobookshelfClient:
-    """Minimal client for Audiobookshelf's upload API."""
+    """Client for the legacy Audiobookshelf multipart upload endpoint."""
 
     def __init__(self, config: AudiobookshelfConfig) -> None:
         if not config.api_token:
@@ -70,33 +71,33 @@ class AudiobookshelfClient:
     ) -> Dict[str, Any]:
         if not audio_path.exists():
             raise AudiobookshelfUploadError(f"Audio path does not exist: {audio_path}")
-        session = self._create_upload_session()
-        upload_id = session.get("id") or session.get("uploadId") or session.get("upload_id")
-        if not upload_id:
-            raise AudiobookshelfUploadError("Audiobookshelf upload session did not return an identifier")
-        logger.debug("Audiobookshelf upload session %s created", upload_id)
+        if not self._config.folder_id:
+            raise AudiobookshelfUploadError("Audiobookshelf folder ID is required for uploads")
 
-        self._upload_file(upload_id, audio_path, kind="audio")
+        form_fields = self._build_upload_fields(audio_path, metadata, chapters)
+        file_entries = self._build_file_entries(audio_path, cover_path, subtitles)
 
-        if cover_path and self._config.send_cover and cover_path.exists():
-            try:
-                self._upload_file(upload_id, cover_path, kind="cover")
-            except AudiobookshelfUploadError:
-                logger.warning("Failed to upload cover to Audiobookshelf; continuing without cover.")
+        route = self._api_path("upload")
+        try:
+            with self._open_client() as client, ExitStack() as stack:
+                files_payload = self._open_file_handles(file_entries, stack)
+                response = client.post(route, data=form_fields, files=files_payload)
+                response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            detail = (exc.response.text or "").strip()
+            if detail:
+                detail = detail[:200]
+                message = f"Audiobookshelf upload failed with status {status}: {detail}"
+            else:
+                message = f"Audiobookshelf upload failed with status {status}"
+            raise AudiobookshelfUploadError(
+                message
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise AudiobookshelfUploadError(f"Audiobookshelf upload failed: {exc}") from exc
 
-        if subtitles and self._config.send_subtitles:
-            for subtitle in subtitles:
-                if not subtitle.exists():
-                    continue
-                try:
-                    self._upload_file(upload_id, subtitle, kind="subtitle")
-                except AudiobookshelfUploadError:
-                    logger.warning("Failed to upload subtitle %s to Audiobookshelf", subtitle)
-
-        payload = self._build_finalize_payload(metadata, chapters)
-        result = self._finalize_upload(upload_id, payload)
-        logger.debug("Audiobookshelf upload %s finalized", upload_id)
-        return result
+        return {}
 
     def _open_client(self) -> httpx.Client:
         headers = {
@@ -110,61 +111,98 @@ class AudiobookshelfClient:
             verify=self._config.verify_ssl,
         )
 
-    def _create_upload_session(self) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {
-            "libraryId": self._config.library_id,
-            "mediaType": "audiobook",
-        }
-        if self._config.collection_id:
-            payload["collectionId"] = self._config.collection_id
-        try:
-            with self._open_client() as client:
-                response = client.post(self._api_path("uploads"), json=payload)
-                response.raise_for_status()
-                return response.json()
-        except httpx.HTTPError as exc:
-            raise AudiobookshelfUploadError(f"Unable to create Audiobookshelf upload session: {exc}") from exc
-
-    def _upload_file(self, upload_id: str, path: Path, *, kind: str) -> None:
-        mime_type, _ = mimetypes.guess_type(path.name)
-        mime_type = mime_type or "application/octet-stream"
-        data = {"kind": kind, "filename": path.name}
-        route = self._api_path(f"uploads/{upload_id}/files")
-        try:
-            with path.open("rb") as handle:
-                files = {"file": (path.name, handle, mime_type)}
-                with self._open_client() as client:
-                    response = client.post(route, data=data, files=files)
-                    response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise AudiobookshelfUploadError(f"Audiobookshelf file upload failed for {path.name}: {exc}") from exc
-
-    def _build_finalize_payload(
+    def _build_upload_fields(
         self,
+        audio_path: Path,
         metadata: Dict[str, Any],
         chapters: Optional[Iterable[Dict[str, Any]]],
-    ) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {
-            "metadata": metadata or {},
-        }
-        if chapters and self._config.send_chapters:
-            payload["chapters"] = list(chapters)
-        return payload
+    ) -> Dict[str, str]:
+        title = self._extract_title(metadata, audio_path)
+        author = self._extract_author(metadata)
+        series = self._extract_series(metadata)
 
-    def _finalize_upload(self, upload_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        route = self._api_path(f"uploads/{upload_id}/finish")
-        try:
-            with self._open_client() as client:
-                response = client.post(route, json=payload)
-                response.raise_for_status()
-                if response.content:
-                    return json.loads(response.content.decode("utf-8"))
-        except httpx.HTTPStatusError as exc:
-            raise AudiobookshelfUploadError(
-                f"Audiobookshelf finalize request failed with status {exc.response.status_code}"
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise AudiobookshelfUploadError(f"Audiobookshelf finalize request failed: {exc}") from exc
-        except json.JSONDecodeError:
-            logger.debug("Audiobookshelf finalize response was not JSON; returning empty object")
-        return {}
+        fields: Dict[str, str] = {
+            "library": self._config.library_id,
+            "folder": self._config.folder_id or "",
+            "title": title,
+        }
+        if author:
+            fields["author"] = author
+        if series:
+            fields["series"] = series
+        if self._config.collection_id:
+            fields["collectionId"] = self._config.collection_id
+
+        metadata_payload: Dict[str, Any] = metadata or {}
+        if chapters and self._config.send_chapters:
+            metadata_payload = dict(metadata_payload)
+            metadata_payload["chapters"] = list(chapters)
+
+        if metadata_payload:
+            try:
+                fields["metadata"] = json.dumps(metadata_payload, ensure_ascii=False)
+            except (TypeError, ValueError):
+                logger.debug("Failed to serialize Audiobookshelf metadata payload")
+
+        return fields
+
+    def _build_file_entries(
+        self,
+        audio_path: Path,
+        cover_path: Optional[Path],
+        subtitles: Optional[Iterable[Path]],
+    ) -> List[Tuple[str, Path]]:
+        entries: List[Tuple[str, Path]] = [("file0", audio_path)]
+        index = 1
+
+        if cover_path and self._config.send_cover and cover_path.exists():
+            entries.append((f"file{index}", cover_path))
+            index += 1
+
+        if subtitles and self._config.send_subtitles:
+            for subtitle in subtitles:
+                if subtitle.exists():
+                    entries.append((f"file{index}", subtitle))
+                    index += 1
+
+        return entries
+
+    def _open_file_handles(
+        self,
+        entries: Sequence[Tuple[str, Path]],
+        stack: ExitStack,
+    ) -> List[Tuple[str, Tuple[str, Any, str]]]:
+        files: List[Tuple[str, Tuple[str, Any, str]]] = []
+        for field_name, path in entries:
+            mime_type, _ = mimetypes.guess_type(path.name)
+            mime_type = mime_type or "application/octet-stream"
+            handle = stack.enter_context(path.open("rb"))
+            files.append((field_name, (path.name, handle, mime_type)))
+        return files
+
+    @staticmethod
+    def _extract_title(metadata: Mapping[str, Any], audio_path: Path) -> str:
+        title = metadata.get("title") if isinstance(metadata, Mapping) else None
+        candidate = str(title).strip() if isinstance(title, str) else ""
+        if candidate:
+            return candidate
+        return audio_path.stem or audio_path.name
+
+    @staticmethod
+    def _extract_author(metadata: Mapping[str, Any]) -> str:
+        authors = metadata.get("authors") if isinstance(metadata, Mapping) else None
+        if isinstance(authors, str):
+            candidate = authors.strip()
+            return candidate
+        if isinstance(authors, Iterable) and not isinstance(authors, (str, Mapping)):
+            names = [str(entry).strip() for entry in authors if isinstance(entry, str) and entry.strip()]
+            if names:
+                return ", ".join(names)
+        return ""
+
+    @staticmethod
+    def _extract_series(metadata: Mapping[str, Any]) -> str:
+        series_name = metadata.get("seriesName") if isinstance(metadata, Mapping) else None
+        if isinstance(series_name, str) and series_name.strip():
+            return series_name.strip()
+        return ""
