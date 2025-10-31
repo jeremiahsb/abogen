@@ -49,7 +49,9 @@ class AudiobookshelfClient:
         if not config.library_id:
             raise ValueError("Audiobookshelf library ID is required")
         self._config = config
-        self._base_url = config.normalized_base_url()
+        normalized = config.normalized_base_url() or ""
+        self._base_url = normalized.rstrip("/") or normalized
+        self._client_base_url = f"{self._base_url}/"
 
     def _api_path(self, suffix: str = "") -> str:
         """Join the API prefix with the provided suffix without losing proxies."""
@@ -101,7 +103,7 @@ class AudiobookshelfClient:
             "Accept": "application/json",
         }
         return httpx.Client(
-            base_url=self._base_url,
+            base_url=self._client_base_url,
             headers=headers,
             timeout=self._config.timeout,
             verify=self._config.verify_ssl,
