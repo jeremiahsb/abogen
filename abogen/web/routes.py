@@ -2922,6 +2922,16 @@ def calibre_opds_import() -> ResponseReturnValue:
     metadata_payload = data.get("metadata") if isinstance(data, Mapping) else None
     metadata_overrides: Dict[str, Any] = {}
     if isinstance(metadata_payload, Mapping):
+        def _stringify_metadata_value(value: Any) -> str:
+            if value is None:
+                return ""
+            if isinstance(value, (list, tuple, set)):
+                parts = [str(item).strip() for item in value if item is not None]
+                parts = [part for part in parts if part]
+                return ", ".join(parts)
+            text = str(value).strip()
+            return text
+
         raw_series = metadata_payload.get("series") or metadata_payload.get("series_name")
         series_name = str(raw_series or "").strip()
         if series_name:
@@ -2940,6 +2950,48 @@ def calibre_opds_import() -> ResponseReturnValue:
                 metadata_overrides.setdefault("series_position", series_index_text)
                 metadata_overrides.setdefault("series_sequence", series_index_text)
                 metadata_overrides.setdefault("book_number", series_index_text)
+        tags_value = metadata_payload.get("tags") or metadata_payload.get("keywords")
+        if tags_value:
+            tags_text = _stringify_metadata_value(tags_value)
+            if tags_text:
+                metadata_overrides.setdefault("tags", tags_text)
+                metadata_overrides.setdefault("keywords", tags_text)
+                metadata_overrides.setdefault("genre", tags_text)
+        description_value = metadata_payload.get("description") or metadata_payload.get("summary")
+        if description_value:
+            description_text = _stringify_metadata_value(description_value)
+            if description_text:
+                metadata_overrides.setdefault("description", description_text)
+                metadata_overrides.setdefault("summary", description_text)
+        published_value = metadata_payload.get("published") or metadata_payload.get("publication_date")
+        if published_value:
+            published_text = _stringify_metadata_value(published_value)
+            if published_text:
+                metadata_overrides.setdefault("published", published_text)
+                metadata_overrides.setdefault("publication_date", published_text)
+        publication_year = metadata_payload.get("publication_year") or metadata_payload.get("year")
+        if publication_year:
+            year_text = _stringify_metadata_value(publication_year)
+            if year_text:
+                metadata_overrides.setdefault("publication_year", year_text)
+                metadata_overrides.setdefault("year", year_text)
+        rating_value = metadata_payload.get("rating")
+        if rating_value is not None:
+            rating_text = _stringify_metadata_value(rating_value)
+            if rating_text:
+                metadata_overrides.setdefault("rating", rating_text)
+        rating_max = metadata_payload.get("rating_max")
+        if rating_max is not None:
+            rating_max_text = _stringify_metadata_value(rating_max)
+            if rating_max_text:
+                metadata_overrides.setdefault("rating_max", rating_max_text)
+        for key, value in metadata_payload.items():
+            if value is None:
+                continue
+            text_value = _stringify_metadata_value(value)
+            if not text_value:
+                continue
+            metadata_overrides.setdefault(str(key), text_value)
 
     stored_settings = _stored_integration_config("calibre_opds")
     if not stored_settings or not _coerce_bool(stored_settings.get("enabled"), False):

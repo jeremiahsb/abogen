@@ -314,6 +314,21 @@ if (modal && browser) {
       header.appendChild(seriesMeta);
     }
 
+    if (entry.rating !== null && entry.rating !== undefined && entry.rating !== '') {
+      const ratingMeta = document.createElement('p');
+      ratingMeta.className = 'opds-browser__meta';
+      const ratingMax = entry.rating_max ?? entry.ratingMax ?? 5;
+      ratingMeta.textContent = `Rating: ${entry.rating}${ratingMax ? ` / ${ratingMax}` : ''}`;
+      header.appendChild(ratingMeta);
+    }
+
+    if (Array.isArray(entry.tags) && entry.tags.length > 0) {
+      const tagsMeta = document.createElement('p');
+      tagsMeta.className = 'opds-browser__meta';
+      tagsMeta.textContent = `Tags: ${entry.tags.join(', ')}`;
+      header.appendChild(tagsMeta);
+    }
+
     item.appendChild(header);
 
     const summarySource = entry.summary || entry?.alternate?.title || entry?.download?.title || '';
@@ -435,6 +450,36 @@ if (modal && browser) {
         metadata.series_index = seriesIndex;
         metadata.series_position = seriesIndex;
         metadata.book_number = seriesIndex;
+      }
+      if (Array.isArray(entry.tags) && entry.tags.length > 0) {
+        const tagsText = entry.tags.join(', ');
+        metadata.tags = tagsText;
+        metadata.keywords = tagsText;
+        metadata.genre = tagsText;
+      }
+      if (typeof entry.summary === 'string' && entry.summary.trim()) {
+        metadata.description = entry.summary;
+        metadata.summary = entry.summary;
+      }
+      if (entry.rating !== null && entry.rating !== undefined && entry.rating !== '') {
+        metadata.rating = String(entry.rating);
+      }
+      if (entry.rating_max !== null && entry.rating_max !== undefined && entry.rating_max !== '') {
+        metadata.rating_max = String(entry.rating_max);
+      }
+      if (entry.published) {
+        metadata.published = entry.published;
+        metadata.publication_date = entry.published;
+        try {
+          const publishedDate = new Date(entry.published);
+          if (!Number.isNaN(publishedDate.getTime())) {
+            const year = String(publishedDate.getUTCFullYear());
+            metadata.publication_year = year;
+            metadata.year = year;
+          }
+        } catch (error) {
+          // Ignore invalid date parsing issues
+        }
       }
       if (Object.keys(metadata).length > 0) {
         requestPayload.metadata = metadata;

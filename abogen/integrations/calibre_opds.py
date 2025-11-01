@@ -30,6 +30,8 @@ _SERIES_PREFIX_RE = re.compile(r"^\s*(series|books?)\s*[:\-]\s*", re.IGNORECASE)
 _SERIES_NUMBER_BRACKET_RE = re.compile(r"[\[(]\s*(?:book\s*)?(\d+(?:\.\d+)?)\s*[\])]", re.IGNORECASE)
 _SERIES_NUMBER_HASH_RE = re.compile(r"#\s*(\d+(?:\.\d+)?)")
 _SERIES_NUMBER_BOOK_RE = re.compile(r"\bbook\s+(\d+(?:\.\d+)?)\b", re.IGNORECASE)
+_SERIES_LINE_TEXT_RE = re.compile(r"^\s*series\s*[:\-]\s*(.+)$", re.IGNORECASE)
+_SUMMARY_METADATA_LINE_RE = re.compile(r"^([A-Z][A-Z0-9&/\- +'\u2019]{1,40})\s*[:\-]\s*(.+)$")
 _EPUB_MIME_TYPES = {
     "application/epub+zip",
     "application/zip",
@@ -65,6 +67,7 @@ class OPDSEntry:
     position: Optional[int] = None
     authors: List[str] = field(default_factory=list)
     updated: Optional[str] = None
+    published: Optional[str] = None
     summary: Optional[str] = None
     download: Optional[OPDSLink] = None
     alternate: Optional[OPDSLink] = None
@@ -72,6 +75,9 @@ class OPDSEntry:
     links: List[OPDSLink] = field(default_factory=list)
     series: Optional[str] = None
     series_index: Optional[float] = None
+    tags: List[str] = field(default_factory=list)
+    rating: Optional[float] = None
+    rating_max: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -80,6 +86,7 @@ class OPDSEntry:
             "position": self.position,
             "authors": list(self.authors),
             "updated": self.updated,
+            "published": self.published,
             "summary": self.summary,
             "download": self.download.to_dict() if self.download else None,
             "alternate": self.alternate.to_dict() if self.alternate else None,
@@ -87,6 +94,9 @@ class OPDSEntry:
             "links": [link.to_dict() for link in self.links],
             "series": self.series,
             "series_index": self.series_index,
+            "tags": list(self.tags),
+            "rating": self.rating,
+            "rating_max": self.rating_max,
         }
 
 
@@ -263,12 +273,24 @@ class CalibreOPDSClient:
         title = node.findtext("atom:title", default="Untitled", namespaces=NS).strip() or "Untitled"
         position_value = self._extract_position(node)
         updated = node.findtext("atom:updated", default=None, namespaces=NS)
-        summary = node.findtext("atom:summary", default=None, namespaces=NS) or node.findtext(
-            "atom:content", default=None, namespaces=NS
+        published = (
+            node.findtext("dc:date", default=None, namespaces=NS)
+            or node.findtext("atom:published", default=None, namespaces=NS)
         )
-        dc_summary = node.findtext("dc:description", default=None, namespaces=NS)
-        summary = summary or dc_summary
-        cleaned_summary = self._strip_html(summary)
+        if published:
+            published = published.strip() or None
+
+        summary_text = (
+            self._extract_text(node.find("atom:summary", NS))
+            or self._extract_text(node.find("atom:content", NS))
+            or self._extract_text(node.find("dc:description", NS))
+        )
+        summary_metadata: Dict[str, str] = {}
+        summary_body: Optional[str] = None
+        if summary_text:
+            summary_metadata, summary_body = self._split_summary_metadata(summary_text)
+        cleaned_summary = self._strip_html(summary_body or summary_text)
+
         authors: List[str] = []
         for author_node in node.findall("atom:author", NS):
             name = author_node.findtext("atom:name", default="", namespaces=NS).strip()
@@ -322,12 +344,26 @@ class CalibreOPDSClient:
                 series_name = category_series_name
             if series_index is None and category_series_index is not None:
                 series_index = category_series_index
+
+        if (series_name is None or series_index is None) and summary_text:
+            text_series_name, text_series_index = self._extract_series_from_text(summary_text)
+            if series_name is None and text_series_name:
+                series_name = text_series_name
+            if series_index is None and text_series_index is not None:
+                series_index = text_series_index
+
+        tags_value = summary_metadata.get("TAGS")
+        tags = self._parse_tags(tags_value) if tags_value else []
+        rating_value = summary_metadata.get("RATING")
+        rating, rating_max = self._parse_rating(rating_value) if rating_value else (None, None)
+
         return OPDSEntry(
             id=entry_id or title,
             title=title,
             position=position_value,
             authors=authors,
             updated=updated,
+            published=published,
             summary=cleaned_summary,
             download=download_link,
             alternate=alternate_link,
@@ -335,6 +371,9 @@ class CalibreOPDSClient:
             links=list(parsed_links.values()),
             series=series_name,
             series_index=series_index,
+            tags=tags,
+            rating=rating,
+            rating_max=rating_max,
         )
 
     def _extract_series_from_categories(self, category_nodes: List[ET.Element]) -> tuple[Optional[str], Optional[float]]:
@@ -399,6 +438,93 @@ class CalibreOPDSClient:
         if not name:
             name = None
         return name, number
+
+    @staticmethod
+    def _extract_text(node: Optional[ET.Element]) -> Optional[str]:
+        if node is None:
+            return None
+        # Prefer itertext to capture nested XHTML content
+        parts = list(node.itertext())
+        if not parts:
+            return (node.text or "").strip() or None
+        combined = "".join(parts).strip()
+        return combined or None
+
+    def _extract_series_from_text(self, text: str) -> tuple[Optional[str], Optional[float]]:
+        for line in text.splitlines():
+            match = _SERIES_LINE_TEXT_RE.match(line)
+            if not match:
+                continue
+            candidate = match.group(1).strip()
+            if not candidate:
+                continue
+            name, number = self._parse_series_value(candidate)
+            if name or number is not None:
+                return name, number
+        return None, None
+
+    def _split_summary_metadata(self, text: Optional[str]) -> tuple[Dict[str, str], Optional[str]]:
+        metadata: Dict[str, str] = {}
+        if text is None:
+            return metadata, None
+        lines = text.splitlines()
+        index = 0
+        total = len(lines)
+        while index < total and not lines[index].strip():
+            index += 1
+        while index < total:
+            stripped = lines[index].strip()
+            if not stripped:
+                break
+            match = _SUMMARY_METADATA_LINE_RE.match(stripped)
+            if not match:
+                break
+            key = match.group(1).strip().upper()
+            value = match.group(2).strip()
+            if key and value:
+                metadata[key] = value
+            index += 1
+        remainder = "\n".join(lines[index:]).strip()
+        return metadata, (remainder or None)
+
+    @staticmethod
+    def _parse_tags(value: str) -> List[str]:
+        if not value:
+            return []
+        tokens = re.split(r"[;,\n]\s*", value)
+        cleaned: List[str] = []
+        seen: set[str] = set()
+        for token in tokens:
+            entry = token.strip()
+            if not entry:
+                continue
+            key = entry.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(entry)
+        return cleaned
+
+    @staticmethod
+    def _parse_rating(value: str) -> tuple[Optional[float], Optional[float]]:
+        if not value:
+            return None, None
+        text = value.strip()
+        if not text:
+            return None, None
+        stars = text.count("★")
+        half = 0.5 if "½" in text else 0.0
+        if stars or half:
+            rating = stars + half
+            return (rating if rating > 0 else None, 5.0)
+        match = re.search(r"\d+(?:\.\d+)?", text.replace(",", "."))
+        if match:
+            try:
+                rating_value = float(match.group(0))
+            except ValueError:
+                return None, None
+            return rating_value, 5.0
+        return None, None
 
     @staticmethod
     def _coerce_series_index(value: str) -> Optional[float]:

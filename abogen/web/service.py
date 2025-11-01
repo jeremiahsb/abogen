@@ -355,6 +355,22 @@ def _build_audiobookshelf_metadata(job: Job) -> Dict[str, Any]:
         "seriesSequence": series_sequence,
         "isbn": _first_nonempty(tags.get("isbn"), tags.get("asin")),
     }
+    published_date = _first_nonempty(tags.get("published"), tags.get("publication_date"), tags.get("date"))
+    if published_date:
+        data["publishedDate"] = published_date
+
+    rating_text = _first_nonempty(tags.get("rating"), tags.get("my_rating"))
+    if rating_text:
+        try:
+            data["rating"] = float(str(rating_text).strip())
+        except ValueError:
+            pass
+        rating_max_text = _first_nonempty(tags.get("rating_max"), tags.get("rating_scale"))
+        if rating_max_text:
+            try:
+                data["ratingMax"] = float(str(rating_max_text).strip())
+            except ValueError:
+                pass
     # Remove empty values
     cleaned: Dict[str, Any] = {}
     for key, value in data.items():

@@ -61,3 +61,37 @@ def test_calibre_opds_feed_extracts_series_from_categories() -> None:
 
     assert entry.series == "The Murderbot Diaries"
     assert entry.series_index == 5.0
+
+
+def test_calibre_opds_extracts_tags_and_rating_from_summary() -> None:
+    client = CalibreOPDSClient("http://example.com/catalog")
+    xml_payload = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+    <feed xmlns=\"http://www.w3.org/2005/Atom\"
+    xmlns:dc=\"http://purl.org/dc/terms/\">
+      <id>catalog</id>
+      <title>Example Catalog</title>
+      <entry>
+  <id>book-3</id>
+  <title>Summary Sample</title>
+  <dc:date>2024-01-15T00:00:00+00:00</dc:date>
+  <summary type=\"text\">RATING: ★★★½
+TAGS: Science Fiction; Adventure
+SERIES: Saga [3]
+This is the detailed summary text.</summary>
+  <link rel=\"http://opds-spec.org/acquisition\"
+        href=\"books/sample.epub\"
+        type=\"application/epub+zip\" />
+      </entry>
+    </feed>
+    """
+
+    feed = client._parse_feed(xml_payload, base_url="http://example.com/catalog")
+    entry = feed.entries[0]
+
+    assert entry.series == "Saga"
+    assert entry.series_index == 3.0
+    assert entry.tags == ["Science Fiction", "Adventure"]
+    assert entry.rating == 3.5
+    assert entry.rating_max == 5.0
+    assert entry.summary == "This is the detailed summary text."
+    assert entry.published == "2024-01-15T00:00:00+00:00"
