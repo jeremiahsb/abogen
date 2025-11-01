@@ -446,9 +446,11 @@
               </div>
         <div class="field__group">
           <label for="audiobookshelf_folder_id">Folder (name or ID)</label>
-          <input type="text" id="audiobookshelf_folder_id" name="audiobookshelf_folder_id" value="{{ integrations.audiobookshelf.folder_id }}">
-          <p class="hint">Enter the folder exactly as it appears in Audiobookshelf or paste the folder ID. You can also browse the available folders below.</p>
-          <button type="button" class="button button--ghost button--small" data-action="audiobookshelf-list-folders">Browse folders</button>
+                  <div class="field__input-with-button">
+                    <input type="text" id="audiobookshelf_folder_id" name="audiobookshelf_folder_id" value="{{ integrations.audiobookshelf.folder_id }}">
+                    <button type="button" class="button button--ghost button--small" data-action="audiobookshelf-list-folders">Browse folders</button>
+                  </div>
+                  <p class="hint">Enter the folder exactly as it appears in Audiobookshelf, paste the folder ID, or browse the available folders.</p>
         </div>
             </div>
             <div class="field field--inline">
@@ -490,6 +492,30 @@
             </div>
           </fieldset>
         </section>
+      </div>
+
+      <div class="modal" data-role="audiobookshelf-folder-modal" hidden>
+        <div class="modal__overlay" data-role="audiobookshelf-folder-overlay" tabindex="-1"></div>
+        <div class="modal__content card card--modal folder-picker-modal" role="dialog" aria-modal="true" aria-labelledby="audiobookshelf-folder-picker-title">
+          <header class="modal__header">
+            <p class="modal__eyebrow">Audiobookshelf</p>
+            <h2 class="modal__title" id="audiobookshelf-folder-picker-title">Select folder</h2>
+            <button type="button" class="button button--ghost button--small" data-action="audiobookshelf-folder-close" aria-label="Close folder picker">Close</button>
+          </header>
+          <div class="modal__body">
+            <div class="folder-picker" data-role="audiobookshelf-folder-picker">
+              <div class="folder-picker__controls">
+                <input type="search" data-role="audiobookshelf-folder-filter" placeholder="Filter folders" autocomplete="off" spellcheck="false">
+              </div>
+              <p class="folder-picker__status" data-role="audiobookshelf-folder-status"></p>
+              <div class="folder-picker__list" data-role="audiobookshelf-folder-list" role="listbox"></div>
+              <p class="folder-picker__empty" data-role="audiobookshelf-folder-empty" hidden>No folders match your filter.</p>
+            </div>
+          </div>
+          <footer class="modal__footer">
+            <button type="button" class="button button--ghost" data-action="audiobookshelf-folder-close">Cancel</button>
+          </footer>
+        </div>
       </div>
 
       <div class="settings__actions">

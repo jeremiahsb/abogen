@@ -335,6 +335,100 @@ body {
   border-radius: 28px;
 }
 
+.modal__content.folder-picker-modal {
+  width: min(600px, 95vw);
+}
+
+.folder-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.folder-picker__controls {
+  display: flex;
+  align-items: center;
+}
+
+.folder-picker__controls input {
+  width: 100%;
+}
+
+.folder-picker__status {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.folder-picker__status[data-state="loading"] {
+  color: var(--muted);
+}
+
+.folder-picker__status[data-state="error"] {
+  color: var(--danger);
+}
+
+.folder-picker__status[data-state="info"],
+.folder-picker__status[data-state="success"] {
+  color: var(--accent);
+}
+
+.folder-picker__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  max-height: 20rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.folder-picker__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 0.8rem 1rem;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.folder-picker__item:hover,
+.folder-picker__item:focus-visible {
+  border-color: rgba(56, 189, 248, 0.5);
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.12);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.folder-picker__item-name {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.folder-picker__item-path {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.folder-picker__item-id {
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: rgba(148, 163, 184, 0.18);
+  padding: 0.15rem 0.4rem;
+  border-radius: 999px;
+}
+
+.folder-picker__empty {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
 .reader-modal {
   width: min(960px, 95vw);
   height: min(90vh, 720px);
@@ -1993,6 +2087,18 @@ button.step-indicator__item:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+}
+
+.field__input-with-button {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.field__input-with-button > input {
+  flex: 1 1 16rem;
+  min-width: 12rem;
 }
 
 .preview-card {

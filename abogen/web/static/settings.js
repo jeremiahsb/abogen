@@ -17,6 +17,17 @@ const outputAreas = {
 
 const normalizationAudio = document.querySelector('[data-role="normalization-preview-audio"]');
 
+const folderModal = document.querySelector('[data-role="audiobookshelf-folder-modal"]');
+const folderModalOverlay = folderModal ? folderModal.querySelector('[data-role="audiobookshelf-folder-overlay"]') : null;
+const folderList = folderModal ? folderModal.querySelector('[data-role="audiobookshelf-folder-list"]') : null;
+const folderStatusMessage = folderModal ? folderModal.querySelector('[data-role="audiobookshelf-folder-status"]') : null;
+const folderFilter = folderModal ? folderModal.querySelector('[data-role="audiobookshelf-folder-filter"]') : null;
+const folderEmptyState = folderModal ? folderModal.querySelector('[data-role="audiobookshelf-folder-empty"]') : null;
+const defaultFolderEmptyMessage = folderEmptyState ? folderEmptyState.textContent : 'No folders match your filter.';
+let folderModalOpener = null;
+let folderModalPreviousFocus = null;
+let audiobookshelfFolderSource = [];
+
 function setStatus(target, message, state) {
   if (!target) {
     return;
@@ -91,6 +102,197 @@ function initNavigation() {
 function parseNumber(value, fallback) {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeFolderToken(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function setFolderModalStatus(message, state) {
+  if (!folderStatusMessage) {
+    return;
+  }
+  folderStatusMessage.textContent = message || '';
+  if (state) {
+    folderStatusMessage.dataset.state = state;
+    folderStatusMessage.hidden = false;
+  } else {
+    delete folderStatusMessage.dataset.state;
+    folderStatusMessage.hidden = !message;
+  }
+}
+
+function clearFolderModalContents() {
+  if (folderList) {
+    folderList.innerHTML = '';
+  }
+  if (folderEmptyState) {
+    folderEmptyState.textContent = defaultFolderEmptyMessage;
+    folderEmptyState.hidden = true;
+  }
+}
+
+function openFolderModal(opener) {
+  if (!folderModal) {
+    return;
+  }
+  folderModalOpener = opener || null;
+  folderModalPreviousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  folderModal.hidden = false;
+  folderModal.dataset.open = 'true';
+  document.body.classList.add('modal-open');
+  if (folderFilter) {
+    folderFilter.value = '';
+    folderFilter.disabled = true;
+  }
+  clearFolderModalContents();
+  setFolderModalStatus('Loading folders...', 'loading');
+}
+
+function closeFolderModal(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  if (!folderModal || folderModal.hidden) {
+    return;
+  }
+  folderModal.dataset.open = 'false';
+  folderModal.hidden = true;
+  document.body.classList.remove('modal-open');
+  audiobookshelfFolderSource = [];
+  if (folderFilter) {
+    folderFilter.value = '';
+    folderFilter.disabled = false;
+  }
+  clearFolderModalContents();
+  setFolderModalStatus('', null);
+  const focusTarget = folderModalPreviousFocus && typeof folderModalPreviousFocus.focus === 'function'
+    ? folderModalPreviousFocus
+    : folderModalOpener;
+  if (focusTarget && typeof focusTarget.focus === 'function') {
+    focusTarget.focus({ preventScroll: false });
+  }
+  folderModalPreviousFocus = null;
+  folderModalOpener = null;
+}
+
+function renderFolderList(query) {
+  if (!folderList) {
+    return;
+  }
+  folderList.innerHTML = '';
+  const normalizedQuery = normalizeFolderToken(query);
+  const matches = audiobookshelfFolderSource.filter((entry) => {
+    const tokens = [
+      normalizeFolderToken(entry.name),
+      normalizeFolderToken(entry.path),
+      normalizeFolderToken(entry.id),
+    ];
+    return !normalizedQuery || tokens.some((token) => token.includes(normalizedQuery));
+  });
+  if (!matches.length) {
+    if (folderEmptyState) {
+      folderEmptyState.textContent = normalizedQuery ? defaultFolderEmptyMessage : 'No folders found for this library.';
+      folderEmptyState.hidden = false;
+    }
+    return;
+  }
+  if (folderEmptyState) {
+    folderEmptyState.textContent = defaultFolderEmptyMessage;
+    folderEmptyState.hidden = true;
+  }
+  matches.forEach((entry) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'folder-picker__item';
+    button.setAttribute('role', 'option');
+    if (entry.id) {
+      button.dataset.folderId = entry.id;
+    }
+    const displayName = entry.name || entry.path || entry.id || 'Unnamed folder';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'folder-picker__item-name';
+    nameEl.textContent = displayName;
+    button.appendChild(nameEl);
+    if (entry.path && (!entry.name || entry.path.toLowerCase() !== entry.name.toLowerCase())) {
+      const pathEl = document.createElement('span');
+      pathEl.className = 'folder-picker__item-path';
+      pathEl.textContent = entry.path;
+      button.appendChild(pathEl);
+    }
+    if (entry.id) {
+      const idEl = document.createElement('span');
+      idEl.className = 'folder-picker__item-id';
+      idEl.textContent = entry.id;
+      button.appendChild(idEl);
+    }
+    button.addEventListener('click', () => handleFolderSelection(entry));
+    folderList.appendChild(button);
+  });
+}
+
+function populateFolderPicker(entries) {
+  audiobookshelfFolderSource = Array.isArray(entries) ? entries : [];
+  if (!audiobookshelfFolderSource.length) {
+    if (folderFilter) {
+      folderFilter.value = '';
+      folderFilter.disabled = true;
+    }
+    setFolderModalStatus('No folders found for this library.', 'info');
+    if (folderEmptyState) {
+      folderEmptyState.textContent = 'No folders found for this library.';
+      folderEmptyState.hidden = false;
+    }
+    return;
+  }
+  if (folderFilter) {
+    folderFilter.disabled = false;
+    folderFilter.value = '';
+    folderFilter.focus({ preventScroll: true });
+  }
+  setFolderModalStatus('', null);
+  if (folderEmptyState) {
+    folderEmptyState.textContent = defaultFolderEmptyMessage;
+    folderEmptyState.hidden = true;
+  }
+  renderFolderList('');
+}
+
+function handleFolderSelection(entry) {
+  const folderInput = form ? form.querySelector('#audiobookshelf_folder_id') : null;
+  if (folderInput) {
+    folderInput.value = entry.id || '';
+    folderInput.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  closeFolderModal();
+  const status = statusSelectors.audiobookshelf;
+  if (status) {
+    const label = entry.name || entry.path || entry.id || 'selected folder';
+    setStatus(status, `Selected folder '${label}'.`, 'success');
+  }
+}
+
+function initFolderPicker() {
+  if (!folderModal) {
+    return;
+  }
+  const closeButtons = folderModal.querySelectorAll('[data-action="audiobookshelf-folder-close"]');
+  closeButtons.forEach((button) => {
+    button.addEventListener('click', closeFolderModal);
+  });
+  if (folderModalOverlay) {
+    folderModalOverlay.addEventListener('click', closeFolderModal);
+  }
+  if (folderFilter) {
+    folderFilter.addEventListener('input', () => renderFolderList(folderFilter.value));
+  }
+  folderModal.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeFolderModal();
+    }
+  });
 }
 
 function collectLLMFields() {
@@ -406,7 +608,7 @@ async function testAudiobookshelf(button) {
   }
 }
 
-async function listAudiobookshelfFolders(button) {
+async function browseAudiobookshelfFolders(button) {
   const status = statusSelectors.audiobookshelf;
   const fields = collectAudiobookshelfFields();
   if (!status) {
@@ -418,7 +620,11 @@ async function listAudiobookshelfFolders(button) {
     return;
   }
   clearStatus(status);
-  setStatus(status, 'Loading folders…');
+  openFolderModal(button);
+  if (!folderModal) {
+    setStatus(status, 'Folder picker is unavailable in this view.', 'error');
+    return;
+  }
   button.disabled = true;
   try {
     const response = await fetch('/api/integrations/audiobookshelf/folders', {
@@ -431,49 +637,29 @@ async function listAudiobookshelfFolders(button) {
       throw new Error(payload.error || 'Folder lookup failed.');
     }
     const folders = Array.isArray(payload.folders) ? payload.folders : [];
+    const modalActive = folderModal && !folderModal.hidden;
     if (!folders.length) {
-      setStatus(status, payload.message || 'No folders found for this library.', 'info');
+      const message = payload.message || 'No folders found for this library.';
+      setStatus(status, message, 'info');
+      if (modalActive) {
+        clearFolderModalContents();
+        setFolderModalStatus(message, 'info');
+      }
       return;
     }
-    const list = folders
-      .map((entry, index) => {
-        const id = String(entry.id || '').trim();
-        const name = String(entry.name || '').trim();
-        const path = String(entry.path || '').trim();
-        const descriptorParts = [];
-        if (name) {
-          descriptorParts.push(name);
-        }
-        if (path && (!name || path.toLowerCase() !== name.toLowerCase())) {
-          descriptorParts.push(path);
-        }
-        if (!descriptorParts.length && id) {
-          descriptorParts.push(id);
-        }
-        const descriptor = descriptorParts.join(' — ') || '(unnamed folder)';
-        return `${index + 1}. ${descriptor}`;
-      })
-      .join('\n');
-    const choice = window.prompt(`Select a folder by number:\n\n${list}`, '1');
-    if (choice === null) {
-      setStatus(status, 'Folder selection cancelled.', 'info');
+    if (!modalActive) {
+      setStatus(status, 'Folders loaded.', 'info');
       return;
     }
-    const selection = Number.parseInt(choice, 10);
-    if (!Number.isFinite(selection) || selection < 1 || selection > folders.length) {
-      setStatus(status, 'Enter a number from the list to select a folder.', 'error');
-      return;
-    }
-    const selected = folders[selection - 1];
-    const folderInput = form.querySelector('#audiobookshelf_folder_id');
-    if (folderInput) {
-      folderInput.value = selected.id || '';
-      folderInput.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-    const label = String(selected.name || selected.path || selected.id || '').trim() || 'selected folder';
-    setStatus(status, `Selected folder '${label}'.`, 'success');
+    populateFolderPicker(folders);
+    setStatus(status, 'Choose a folder below.', 'info');
   } catch (error) {
-    setStatus(status, error instanceof Error ? error.message : 'Folder lookup failed.', 'error');
+    const message = error instanceof Error ? error.message : 'Folder lookup failed.';
+    setStatus(status, message, 'error');
+    if (folderModal && !folderModal.hidden) {
+      clearFolderModalContents();
+      setFolderModalStatus(message, 'error');
+    }
   } finally {
     button.disabled = false;
   }
@@ -590,7 +776,7 @@ function initActions() {
   }
   const audiobookshelfBrowseButton = document.querySelector('[data-action="audiobookshelf-list-folders"]');
   if (audiobookshelfBrowseButton) {
-    audiobookshelfBrowseButton.addEventListener('click', () => listAudiobookshelfFolders(audiobookshelfBrowseButton));
+    audiobookshelfBrowseButton.addEventListener('click', () => browseAudiobookshelfFolders(audiobookshelfBrowseButton));
   }
 }
 
@@ -610,5 +796,6 @@ if (form) {
   initNavigation();
   initSampleSelector();
   initActions();
+  initFolderPicker();
   initLLMStateWatchers();
 }
