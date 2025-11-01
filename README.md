@@ -152,7 +152,7 @@ Abogen can push finished audiobooks directly into Audiobookshelf. Configure this
 
 - **Base URL** – the HTTPS origin (and optional path prefix) where your Audiobookshelf server is reachable, for example `https://abs.example.com` or `https://media.example.com/abs`. Do **not** append `/api`.
 - **Library ID** – the identifier of the target Audiobookshelf library (copy it from the library’s settings page in ABS).
-- **Folder (name or ID)** – the destination folder inside that library. Enter the folder name exactly as it appears in Audiobookshelf (Abogen resolves it to the correct ID automatically), or paste the raw `folderId` from the address bar if you prefer.
+- **Folder (name or ID)** – the destination folder inside that library. Enter the folder name exactly as it appears in Audiobookshelf (Abogen resolves it to the correct ID automatically), paste the raw `folderId`, or click **Browse folders** to fetch the available folders and populate the field.
 - **API token** – a personal access token generated in Audiobookshelf under *Account → API tokens*.
 
 You can enable automatic uploads for future jobs or trigger individual uploads from the queue once the connection succeeds.
@@ -188,7 +188,7 @@ curl -i "https://abs.example.com/api/libraries" \
 
 If you still receive `Cannot GET /api/...`, the proxy is rewriting paths. Double-check the **Custom Locations** table (the `Forward Path` column should be empty for `/abs/`) and review the NPM access/error logs while issuing the curl request to confirm the backend sees the full `/api/libraries` URL.
 
-A JSON response confirming the libraries list means the proxy is routing API calls correctly. You can then use **Test connection** in Abogen’s settings (it now verifies the library and resolves the folder name/ID) and the “Send to Audiobookshelf” button on completed jobs.
+A JSON response confirming the libraries list means the proxy is routing API calls correctly. You can then use **Browse folders** to confirm the library contents, run **Test connection** in Abogen’s settings (it verifies the library and resolves the folder), and use the “Send to Audiobookshelf” button on completed jobs.
 
 ## Configuration reference
 Most behaviour is controlled through the UI, but a few environment variables are helpful for automation:

@@ -444,11 +444,12 @@
                 <label for="audiobookshelf_collection_id">Collection ID (optional)</label>
                 <input type="text" id="audiobookshelf_collection_id" name="audiobookshelf_collection_id" value="{{ integrations.audiobookshelf.collection_id }}">
               </div>
-              <div class="field__group">
-                  <label for="audiobookshelf_folder_id">Folder (name or ID)</label>
-                  <input type="text" id="audiobookshelf_folder_id" name="audiobookshelf_folder_id" value="{{ integrations.audiobookshelf.folder_id }}">
-                  <p class="hint">Enter the folder exactly as it appears in Audiobookshelf or paste the folder ID from the address bar.</p>
-              </div>
+        <div class="field__group">
+          <label for="audiobookshelf_folder_id">Folder (name or ID)</label>
+          <input type="text" id="audiobookshelf_folder_id" name="audiobookshelf_folder_id" value="{{ integrations.audiobookshelf.folder_id }}">
+          <p class="hint">Enter the folder exactly as it appears in Audiobookshelf or paste the folder ID. You can also browse the available folders below.</p>
+          <button type="button" class="button button--ghost button--small" data-action="audiobookshelf-list-folders">Browse folders</button>
+        </div>
             </div>
             <div class="field field--inline">
               <div class="field__group">

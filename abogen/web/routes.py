@@ -2535,7 +2535,7 @@ def _build_audiobookshelf_config(settings: Mapping[str, Any]) -> Optional[Audiob
         api_token=api_token,
         library_id=library_id,
         collection_id=(str(settings.get("collection_id") or "").strip() or None),
-    folder_id=(str(settings.get("folder_id") or "").strip() or None),
+        folder_id=(str(settings.get("folder_id") or "").strip() or None),
         verify_ssl=_coerce_bool(settings.get("verify_ssl"), True),
         send_cover=_coerce_bool(settings.get("send_cover"), True),
         send_chapters=_coerce_bool(settings.get("send_chapters"), True),
@@ -3035,6 +3035,43 @@ def test_calibre_opds() -> ResponseReturnValue:
         "message": f"Connected to {catalog_title}. Found {entries} item{'s' if entries != 1 else ''}.",
         "entries": entries,
         "title": catalog_title,
+    })
+
+
+@api_bp.post("/integrations/audiobookshelf/folders")
+def list_audiobookshelf_folders() -> ResponseReturnValue:
+    if not request.is_json:
+        return jsonify({"error": "Expected JSON payload."}), 400
+    payload = request.get_json(silent=True) or {}
+    settings = _audiobookshelf_settings_from_payload(payload)
+    config = _build_audiobookshelf_config(settings)
+    if config is None:
+        return jsonify({"error": "Provide base URL, API token, and library ID before listing folders."}), 400
+
+    try:
+        client = AudiobookshelfClient(config)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    try:
+        folders = client.list_folders()
+    except AudiobookshelfUploadError as exc:
+        cause = exc.__cause__
+        status_code = getattr(getattr(cause, "response", None), "status_code", None)
+        http_status = 502 if status_code and status_code >= 500 else 400
+        return jsonify({"error": str(exc)}), http_status
+
+    if not folders:
+        return jsonify({
+            "message": "No folders found for this library.",
+            "folders": [],
+        })
+
+    total = len(folders)
+    label = "folder" if total == 1 else "folders"
+    return jsonify({
+        "message": f"Found {total} {label} in this library.",
+        "folders": folders,
     })
 
 

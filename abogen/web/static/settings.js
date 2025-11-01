@@ -320,7 +320,7 @@ function collectAudiobookshelfFields() {
     base_url: baseUrl,
     library_id: libraryId,
     collection_id: collectionId,
-  folder_id: folderId,
+    folder_id: folderId,
     api_token: apiToken,
     use_saved_token: useSavedToken,
     clear_saved_token: clearToken,
@@ -401,6 +401,79 @@ async function testAudiobookshelf(button) {
     setStatus(status, payload.message || 'Connection successful.', 'success');
   } catch (error) {
     setStatus(status, error instanceof Error ? error.message : 'Audiobookshelf test failed.', 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function listAudiobookshelfFolders(button) {
+  const status = statusSelectors.audiobookshelf;
+  const fields = collectAudiobookshelfFields();
+  if (!status) {
+    return;
+  }
+  const hasToken = Boolean(fields.api_token) || Boolean(fields.use_saved_token);
+  if (!fields.base_url || !hasToken || !fields.library_id) {
+    setStatus(status, 'Enter the base URL, API token, and library ID before browsing folders.', 'error');
+    return;
+  }
+  clearStatus(status);
+  setStatus(status, 'Loading folders…');
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/integrations/audiobookshelf/folders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fields),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || 'Folder lookup failed.');
+    }
+    const folders = Array.isArray(payload.folders) ? payload.folders : [];
+    if (!folders.length) {
+      setStatus(status, payload.message || 'No folders found for this library.', 'info');
+      return;
+    }
+    const list = folders
+      .map((entry, index) => {
+        const id = String(entry.id || '').trim();
+        const name = String(entry.name || '').trim();
+        const path = String(entry.path || '').trim();
+        const descriptorParts = [];
+        if (name) {
+          descriptorParts.push(name);
+        }
+        if (path && (!name || path.toLowerCase() !== name.toLowerCase())) {
+          descriptorParts.push(path);
+        }
+        if (!descriptorParts.length && id) {
+          descriptorParts.push(id);
+        }
+        const descriptor = descriptorParts.join(' — ') || '(unnamed folder)';
+        return `${index + 1}. ${descriptor}`;
+      })
+      .join('\n');
+    const choice = window.prompt(`Select a folder by number:\n\n${list}`, '1');
+    if (choice === null) {
+      setStatus(status, 'Folder selection cancelled.', 'info');
+      return;
+    }
+    const selection = Number.parseInt(choice, 10);
+    if (!Number.isFinite(selection) || selection < 1 || selection > folders.length) {
+      setStatus(status, 'Enter a number from the list to select a folder.', 'error');
+      return;
+    }
+    const selected = folders[selection - 1];
+    const folderInput = form.querySelector('#audiobookshelf_folder_id');
+    if (folderInput) {
+      folderInput.value = selected.id || '';
+      folderInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    const label = String(selected.name || selected.path || selected.id || '').trim() || 'selected folder';
+    setStatus(status, `Selected folder '${label}'.`, 'success');
+  } catch (error) {
+    setStatus(status, error instanceof Error ? error.message : 'Folder lookup failed.', 'error');
   } finally {
     button.disabled = false;
   }
@@ -514,6 +587,10 @@ function initActions() {
   const audiobookshelfTestButton = document.querySelector('[data-action="audiobookshelf-test"]');
   if (audiobookshelfTestButton) {
     audiobookshelfTestButton.addEventListener('click', () => testAudiobookshelf(audiobookshelfTestButton));
+  }
+  const audiobookshelfBrowseButton = document.querySelector('[data-action="audiobookshelf-list-folders"]');
+  if (audiobookshelfBrowseButton) {
+    audiobookshelfBrowseButton.addEventListener('click', () => listAudiobookshelfFolders(audiobookshelfBrowseButton));
   }
 }
 
