@@ -2100,6 +2100,12 @@ BOOLEAN_SETTINGS = {
     "normalization_apostrophes_sibilant_possessives",
     "normalization_apostrophes_decades",
     "normalization_apostrophes_leading_elisions",
+    "normalization_contraction_aux_be",
+    "normalization_contraction_aux_have",
+    "normalization_contraction_modal_will",
+    "normalization_contraction_modal_would",
+    "normalization_contraction_negation_not",
+    "normalization_contraction_let_us",
 }
 
 FLOAT_SETTINGS = {"silence_between_chapters", "chapter_intro_delay", "llm_timeout"}
@@ -2111,6 +2117,12 @@ _APOSTROPHE_OVERRIDE_KEYS = (
     "normalization_apostrophes_sibilant_possessives",
     "normalization_apostrophes_decades",
     "normalization_apostrophes_leading_elisions",
+    "normalization_contraction_aux_be",
+    "normalization_contraction_aux_have",
+    "normalization_contraction_modal_will",
+    "normalization_contraction_modal_would",
+    "normalization_contraction_negation_not",
+    "normalization_contraction_let_us",
 )
 
 
@@ -3376,6 +3388,12 @@ def api_normalization_preview() -> ResponseReturnValue:
         "normalization_apostrophes_sibilant_possessives",
         "normalization_apostrophes_decades",
         "normalization_apostrophes_leading_elisions",
+        "normalization_contraction_aux_be",
+        "normalization_contraction_aux_have",
+        "normalization_contraction_modal_will",
+        "normalization_contraction_modal_would",
+        "normalization_contraction_negation_not",
+        "normalization_contraction_let_us",
     )
     for key in boolean_keys:
         if key in normalization_payload:

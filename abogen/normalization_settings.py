@@ -5,7 +5,7 @@ from dataclasses import replace
 from functools import lru_cache
 from typing import Any, Dict, Mapping, Optional
 
-from abogen.kokoro_text_normalization import ApostropheConfig
+from abogen.kokoro_text_normalization import ApostropheConfig, CONTRACTION_CATEGORY_DEFAULTS
 from abogen.llm_client import LLMConfiguration
 from abogen.utils import load_config
 
@@ -40,6 +40,21 @@ _SETTINGS_DEFAULTS: Dict[str, Any] = {
     "normalization_apostrophes_decades": True,
     "normalization_apostrophes_leading_elisions": True,
     "normalization_apostrophe_mode": "spacy",
+    "normalization_contraction_aux_be": True,
+    "normalization_contraction_aux_have": True,
+    "normalization_contraction_modal_will": True,
+    "normalization_contraction_modal_would": True,
+    "normalization_contraction_negation_not": True,
+    "normalization_contraction_let_us": True,
+}
+
+_CONTRACTION_SETTING_MAP: Dict[str, str] = {
+    "normalization_contraction_aux_be": "contraction_aux_be",
+    "normalization_contraction_aux_have": "contraction_aux_have",
+    "normalization_contraction_modal_will": "contraction_modal_will",
+    "normalization_contraction_modal_would": "contraction_modal_would",
+    "normalization_contraction_negation_not": "contraction_negation_not",
+    "normalization_contraction_let_us": "contraction_let_us",
 }
 
 _ENVIRONMENT_KEYS: Dict[str, str] = {
@@ -168,6 +183,12 @@ def build_apostrophe_config(
         "expand" if settings.get("normalization_apostrophes_leading_elisions", True) else "keep"
     )
     config.ambiguous_past_modal_mode = "contextual" if config.contraction_mode == "expand" else "keep"
+    category_flags = dict(CONTRACTION_CATEGORY_DEFAULTS)
+    for setting_key, category in _CONTRACTION_SETTING_MAP.items():
+        default_value = bool(_SETTINGS_DEFAULTS.get(setting_key, True))
+        raw_value = settings.get(setting_key, default_value)
+        category_flags[category] = _coerce_bool(raw_value, default_value)
+    config.contraction_categories = category_flags
     return config
 
 

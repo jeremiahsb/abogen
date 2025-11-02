@@ -324,6 +324,10 @@
                 <span>Expand leading elisions ('tis -> it is)</span>
               </label>
             </div>
+            <div class="field field--inline field--actions">
+              <button type="button" class="button button--ghost button--small" data-action="contraction-modal-open">Advanced…</button>
+              <p class="hint">Choose which contraction families are expanded.</p>
+            </div>
             <div class="field">
               <span class="field__label">Apostrophe strategy</span>
               <div class="choices choices--inline">
@@ -492,6 +496,49 @@
             </div>
           </fieldset>
         </section>
+      </div>
+
+      <div class="modal" data-role="contraction-modal" hidden>
+        <div class="modal__overlay" data-role="contraction-modal-overlay" tabindex="-1"></div>
+        <div class="modal__content card card--modal" role="dialog" aria-modal="true" aria-labelledby="contraction-modal-title">
+          <header class="modal__header">
+            <p class="modal__eyebrow">Normalization</p>
+            <h2 class="modal__title" id="contraction-modal-title">Contraction Options</h2>
+            <button type="button" class="button button--ghost button--small" data-action="contraction-modal-close" aria-label="Close contraction options">Close</button>
+          </header>
+          <div class="modal__body">
+            <p class="hint">Enable or disable specific contraction families. These controls apply when contraction expansion is enabled.</p>
+            <div class="field field--choices">
+              <label class="toggle-pill">
+                <input type="checkbox" name="normalization_contraction_aux_be" value="true" {% if settings.normalization_contraction_aux_be %}checked{% endif %}>
+                <span>Be verbs ('m, 're, 's -> am/is/are)</span>
+              </label>
+              <label class="toggle-pill">
+                <input type="checkbox" name="normalization_contraction_aux_have" value="true" {% if settings.normalization_contraction_aux_have %}checked{% endif %}>
+                <span>Have auxiliaries ('ve, 'd -> have/had)</span>
+              </label>
+              <label class="toggle-pill">
+                <input type="checkbox" name="normalization_contraction_modal_will" value="true" {% if settings.normalization_contraction_modal_will %}checked{% endif %}>
+                <span>Will modals ('ll -> will)</span>
+              </label>
+              <label class="toggle-pill">
+                <input type="checkbox" name="normalization_contraction_modal_would" value="true" {% if settings.normalization_contraction_modal_would %}checked{% endif %}>
+                <span>Would conditionals ('d -> would)</span>
+              </label>
+              <label class="toggle-pill">
+                <input type="checkbox" name="normalization_contraction_negation_not" value="true" {% if settings.normalization_contraction_negation_not %}checked{% endif %}>
+                <span>Negative forms (can't -> can not)</span>
+              </label>
+              <label class="toggle-pill">
+                <input type="checkbox" name="normalization_contraction_let_us" value="true" {% if settings.normalization_contraction_let_us %}checked{% endif %}>
+                <span>Let us (let's -> let us)</span>
+              </label>
+            </div>
+          </div>
+          <footer class="modal__footer">
+            <button type="button" class="button button--ghost" data-action="contraction-modal-close">Done</button>
+          </footer>
+        </div>
       </div>
 
       <div class="modal" data-role="audiobookshelf-folder-modal" hidden>

@@ -28,6 +28,11 @@ let folderModalOpener = null;
 let folderModalPreviousFocus = null;
 let audiobookshelfFolderSource = [];
 
+const contractionModal = document.querySelector('[data-role="contraction-modal"]');
+const contractionModalOverlay = contractionModal ? contractionModal.querySelector('[data-role="contraction-modal-overlay"]') : null;
+let contractionModalOpener = null;
+let contractionModalPreviousFocus = null;
+
 function setStatus(target, message, state) {
   if (!target) {
     return;
@@ -175,6 +180,66 @@ function closeFolderModal(event) {
   }
   folderModalPreviousFocus = null;
   folderModalOpener = null;
+}
+
+function openContractionModal(opener) {
+  if (!contractionModal) {
+    return;
+  }
+  contractionModalOpener = opener || null;
+  contractionModalPreviousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  contractionModal.hidden = false;
+  contractionModal.dataset.open = 'true';
+  document.body.classList.add('modal-open');
+  const focusTarget = contractionModal.querySelector('input, button, select, textarea');
+  if (focusTarget instanceof HTMLElement) {
+    focusTarget.focus({ preventScroll: true });
+  }
+}
+
+function closeContractionModal(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  if (!contractionModal || contractionModal.hidden) {
+    return;
+  }
+  contractionModal.dataset.open = 'false';
+  contractionModal.hidden = true;
+  document.body.classList.remove('modal-open');
+  const focusTarget =
+    (contractionModalPreviousFocus && typeof contractionModalPreviousFocus.focus === 'function'
+      ? contractionModalPreviousFocus
+      : contractionModalOpener) || null;
+  if (focusTarget && typeof focusTarget.focus === 'function') {
+    focusTarget.focus({ preventScroll: true });
+  }
+  contractionModalPreviousFocus = null;
+  contractionModalOpener = null;
+}
+
+function initContractionModal() {
+  if (!contractionModal) {
+    return;
+  }
+  const openButton = document.querySelector('[data-action="contraction-modal-open"]');
+  if (openButton) {
+    openButton.addEventListener('click', () => openContractionModal(openButton));
+  }
+  const closeButtons = contractionModal.querySelectorAll('[data-action="contraction-modal-close"]');
+  closeButtons.forEach((button) => {
+    button.addEventListener('click', closeContractionModal);
+  });
+  if (contractionModalOverlay) {
+    contractionModalOverlay.addEventListener('click', closeContractionModal);
+  }
+  contractionModal.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeContractionModal(event);
+    }
+  });
 }
 
 function renderFolderList(query) {
@@ -461,6 +526,9 @@ async function previewLLM(button) {
 }
 
 function collectNormalizationSettings() {
+  if (!form) {
+    return null;
+  }
   const normalization = {
     normalization_numbers: Boolean(form.querySelector('input[name="normalization_numbers"]')?.checked),
     normalization_titles: Boolean(form.querySelector('input[name="normalization_titles"]')?.checked),
@@ -471,6 +539,12 @@ function collectNormalizationSettings() {
     normalization_apostrophes_sibilant_possessives: Boolean(form.querySelector('input[name="normalization_apostrophes_sibilant_possessives"]')?.checked),
     normalization_apostrophes_decades: Boolean(form.querySelector('input[name="normalization_apostrophes_decades"]')?.checked),
     normalization_apostrophes_leading_elisions: Boolean(form.querySelector('input[name="normalization_apostrophes_leading_elisions"]')?.checked),
+    normalization_contraction_aux_be: Boolean(form.querySelector('input[name="normalization_contraction_aux_be"]')?.checked),
+    normalization_contraction_aux_have: Boolean(form.querySelector('input[name="normalization_contraction_aux_have"]')?.checked),
+    normalization_contraction_modal_will: Boolean(form.querySelector('input[name="normalization_contraction_modal_will"]')?.checked),
+    normalization_contraction_modal_would: Boolean(form.querySelector('input[name="normalization_contraction_modal_would"]')?.checked),
+    normalization_contraction_negation_not: Boolean(form.querySelector('input[name="normalization_contraction_negation_not"]')?.checked),
+    normalization_contraction_let_us: Boolean(form.querySelector('input[name="normalization_contraction_let_us"]')?.checked),
     normalization_apostrophe_mode: form.querySelector('input[name="normalization_apostrophe_mode"]:checked')?.value || 'spacy',
   };
   return normalization;
@@ -687,10 +761,13 @@ async function previewNormalization(button) {
     normalizationAudio.removeAttribute('src');
   }
   setStatus(status, 'Building preview…');
-  button.disabled = true;
+  const normalization = collectNormalizationSettings();
+  if (!normalization) {
+    setStatus(status, 'Unable to gather normalization settings.', 'error');
+    return;
+  }
+  const llmFields = collectLLMFields();
   try {
-    const normalization = collectNormalizationSettings();
-    const llmFields = collectLLMFields();
     const response = await fetch('/api/normalization/preview', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -797,5 +874,6 @@ if (form) {
   initSampleSelector();
   initActions();
   initFolderPicker();
+  initContractionModal();
   initLLMStateWatchers();
 }

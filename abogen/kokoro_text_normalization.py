@@ -4,7 +4,7 @@ import json
 import re
 import unicodedata
 from fractions import Fraction
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 try:  # pragma: no cover - optional dependency guard
     from num2words import num2words
@@ -15,6 +15,17 @@ if TYPE_CHECKING:  # pragma: no cover - type checking only
     from abogen.llm_client import LLMCompletion
 
 from abogen.spacy_contraction_resolver import resolve_ambiguous_contractions
+
+# ---------- Contraction Category Defaults ----------
+
+CONTRACTION_CATEGORY_DEFAULTS: Dict[str, bool] = {
+    "contraction_aux_be": True,
+    "contraction_aux_have": True,
+    "contraction_modal_will": True,
+    "contraction_modal_would": True,
+    "contraction_negation_not": True,
+    "contraction_let_us": True,
+}
 
 # ---------- Configuration Dataclass ----------
 
@@ -38,44 +49,44 @@ class ApostropheConfig:
     protect_cultural_names: bool = True           # Always keep O'Brien, D'Angelo, etc.
     convert_numbers: bool = True                  # Convert grouped numbers such as 12,500 to words
     number_lang: str = "en"                       # num2words language code
+    contraction_categories: Dict[str, bool] = field(default_factory=lambda: dict(CONTRACTION_CATEGORY_DEFAULTS))
+
+    def is_contraction_enabled(self, category: str) -> bool:
+        return self.contraction_categories.get(category, True)
 
 # ---------- Dictionaries / Patterns ----------
 
-# Common contraction expansions (straightforward unambiguous)
-CONTRACTIONS_EXACT = {
-    "let's": "let us",
-    "i'm": "i am",
-    "you're": "you are",
-    "we're": "we are",
-    "they're": "they are",
-    "i've": "i have",
-    "you've": "you have",
-    "we've": "we have",
-    "they've": "they have",
-    "i'll": "i will",
-    "you'll": "you will",
-    "he'll": "he will",
-    "she'll": "she will",
-    "we'll": "we will",
-    "they'll": "they will",
-    "can't": "can not",   # or "cannot"
-    "won't": "will not",
-    "don't": "do not",
-    "doesn't": "does not",
-    "didn't": "did not",
-    "isn't": "is not",
-    "aren't": "are not",
-    "wasn't": "was not",
-    "weren't": "were not",
-    "haven't": "have not",
-    "hasn't": "has not",
-    "hadn't": "had not",
-    "couldn't": "could not",
-    "shouldn't": "should not",
-    "wouldn't": "would not",
-    "mustn't": "must not",
-    "mightn't": "might not",
-    "shan't": "shall not",
+# Common contraction expansions (type + expansion words)
+CONTRACTION_LEXICON: Dict[str, Tuple[str, Tuple[str, ...]]] = {
+    "let's": ("contraction_let_us", ("let", "us")),
+    "can't": ("contraction_negation_not", ("can", "not")),
+    "won't": ("contraction_negation_not", ("will", "not")),
+    "don't": ("contraction_negation_not", ("do", "not")),
+    "doesn't": ("contraction_negation_not", ("does", "not")),
+    "didn't": ("contraction_negation_not", ("did", "not")),
+    "isn't": ("contraction_negation_not", ("is", "not")),
+    "aren't": ("contraction_negation_not", ("are", "not")),
+    "wasn't": ("contraction_negation_not", ("was", "not")),
+    "weren't": ("contraction_negation_not", ("were", "not")),
+    "haven't": ("contraction_negation_not", ("have", "not")),
+    "hasn't": ("contraction_negation_not", ("has", "not")),
+    "hadn't": ("contraction_negation_not", ("had", "not")),
+    "couldn't": ("contraction_negation_not", ("could", "not")),
+    "shouldn't": ("contraction_negation_not", ("should", "not")),
+    "wouldn't": ("contraction_negation_not", ("would", "not")),
+    "mustn't": ("contraction_negation_not", ("must", "not")),
+    "mightn't": ("contraction_negation_not", ("might", "not")),
+    "shan't": ("contraction_negation_not", ("shall", "not")),
+}
+
+SUFFIX_CONTRACTION_RULES: Tuple[Tuple[str, str, str], ...] = (
+    ("'ll", "will", "contraction_modal_will"),
+    ("'re", "are", "contraction_aux_be"),
+    ("'ve", "have", "contraction_aux_have"),
+)
+
+SUFFIX_CONTRACTION_BASES: Dict[str, Tuple[str, ...]] = {
+    "'m": ("i",),
 }
 
 # For ambiguous 'd and 's we handle separately
@@ -223,7 +234,22 @@ def _replace_fraction(match: re.Match[str], language: str) -> str:
         return match.group(0)
     return spoken
 AMBIGUOUS_D_BASES = {"i","you","he","she","we","they"}
-AMBIGUOUS_S_BASES = {"it","that","what","where","who","when","how","there","here"}
+AMBIGUOUS_S_BASES = {
+    "it",
+    "that",
+    "what",
+    "where",
+    "who",
+    "when",
+    "how",
+    "there",
+    "here",
+    "he",
+    "she",
+    "we",
+    "they",
+    "you",
+}
 
 
 def _is_ambiguous_d(token: str) -> bool:
@@ -544,25 +570,127 @@ def is_cultural_name(token: str, cfg: ApostropheConfig) -> bool:
             return True
     return False
 
+
+def _case_preserving_words(original: str, words: Sequence[str]) -> str:
+    if not words:
+        return ""
+    if original.isupper():
+        return " ".join(word.upper() for word in words)
+
+    if original[:1].isupper():
+        adjusted = [words[0].capitalize()]
+        if len(words) > 1:
+            adjusted.extend(words[1:])
+        return " ".join(adjusted)
+
+    return " ".join(words)
+
+
+def _apply_contraction_policy(
+    token: str,
+    *,
+    category: str,
+    cfg: ApostropheConfig,
+    expand: Callable[[], str],
+    collapse: Optional[str] = None,
+) -> str:
+    mode = cfg.contraction_mode
+    if mode == "collapse":
+        return collapse if collapse is not None else token.replace("'", "")
+    if mode != "expand":
+        return token
+    if not cfg.is_contraction_enabled(category):
+        return token
+    return expand()
+
+
+def _assemble_contraction_expansion(base_text: str, surface_text: str, expansion_word: str) -> str:
+    if not expansion_word:
+        return base_text
+
+    if surface_text.isupper() and expansion_word.isalpha():
+        adjusted = expansion_word.upper()
+    elif len(surface_text) > 2 and surface_text[:-2].istitle() and expansion_word:
+        adjusted = expansion_word.lower()
+    else:
+        adjusted = expansion_word
+
+    return f"{base_text} {adjusted}".strip()
+
+
+def _classify_ambiguous_d(token: str, cfg: ApostropheConfig) -> Tuple[str, str]:
+    base = token[:-2]
+    collapse_value = base + "d"
+
+    if cfg.contraction_mode == "collapse":
+        return "contraction_modal_would", collapse_value
+    if cfg.contraction_mode != "expand":
+        return "contraction_modal_would", token
+
+    mode = cfg.ambiguous_past_modal_mode
+    if mode == "expand_prefer_had":
+        candidates = [
+            ("contraction_aux_have", "had"),
+            ("contraction_modal_would", "would"),
+        ]
+    elif mode == "expand_prefer_would":
+        candidates = [
+            ("contraction_modal_would", "would"),
+            ("contraction_aux_have", "had"),
+        ]
+    else:  # contextual
+        candidates = [
+            ("contraction_modal_would", "would"),
+            ("contraction_aux_have", "had"),
+        ]
+
+    for category, word in candidates:
+        if not cfg.is_contraction_enabled(category):
+            continue
+        expanded = _assemble_contraction_expansion(base, token, word)
+        return category, expanded
+
+    # If every category is disabled, leave the token as-is but report default category
+    return candidates[0][0], token
+
+
+def _classify_ambiguous_s(token: str, cfg: ApostropheConfig) -> Tuple[str, str]:
+    base = token[:-2]
+
+    if cfg.contraction_mode == "collapse":
+        return "contraction_aux_be", base + "s"
+    if cfg.contraction_mode != "expand":
+        return "contraction_aux_be", token
+
+    candidates = [
+        ("contraction_aux_be", "is"),
+        ("contraction_aux_have", "has"),
+    ]
+
+    for category, word in candidates:
+        if not cfg.is_contraction_enabled(category):
+            continue
+        expanded = _assemble_contraction_expansion(base, token, word)
+        return category, expanded
+
+    return candidates[0][0], token
+
 def classify_token(token: str, cfg: ApostropheConfig) -> Tuple[str, str]:
     """
     Classify apostrophe usage and propose normalized form.
     Returns (category, normalized_token_or_same).
-    Categories: contraction, ambiguous_contraction_s, ambiguous_contraction_d,
-                plural_possessive, irregular_possessive, sibilant_possessive,
-                singular_possessive, acronym_possessive, decade, leading_elision,
-                fantasy_internal, other
+    Categories include: contraction_* variants, plural_possessive, irregular_possessive,
+    sibilant_possessive, singular_possessive, acronym_possessive, decade, leading_elision,
+    fantasy_internal, cultural_name, other.
     """
     if "'" not in token:
         return "other", token
 
-    raw = token
     low = token.lower()
 
     # 1. Decades
     if DECADE_RE.match(token):
         if cfg.decades_mode == "expand":
-            # '90s -> 1990s (you could also choose 90s)
             return "decade", f"19{token[2:4]}s"
         return "decade", token
 
@@ -574,103 +702,108 @@ def classify_token(token: str, cfg: ApostropheConfig) -> Tuple[str, str]:
 
     # 3. Ambiguous 'd contractions
     if _is_ambiguous_d(token):
-        base = low[:-2]
-        mode = cfg.ambiguous_past_modal_mode
-        if cfg.contraction_mode == "collapse":
-            return "ambiguous_contraction_d", base + "d"
-        if cfg.contraction_mode == "expand":
-            if mode == "expand_prefer_would":
-                return "ambiguous_contraction_d", base + " would"
-            if mode == "expand_prefer_had":
-                return "ambiguous_contraction_d", base + " had"
-            if mode == "contextual":
-                return "ambiguous_contraction_d", base + " would"
-        return "ambiguous_contraction_d", token
+        return _classify_ambiguous_d(token, cfg)
 
     # 4. Ambiguous 's contractions
     if _is_ambiguous_s(token):
-        base = low[:-2]
-        if cfg.contraction_mode == "expand":
-            return "ambiguous_contraction_s", base + " is"
-        if cfg.contraction_mode == "collapse":
-            return "ambiguous_contraction_s", base + "s"
-        return "ambiguous_contraction_s", token
+        return _classify_ambiguous_s(token, cfg)
 
-    # 5. Exact contraction
-    if low in CONTRACTIONS_EXACT:
-        if cfg.contraction_mode == "expand":
-            return "contraction", CONTRACTIONS_EXACT[low]
-        elif cfg.contraction_mode == "collapse":
-            # collapse: remove apostrophe only (he's -> hes)
-            return "contraction", low.replace("'", "")
-        else:
-            return "contraction", token
+    # 5. Lexicon-based contractions
+    lex_entry = CONTRACTION_LEXICON.get(low)
+    if lex_entry is not None:
+        category, words = lex_entry
 
-    # 6. Irregular possessives (keep or expand logic)
+        def _expand() -> str:
+            return _case_preserving_words(token, words)
+
+        collapse_value = token.replace("'", "")
+        normalized = _apply_contraction_policy(token, category=category, cfg=cfg, expand=_expand, collapse=collapse_value)
+        return category, normalized
+
+    # 6. Suffix contractions ('m handled separately)
+    if low.endswith("'m") and low[:-2] in SUFFIX_CONTRACTION_BASES.get("'m", ()):  # pronoun I'm
+
+        def _expand_m() -> str:
+            base = token[:-2]
+            return _assemble_contraction_expansion(base, token, "am")
+
+        normalized = _apply_contraction_policy(
+            token,
+            category="contraction_aux_be",
+            cfg=cfg,
+            expand=_expand_m,
+            collapse=token.replace("'", ""),
+        )
+        return "contraction_aux_be", normalized
+
+    for suffix, append_word, category in SUFFIX_CONTRACTION_RULES:
+        if low.endswith(suffix) and len(token) > len(suffix):
+            base = token[: -len(suffix)]
+
+            def _expand_suffix() -> str:
+                return _assemble_contraction_expansion(base, token, append_word)
+
+            normalized = _apply_contraction_policy(
+                token,
+                category=category,
+                cfg=cfg,
+                expand=_expand_suffix,
+                collapse=token.replace("'", ""),
+            )
+            return category, normalized
+
+    # 7. Irregular possessives (keep or expand logic)
     if low in IRREGULAR_POSSESSIVES:
         if cfg.irregular_possessive_mode == "keep":
             return "irregular_possessive", token
-        else:
-            # 'expand': we might keep same or optionally add marker
-            return "irregular_possessive", token
+        return "irregular_possessive", token
 
-    # 7. Plural possessive pattern dogs'
+    # 8. Plural possessive pattern dogs'
     if re.match(r"^[A-Za-z0-9]+s'$", token):
         if cfg.plural_possessive_mode == "collapse":
-            return "plural_possessive", token[:-1]  # remove trailing apostrophe
+            return "plural_possessive", token[:-1]
         return "plural_possessive", token
 
-    # 8. Acronym possessive NASA's
+    # 9. Acronym possessive NASA's
     if ACRONYM_POSSESSIVE_RE.match(token):
         if cfg.acronym_possessive_mode == "collapse_add_s":
             return "acronym_possessive", token.replace("'", "")
         return "acronym_possessive", token
 
-    # 9. Sibilant singular possessive boss's, church's
+    # 10. Sibilant singular possessive boss's, church's
     if low.endswith("'s"):
         base = token[:-2]
         if SIBILANT_END_RE.search(base):
             if cfg.sibilant_possessive_mode == "keep":
                 return "sibilant_possessive", token
-            elif cfg.sibilant_possessive_mode == "approx":
-                # convert to base + "es" (boss's -> bosses)
-                # risk: loses possessive semantics visually
+            if cfg.sibilant_possessive_mode == "approx":
                 return "sibilant_possessive", base + "es"
-            elif cfg.sibilant_possessive_mode == "mark":
-                # remove apostrophe, add IZ marker
+            if cfg.sibilant_possessive_mode == "mark":
                 normalized = base
-                if cfg.add_phoneme_hints:
-                    normalized += cfg.sibilant_iz_marker
-                else:
-                    normalized += "es"
+                normalized += cfg.sibilant_iz_marker if cfg.add_phoneme_hints else "es"
                 return "sibilant_possessive", normalized
 
-    # 10. Generic singular possessive (\w+'s)
+    # 11. Generic singular possessive (\w+'s)
     if re.match(r"^[A-Za-z0-9]+'s$", token):
         if cfg.possessive_mode == "collapse":
-            # Just remove apostrophe
             return "singular_possessive", token.replace("'", "")
         return "singular_possessive", token
 
-    # 11. Cultural names or fantasy internal
+    # 12. Cultural names or fantasy internal
     if is_cultural_name(token, cfg):
         return "cultural_name", token
 
-    # 12. Fantasy internal apostrophes
     if INTERNAL_APOSTROPHE_RE.search(token):
         if cfg.fantasy_mode == "keep":
             return "fantasy_internal", token
-        elif cfg.fantasy_mode == "mark":
+        if cfg.fantasy_mode == "mark":
             out = token + (cfg.fantasy_marker if cfg.add_phoneme_hints else "")
             return "fantasy_internal", out
-        elif cfg.fantasy_mode == "collapse_internal":
-            # Remove internal apostrophes only
+        if cfg.fantasy_mode == "collapse_internal":
             inner = re.sub(r"(?<=\w)'+(?=\w)", cfg.joiner, token)
             return "fantasy_internal", inner
 
-    # 13. Fallback: treat as other (maybe stray apostrophe)
     if cfg.fantasy_mode == "collapse_internal":
-        # Remove any internal apostrophes
         return "other", token.replace("'", cfg.joiner)
     return "other", token
 
@@ -709,13 +842,12 @@ def normalize_apostrophes(text: str, cfg: ApostropheConfig | None = None) -> Tup
         category, norm = classify_token(tok, cfg)
 
         resolution = contextual_resolutions.get((start, end)) if contextual_resolutions else None
-        if resolution is not None:
-            if resolution.category == "ambiguous_contraction_s" and use_contextual_s:
+        if resolution is not None and cfg.contraction_mode == "expand":
+            if cfg.is_contraction_enabled(resolution.category):
                 category = resolution.category
                 norm = resolution.expansion
-            elif resolution.category == "ambiguous_contraction_d" and use_contextual_d:
-                category = resolution.category
-                norm = resolution.expansion
+            else:
+                norm = tok
 
         results.append((tok, category, norm))
         normalized_tokens.append(norm)

@@ -133,3 +133,21 @@ def test_spacy_disambiguates_she_had() -> None:
 def test_spacy_disambiguates_she_would() -> None:
     normalized = _normalize_for_pipeline("She'd go if invited.")
     assert "She would go if invited." == normalized
+
+
+@pytest.mark.skipif(not SPACY_RESOLVER_AVAILABLE, reason="spaCy model unavailable")
+def test_sample_sentence_handles_complex_contractions() -> None:
+    sample = "I've heard the captain'll arrive by dusk, but they'd said the same yesterday."
+    normalized = _normalize_for_pipeline(sample)
+    assert (
+        "I have heard the captain will arrive by dusk, but they had said the same yesterday." == normalized
+    )
+
+
+def test_modal_will_contractions_can_be_disabled() -> None:
+    sample = "The captain'll arrive at dawn."
+    normalized = _normalize_for_pipeline(
+        sample,
+        normalization_overrides={"normalization_contraction_modal_will": False},
+    )
+    assert "captain'll" in normalized

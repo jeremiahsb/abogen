@@ -132,25 +132,25 @@ def _resolve_apostrophe_s(token: Token) -> Optional[ContractionResolution]:
     surface = token.doc.text[prev.idx : token.idx + len(token.text)]
 
     if prev_lower == "let":
-        return _resolution(prev, token, "us", "contraction", "us")
+        return _resolution(prev, token, "us", "contraction_let_us", "us")
 
     lemma = token.lemma_.lower()
     if not lemma:
         lemma = "be" if _favors_be(token) else "have" if _favors_have(token) else "be"
 
     if lemma == "be":
-        return _resolution(prev, token, "is", "ambiguous_contraction_s", "be")
+        return _resolution(prev, token, "is", "contraction_aux_be", "be")
     if lemma == "have":
-        return _resolution(prev, token, "has", "ambiguous_contraction_s", "have")
+        return _resolution(prev, token, "has", "contraction_aux_have", "have")
 
     if _favors_have(token):
-        return _resolution(prev, token, "has", "ambiguous_contraction_s", "have")
+        return _resolution(prev, token, "has", "contraction_aux_have", "have")
 
     if _favors_be(token):
-        return _resolution(prev, token, "is", "ambiguous_contraction_s", "be")
+        return _resolution(prev, token, "is", "contraction_aux_be", "be")
 
     # Default to copula expansion.
-    return _resolution(prev, token, "is", "ambiguous_contraction_s", lemma or "be")
+    return _resolution(prev, token, "is", "contraction_aux_be", lemma or "be")
 
 
 def _resolve_apostrophe_d(token: Token) -> Optional[ContractionResolution]:
@@ -164,38 +164,35 @@ def _resolve_apostrophe_d(token: Token) -> Optional[ContractionResolution]:
 
     lemma = token.lemma_.lower()
     tense = set(token.morph.get("Tense"))
+    next_content = _next_content_token(token)
+    prefers_had = _context_prefers_had(token)
+
+    if prefers_had:
+        return _resolution(prev, token, "had", "contraction_aux_have", "have")
 
     if "Past" in tense and lemma in {"have", "had"}:
-        return _resolution(prev, token, "had", "ambiguous_contraction_d", "have")
+        return _resolution(prev, token, "had", "contraction_aux_have", "have")
 
-    if token.tag_ == "MD" or lemma in {"will", "would", "shall"}:
-        return _resolution(prev, token, "would", "ambiguous_contraction_d", lemma or "will")
-
-    head = token.head if token.head is not None else None
-    if head is not None and head.i > token.i:
-        head_tag = head.tag_
-        head_lemma = head.lemma_.lower()
-        if head_tag in {"VBN", "VBD"} or head_lemma in {"gone", "been", "had"}:
-            return _resolution(prev, token, "had", "ambiguous_contraction_d", "have")
-        if head_lemma == "better":
-            return _resolution(prev, token, "had", "ambiguous_contraction_d", "have")
-        if head_tag == "VB" or head.pos_ in {"VERB", "AUX"}:
-            return _resolution(prev, token, "would", "ambiguous_contraction_d", lemma or "will")
-
-    next_content = _next_content_token(token)
     if next_content is not None:
         next_tag = next_content.tag_
-        if next_tag in {"VBN", "VBD"} or next_content.lemma_.lower() in {"been", "gone", "had"}:
-            return _resolution(prev, token, "had", "ambiguous_contraction_d", "have")
-        if next_content.lemma_.lower() == "better":
-            return _resolution(prev, token, "had", "ambiguous_contraction_d", "have")
-        if next_tag == "VB":
-            return _resolution(prev, token, "would", "ambiguous_contraction_d", lemma or "will")
+        next_lemma = next_content.lemma_.lower()
+    else:
+        next_tag = ""
+        next_lemma = ""
 
-    # Fallback: if lemma hints at perfect aspect use "had", otherwise "would".
+    if next_tag == "VB":
+        return _resolution(prev, token, "would", "contraction_modal_would", lemma or "will")
+
+    if token.tag_ == "MD" or lemma in {"will", "would", "shall"}:
+        return _resolution(prev, token, "would", "contraction_modal_would", lemma or "will")
+
+    if next_lemma in {"been", "gone", "had", "better"} or next_tag in {"VBN", "VBD"}:
+        return _resolution(prev, token, "had", "contraction_aux_have", "have")
+
     if lemma in {"have", "had"}:
-        return _resolution(prev, token, "had", "ambiguous_contraction_d", lemma)
-    return _resolution(prev, token, "would", "ambiguous_contraction_d", lemma or "will")
+        return _resolution(prev, token, "had", "contraction_aux_have", lemma)
+
+    return _resolution(prev, token, "would", "contraction_modal_would", lemma or "will")
 
 
 def _next_content_token(token: Token) -> Optional[Token]:
@@ -229,3 +226,28 @@ def _favors_be(token: Token) -> bool:
     if next_content.tag_ in {"VBG", "JJ", "RB", "DT", "IN"}:
         return True
     return False
+
+
+def _context_prefers_had(token: Token) -> bool:
+    head = token.head if token.head is not None else None
+    if head is not None and head.i > token.i:
+        head_tag = head.tag_
+        head_lemma = head.lemma_.lower()
+        if head_tag in {"VBN", "VBD"} or head_lemma in {"gone", "been", "had"}:
+            return True
+        if head_lemma == "better":
+            return True
+
+    next_content = _next_content_token(token)
+    if next_content is None:
+        return False
+    next_tag = next_content.tag_
+    next_lemma = next_content.lemma_.lower()
+    if next_tag in {"VBN", "VBD"}:
+        return True
+    if next_lemma in {"been", "gone", "had"}:
+        return True
+    if next_lemma == "better":
+        return True
+    return False
+
