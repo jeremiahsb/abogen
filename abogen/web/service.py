@@ -13,7 +13,7 @@ import traceback
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Mapping
+from typing import Any, Callable, Dict, Iterable, List, Optional, Mapping, Tuple
 
 from abogen.utils import get_internal_cache_path, get_user_settings_dir, load_config
 from abogen.voice_cache import bootstrap_voice_cache
@@ -264,6 +264,16 @@ def _split_people_field(raw: Any) -> List[str]:
 
 _LIST_SPLIT_RE = re.compile(r"[;,\n]")
 
+_SERIES_SEQUENCE_TAG_KEYS: Tuple[str, ...] = (
+    "series_index",
+    "series_position",
+    "series_sequence",
+    "series_number",
+    "seriesnumber",
+    "book_number",
+    "booknumber",
+)
+
 
 def _split_simple_list(raw: Any) -> List[str]:
     if raw is None:
@@ -340,8 +350,14 @@ def _build_audiobookshelf_metadata(job: Job) -> Dict[str, Any]:
     genres = _split_simple_list(tags.get("genre"))
     keywords = _split_simple_list(tags.get("tags") or tags.get("keywords"))
     language = _first_nonempty(tags.get("language"), tags.get("lang")) or job.language or ""
-    series_name = _first_nonempty(tags.get("series"), tags.get("series_name"))
-    series_sequence = _first_nonempty(tags.get("series_index"), tags.get("series_position"))
+    series_name = _first_nonempty(
+        tags.get("series"),
+        tags.get("series_name"),
+        tags.get("seriesname"),
+        tags.get("series_title"),
+        tags.get("seriestitle"),
+    )
+    series_sequence = _first_nonempty(*(tags.get(key) for key in _SERIES_SEQUENCE_TAG_KEYS))
     data: Dict[str, Any] = {
         "title": title,
         "authors": authors,

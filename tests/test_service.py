@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import io
 import time
-from abogen.web.service import Job, JobStatus, build_service, _JOB_LOGGER
+from abogen.web.service import Job, JobStatus, build_service, _JOB_LOGGER, _build_audiobookshelf_metadata
 
 
 def test_service_processes_job(tmp_path):
@@ -157,3 +157,34 @@ def test_retry_removes_failed_job(tmp_path):
         assert new_job.id in job_ids
     finally:
         service.shutdown()
+
+
+def test_audiobookshelf_metadata_uses_book_number(tmp_path):
+    source = tmp_path / "book.txt"
+    source.write_text("content", encoding="utf-8")
+
+    job = Job(
+        id="job-abs",
+        original_filename="book.txt",
+        stored_path=source,
+        language="en",
+        voice="af_alloy",
+        speed=1.0,
+        use_gpu=False,
+        subtitle_mode="Sentence",
+        output_format="mp3",
+        save_mode="Save next to input file",
+        output_folder=tmp_path,
+        replace_single_newlines=False,
+        subtitle_format="srt",
+        created_at=time.time(),
+        metadata_tags={
+            "series": "Example Saga",
+            "book_number": "7",
+        },
+    )
+
+    metadata = _build_audiobookshelf_metadata(job)
+
+    assert metadata["seriesName"] == "Example Saga"
+    assert metadata["seriesSequence"] == "7"
