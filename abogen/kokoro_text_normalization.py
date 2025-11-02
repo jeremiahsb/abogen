@@ -93,14 +93,21 @@ SUFFIX_CONTRACTION_BASES: Dict[str, Tuple[str, ...]] = {
 _NUMBER_WITH_GROUP_RE = re.compile(r"(?<![\w\d])(-?\d{1,3}(?:,\d{3})+)(?![\w\d])")
 _NUMBER_RANGE_SEPARATORS = "-‐‑–—−"
 _NUMBER_RANGE_CLASS = re.escape(_NUMBER_RANGE_SEPARATORS)
+_NUMBER_CORE_PATTERN = r"-?(?:\d{1,3}(?:,\d{3})+|\d+)"
 _WIDE_RANGE_SEPARATORS = {"–", "—"}
 _NUMBER_RANGE_RE = re.compile(
-    rf"(?<!\w)(?P<left>-?\d+)(?P<sep>\s*[{_NUMBER_RANGE_CLASS}]\s*)(?P<right>-?\d+)(?![\w{_NUMBER_RANGE_CLASS}/])"
+    rf"(?<!\w)(?P<left>{_NUMBER_CORE_PATTERN})(?P<sep>\s*[{_NUMBER_RANGE_CLASS}]\s*)(?P<right>{_NUMBER_CORE_PATTERN})(?![\w{_NUMBER_RANGE_CLASS}/])"
+)
+_NUMBER_SPACE_RANGE_RE = re.compile(
+    rf"(?<![\w{_NUMBER_RANGE_CLASS}/])(?P<left>{_NUMBER_CORE_PATTERN})(?P<gap>\s+)(?P<right>{_NUMBER_CORE_PATTERN})(?![\w{_NUMBER_RANGE_CLASS}/])"
 )
 _FRACTION_SLASHES = "/⁄"
 _FRACTION_SLASH_CLASS = re.escape(_FRACTION_SLASHES)
 _FRACTION_RE = re.compile(
     rf"(?<!\w)(?P<numerator>-?\d+)\s*[{_FRACTION_SLASH_CLASS}]\s*(?P<denominator>-?\d+)(?![\w{_FRACTION_SLASH_CLASS}])"
+)
+_PLAIN_NUMBER_RE = re.compile(
+    rf"(?<![\w{_NUMBER_RANGE_CLASS}/])(?P<number>{_NUMBER_CORE_PATTERN})(?![\w{_NUMBER_RANGE_CLASS}/])"
 )
 
 
@@ -195,21 +202,25 @@ def _format_fraction_words(numerator: int, denominator: int, language: str) -> O
 def _replace_number_range(match: re.Match[str], language: str) -> str:
     left_raw = match.group("left")
     right_raw = match.group("right")
-    separator_text = match.group("sep") or ""
-    separator_char = next((ch for ch in separator_text if ch in _NUMBER_RANGE_SEPARATORS), "-")
-    has_whitespace = any(ch.isspace() for ch in separator_text)
-
-    left_digits = len(left_raw.lstrip("-"))
-    right_digits = len(right_raw.lstrip("-"))
-
-    if (left_digits >= 4 or right_digits >= 4) and separator_char not in _WIDE_RANGE_SEPARATORS and not has_whitespace:
+    left = _coerce_int_token(left_raw)
+    right = _coerce_int_token(right_raw)
+    if left is None or right is None:
         return match.group(0)
-    if {left_digits, right_digits} == {3, 4} and separator_char not in _WIDE_RANGE_SEPARATORS and not has_whitespace:
+
+    left_words = _int_to_words(left, language)
+    right_words = _int_to_words(right, language)
+    if not left_words or not right_words:
         return match.group(0)
-    try:
-        left = int(left_raw)
-        right = int(right_raw)
-    except ValueError:
+
+    return f"{left_words} to {right_words}"
+
+
+def _replace_space_separated_range(match: re.Match[str], language: str) -> str:
+    left_raw = match.group("left")
+    right_raw = match.group("right")
+    left = _coerce_int_token(left_raw)
+    right = _coerce_int_token(right_raw)
+    if left is None or right is None:
         return match.group(0)
 
     left_words = _int_to_words(left, language)
@@ -233,6 +244,18 @@ def _replace_fraction(match: re.Match[str], language: str) -> str:
     if not spoken:
         return match.group(0)
     return spoken
+
+
+def _coerce_int_token(token: str) -> Optional[int]:
+    if token is None:
+        return None
+    cleaned = token.replace(",", "").strip()
+    if not cleaned or cleaned in {"-", "+"}:
+        return None
+    try:
+        return int(cleaned)
+    except ValueError:
+        return None
 AMBIGUOUS_D_BASES = {"i","you","he","she","we","they"}
 AMBIGUOUS_S_BASES = {
     "it",
@@ -862,33 +885,54 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
 
     language = (cfg.number_lang or "en").strip() or "en"
 
-    def _replace(match: re.Match[str]) -> str:
+    def _replace_grouped(match: re.Match[str]) -> str:
         token = match.group(1)
-        cleaned = token.replace(",", "")
-        if not cleaned:
-            return token
-        negative = cleaned.startswith("-")
-        cleaned_digits = cleaned[1:] if negative else cleaned
-
-        if not cleaned_digits.isdigit():
-            return cleaned_digits if not negative else f"-{cleaned_digits}"
-
-        if num2words is None:
-            return ("-" if negative else "") + cleaned_digits
-
-        try:
-            value = int(cleaned)
-        except ValueError:
+        value = _coerce_int_token(token)
+        if value is None:
+            cleaned = token.replace(",", "")
             return cleaned
-
-        words = _int_to_words(value, language)
-        if not words:
+        if num2words is None:
             return str(value)
-        return words
+        words = _int_to_words(value, language)
+        return words or str(value)
 
-    normalized = _NUMBER_WITH_GROUP_RE.sub(_replace, text)
+    def _replace_plain(match: re.Match[str]) -> str:
+        token = match.group("number")
+        if "," in token:
+            return token.replace(",", "")
+
+        start, end = match.span()
+        source = match.string
+        before = source[start - 1] if start > 0 else ""
+        after = source[end] if end < len(source) else ""
+
+        if before == "/" or after == "/":
+            return token
+
+        if after == ".":
+            next_char = source[end + 1] if end + 1 < len(source) else ""
+            if next_char.isdigit():
+                return token
+
+        if before == ".":
+            prev_char = source[start - 2] if start >= 2 else ""
+            if prev_char.isdigit() or start == 1:
+                return token
+
+        value = _coerce_int_token(token)
+        if value is None:
+            return token
+        if num2words is None:
+            return str(value)
+        words = _int_to_words(value, language)
+        return words or str(value)
+
+    normalized = text
     normalized = _NUMBER_RANGE_RE.sub(lambda m: _replace_number_range(m, language), normalized)
+    normalized = _NUMBER_SPACE_RANGE_RE.sub(lambda m: _replace_space_separated_range(m, language), normalized)
     normalized = _FRACTION_RE.sub(lambda m: _replace_fraction(m, language), normalized)
+    normalized = _NUMBER_WITH_GROUP_RE.sub(_replace_grouped, normalized)
+    normalized = _PLAIN_NUMBER_RE.sub(_replace_plain, normalized)
     return normalized
 
 # ---------- Optional phoneme hint post-processing ----------

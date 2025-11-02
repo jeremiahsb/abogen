@@ -999,6 +999,21 @@ class ConversionService:
         metadata = _build_audiobookshelf_metadata(job)
 
         client = AudiobookshelfClient(config)
+
+        display_title = metadata.get("title") or audio_path.stem
+        try:
+            existing_items = client.find_existing_items(display_title, folder_id=config.folder_id)
+        except AudiobookshelfUploadError as exc:
+            job.add_log(f"Audiobookshelf lookup failed: {exc}", level="error")
+            return
+
+        if existing_items:
+            job.add_log(
+                f"Audiobookshelf upload skipped: '{display_title}' already exists in the configured folder.",
+                level="warning",
+            )
+            return
+
         client.upload_audiobook(
             audio_path,
             metadata=metadata,

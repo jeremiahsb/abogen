@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import traceback
+from datetime import datetime
 from collections import defaultdict
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -107,6 +108,7 @@ _ACRONYM_ALLOWLIST = {
 }
 _ROMAN_NUMERAL_CHARS = frozenset("IVXLCDM")
 _CAPS_WORD_RE = re.compile(r"[A-Z][A-Z0-9'\u2019-]*")
+_OUTPUT_SANITIZE_RE = re.compile(r"[^\w\-_.]+")
 
 
 def _simplify_heading_text(text: str) -> str:
@@ -1844,7 +1846,7 @@ def run_conversion_job(job: Job) -> None:
 
             if audio_asset:
                 try:
-                    epub_root = project_root if job.save_as_project else base_output_dir
+                    epub_root = project_root
                     epub_output_path = _build_output_path(epub_root, job.original_filename, "epub")
                     job.add_log("Generating EPUB 3 package with synchronized narration…")
                     epub_path = build_epub3_package(
@@ -1989,21 +1991,19 @@ def _prepare_output_dir(job: Job) -> Path:
 
 
 def _build_output_path(directory: Path, original_name: str, extension: str) -> Path:
-    base_name = Path(original_name).stem
-    sanitized = re.sub(r"[^\w\-_.]+", "_", base_name).strip("_") or "output"
-    candidate = directory / f"{sanitized}.{extension}"
-    counter = 1
-    while candidate.exists():
-        candidate = directory / f"{sanitized}_{counter}.{extension}"
-        counter += 1
-    return candidate
+    sanitized = _sanitize_output_stem(original_name)
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory / f"{sanitized}.{extension}"
 
 
 def _prepare_project_layout(job: Job, base_dir: Path) -> tuple[Path, Path, Path, Optional[Path]]:
     base_dir.mkdir(parents=True, exist_ok=True)
-    stem = Path(job.original_filename).stem
+    sanitized = _sanitize_output_stem(job.original_filename)
+    folder_name = f"{_output_timestamp_token()}_{sanitized}"
+    project_root = base_dir / folder_name
+    project_root.mkdir(parents=True, exist_ok=True)
+
     if job.save_as_project:
-        project_root = _ensure_unique_directory(base_dir, f"{stem}_project")
         audio_dir = project_root / "audio"
         subtitle_dir = project_root / "subtitles"
         metadata_dir = project_root / "metadata"
@@ -2011,17 +2011,7 @@ def _prepare_project_layout(job: Job, base_dir: Path) -> tuple[Path, Path, Path,
             directory.mkdir(parents=True, exist_ok=True)
         return project_root, audio_dir, subtitle_dir, metadata_dir
 
-    return base_dir, base_dir, base_dir, None
-
-
-def _ensure_unique_directory(parent: Path, name: str) -> Path:
-    candidate = parent / name
-    counter = 1
-    while candidate.exists():
-        candidate = parent / f"{name}_{counter}"
-        counter += 1
-    candidate.mkdir(parents=True, exist_ok=True)
-    return candidate
+    return project_root, project_root, project_root, None
 
 
 def _apply_newline_policy(chapters: List[ExtractedChapter], replace_single_newlines: bool) -> None:
@@ -2037,6 +2027,16 @@ def _slugify(title: str, index: int) -> str:
     if not sanitized:
         sanitized = f"chapter_{index:02d}"
     return sanitized[:80]
+
+
+def _sanitize_output_stem(name: str) -> str:
+    base = Path(name or "").stem
+    sanitized = _OUTPUT_SANITIZE_RE.sub("_", base).strip("_")
+    return sanitized or "output"
+
+
+def _output_timestamp_token() -> str:
+    return datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
 def _open_audio_sink(

@@ -5064,10 +5064,56 @@ def send_job_to_audiobookshelf(job_id: str) -> ResponseReturnValue:
     subtitles = _existing_paths(job.result.subtitle_paths) if config.send_subtitles else None
     chapters = _load_audiobookshelf_chapters(job) if config.send_chapters else None
     metadata = _build_audiobookshelf_metadata(job)
+    display_title = metadata.get("title") or audio_path.stem
+    overwrite_requested = request.form.get("overwrite") == "true" or request.args.get("overwrite") == "true"
+
+    try:
+        client = AudiobookshelfClient(config)
+    except ValueError as exc:  # pragma: no cover - defensive guard
+        job.add_log(f"Audiobookshelf configuration error: {exc}", level="error")
+        service._persist_state()
+        return _panel_response()
+
+    try:
+        existing_items = client.find_existing_items(display_title, folder_id=config.folder_id)
+    except AudiobookshelfUploadError as exc:
+        job.add_log(f"Audiobookshelf lookup failed: {exc}", level="error")
+        service._persist_state()
+        return _panel_response()
+
+    if existing_items and not overwrite_requested:
+        job.add_log(
+            f"Audiobookshelf already contains '{display_title}'. Awaiting overwrite confirmation.",
+            level="warning",
+        )
+        service._persist_state()
+        if request.headers.get("HX-Request"):
+            detail = {
+                "jobId": job.id,
+                "title": display_title,
+                "url": url_for("web.send_job_to_audiobookshelf", job_id=job.id),
+                "target": request.headers.get("HX-Target") or "#jobs-panel",
+                "message": f'Audiobookshelf already contains "{display_title}". Overwrite?',
+            }
+            headers = {"HX-Trigger": json.dumps({"audiobookshelf-overwrite-prompt": detail})}
+            return Response("", status=204, headers=headers)
+        return _panel_response()
+
+    if existing_items and overwrite_requested:
+        try:
+            client.delete_items(existing_items)
+        except AudiobookshelfUploadError as exc:
+            job.add_log(f"Audiobookshelf overwrite aborted: {exc}", level="error")
+            service._persist_state()
+            return _panel_response()
+        else:
+            job.add_log(
+                f"Removed {len(existing_items)} existing Audiobookshelf item(s) prior to overwrite.",
+                level="info",
+            )
 
     job.add_log("Audiobookshelf upload triggered manually.", level="info")
     try:
-        client = AudiobookshelfClient(config)
         client.upload_audiobook(
             audio_path,
             metadata=metadata,

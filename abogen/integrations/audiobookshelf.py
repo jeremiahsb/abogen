@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import re
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -180,6 +181,159 @@ class AudiobookshelfClient:
             files.append((field_name, (path.name, handle, mime_type)))
         return files
 
+    def find_existing_items(
+        self,
+        title: str,
+        *,
+        folder_id: Optional[str] = None,
+    ) -> List[Mapping[str, Any]]:
+        normalized_title = self._normalize_title_value(title)
+        if not normalized_title:
+            return []
+
+        folder_hint = folder_id or self._config.folder_id
+        target_folders = set()
+        if folder_hint:
+            folder_token = str(folder_hint).strip().lower()
+            if folder_token:
+                target_folders.add(folder_token)
+
+        requests = self._candidate_search_requests(title, folder_hint)
+        if not requests:
+            return []
+
+        matches: List[Mapping[str, Any]] = []
+
+        try:
+            with self._open_client() as client:
+                for route, params in requests:
+                    try:
+                        response = client.get(route, params=params)
+                    except httpx.HTTPError as exc:
+                        logger.debug("Audiobookshelf lookup failed for %s: %s", route, exc)
+                        continue
+
+                    if response.status_code == 404:
+                        continue
+
+                    try:
+                        response.raise_for_status()
+                    except httpx.HTTPStatusError as exc:
+                        status = exc.response.status_code
+                        if status in {401, 403}:
+                            raise AudiobookshelfUploadError(
+                                "Audiobookshelf authentication failed while checking for existing items."
+                            ) from exc
+                        logger.debug("Audiobookshelf lookup error %s for %s", status, route)
+                        continue
+
+                    try:
+                        payload = response.json()
+                    except ValueError:
+                        continue
+
+                    candidates = self._extract_candidate_items(payload)
+                    for item in candidates:
+                        item_title = self._normalize_item_title(item)
+                        if not item_title or item_title != normalized_title:
+                            continue
+                        if target_folders:
+                            item_folder = self._normalize_folder_id(item)
+                            if item_folder and item_folder not in target_folders:
+                                continue
+                        matches.append(item)
+                    if matches:
+                        break
+        except AudiobookshelfUploadError:
+            raise
+        except Exception:
+            logger.debug(
+                "Unexpected error while checking Audiobookshelf for existing items",
+                exc_info=True,
+            )
+
+        return matches
+
+    def delete_items(self, items: Iterable[Mapping[str, Any] | str]) -> None:
+        to_delete: List[str] = []
+        for entry in items:
+            if isinstance(entry, Mapping):
+                item_id = self._extract_item_id(entry)
+            else:
+                item_id = str(entry).strip()
+            if item_id:
+                to_delete.append(item_id)
+
+        if not to_delete:
+            return
+
+        with self._open_client() as client:
+            for item_id in to_delete:
+                self._delete_single_item(client, item_id)
+
+    def _candidate_search_requests(
+        self,
+        title: str,
+        folder_id: Optional[str],
+    ) -> List[Tuple[str, Dict[str, Any]]]:
+        query = (title or "").strip()
+        if not query:
+            return []
+
+        library_id = self._config.library_id
+        folder_token = (folder_id or self._config.folder_id or "").strip()
+
+        requests: List[Tuple[str, Dict[str, Any]]] = []
+        seen_routes: set[str] = set()
+
+        def _append(route: str, params: Dict[str, Any]) -> None:
+            if route in seen_routes:
+                return
+            seen_routes.add(route)
+            requests.append((route, params))
+
+        if folder_token:
+            _append(
+                self._api_path(f"folders/{folder_token}/items"),
+                {"library": library_id, "search": query},
+            )
+
+        _append(self._api_path(f"libraries/{library_id}/items"), {"search": query})
+        _append(self._api_path("items"), {"library": library_id, "search": query})
+        _append(
+            self._api_path("search"),
+            {"query": query, "library": library_id, "media": "audiobook"},
+        )
+
+        return requests
+
+    def _delete_single_item(self, client: httpx.Client, item_id: str) -> None:
+        routes = [
+            self._api_path(f"items/{item_id}"),
+            self._api_path(f"libraries/{self._config.library_id}/items/{item_id}"),
+        ]
+
+        for route in routes:
+            try:
+                response = client.delete(route)
+            except httpx.HTTPError as exc:
+                logger.debug("Audiobookshelf delete failed for %s: %s", route, exc)
+                continue
+
+            if response.status_code in (200, 202, 204):
+                return
+            if response.status_code == 404:
+                continue
+
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise AudiobookshelfUploadError(
+                    f"Failed to delete Audiobookshelf item '{item_id}': {exc}"
+                ) from exc
+
+        logger.debug("Audiobookshelf item %s could not be confirmed deleted", item_id)
+
     def resolve_folder(self) -> Tuple[str, str, str]:
         """Return the resolved folder (id, name, library name)."""
         return self._ensure_folder()
@@ -334,6 +488,87 @@ class AudiobookshelfClient:
             token = token[2:]
         token = token.strip("/ ")
         return token.lower()
+
+    @staticmethod
+    def _normalize_title_value(value: Optional[str]) -> str:
+        if not isinstance(value, str):
+            return ""
+        normalized = re.sub(r"\s+", " ", value).strip()
+        return normalized.casefold() if normalized else ""
+
+    @staticmethod
+    def _normalize_item_title(item: Mapping[str, Any]) -> str:
+        if not isinstance(item, Mapping):
+            return ""
+        for key in ("title", "name", "label"):
+            candidate = item.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return AudiobookshelfClient._normalize_title_value(candidate)
+        library_item = item.get("libraryItem")
+        if isinstance(library_item, Mapping):
+            return AudiobookshelfClient._normalize_item_title(library_item)
+        return ""
+
+    @staticmethod
+    def _normalize_folder_id(item: Mapping[str, Any]) -> Optional[str]:
+        if not isinstance(item, Mapping):
+            return None
+        for key in ("folderId", "libraryFolderId", "folder_id", "folder"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip().lower()
+            if isinstance(value, (int, float)):
+                return str(value).strip().lower()
+        library_item = item.get("libraryItem")
+        if isinstance(library_item, Mapping):
+            return AudiobookshelfClient._normalize_folder_id(library_item)
+        return None
+
+    @staticmethod
+    def _extract_item_id(item: Mapping[str, Any]) -> Optional[str]:
+        if not isinstance(item, Mapping):
+            return None
+        for key in ("id", "libraryItemId", "itemId"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            if isinstance(value, (int, float)):
+                return str(value).strip()
+        library_item = item.get("libraryItem")
+        if isinstance(library_item, Mapping):
+            return AudiobookshelfClient._extract_item_id(library_item)
+        return None
+
+    @staticmethod
+    def _extract_candidate_items(payload: Any) -> List[Mapping[str, Any]]:
+        items: List[Mapping[str, Any]] = []
+        seen_ids: set[str] = set()
+        visited: set[int] = set()
+
+        def _visit(obj: Any) -> None:
+            if isinstance(obj, Mapping):
+                obj_id = id(obj)
+                if obj_id in visited:
+                    return
+                visited.add(obj_id)
+
+                title = AudiobookshelfClient._normalize_item_title(obj)
+                item_id = AudiobookshelfClient._extract_item_id(obj)
+                if title and item_id:
+                    key = item_id.strip().lower()
+                    if key not in seen_ids:
+                        seen_ids.add(key)
+                        items.append(obj)
+
+                for value in obj.values():
+                    _visit(value)
+
+            elif isinstance(obj, list):
+                for entry in obj:
+                    _visit(entry)
+
+        _visit(payload)
+        return items
 
     @staticmethod
     def _extract_title(metadata: Mapping[str, Any], audio_path: Path) -> str:

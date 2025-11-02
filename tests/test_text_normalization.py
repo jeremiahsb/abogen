@@ -86,6 +86,16 @@ def test_simple_fractions_are_spoken() -> None:
     assert "one half" in normalized.lower()
 
 
+def test_plain_numbers_are_spelled_out() -> None:
+    normalized = _normalize_for_pipeline("He rolled a 42.")
+    assert "forty-two" in normalized.lower()
+
+
+def test_space_separated_numbers_become_ranges() -> None:
+    normalized = _normalize_for_pipeline("Read pages 12 14 tonight.")
+    assert "pages twelve to fourteen" in normalized.lower()
+
+
 def test_contractions_can_be_kept_when_override_disabled() -> None:
     normalized = _normalize_for_pipeline(
         "It's a good day.",
