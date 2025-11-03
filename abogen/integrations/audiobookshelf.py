@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import mimetypes
 import re
 from contextlib import ExitStack
@@ -121,6 +122,7 @@ class AudiobookshelfClient:
         title = self._extract_title(metadata, audio_path)
         author = self._extract_author(metadata)
         series = self._extract_series(metadata)
+        series_sequence = self._extract_series_sequence(metadata)
 
         fields: Dict[str, str] = {
             "library": self._config.library_id,
@@ -131,6 +133,8 @@ class AudiobookshelfClient:
             fields["author"] = author
         if series:
             fields["series"] = series
+        if series_sequence:
+            fields["seriesSequence"] = series_sequence
         if self._config.collection_id:
             fields["collectionId"] = self._config.collection_id
 
@@ -596,3 +600,60 @@ class AudiobookshelfClient:
         if isinstance(series_name, str) and series_name.strip():
             return series_name.strip()
         return ""
+
+    @staticmethod
+    def _extract_series_sequence(metadata: Mapping[str, Any]) -> str:
+        if not isinstance(metadata, Mapping):
+            return ""
+
+        preferred_keys = (
+            "seriesSequence",
+            "series_sequence",
+            "seriesIndex",
+            "series_index",
+            "seriesNumber",
+            "series_number",
+            "bookNumber",
+            "book_number",
+        )
+
+        for key in preferred_keys:
+            if key not in metadata:
+                continue
+            normalized = AudiobookshelfClient._normalize_series_sequence(metadata.get(key))
+            if normalized:
+                return normalized
+        return ""
+
+    @staticmethod
+    def _normalize_series_sequence(raw: Any) -> str:
+        if raw is None:
+            return ""
+
+        if isinstance(raw, (int, float)):
+            if isinstance(raw, float) and (math.isnan(raw) or math.isinf(raw)):
+                return ""
+            text = str(raw)
+        else:
+            text = str(raw).strip()
+
+        if not text:
+            return ""
+
+        candidate = text.replace(",", ".")
+        match = re.search(r"\d+(?:\.\d+)?", candidate)
+        if not match:
+            return ""
+
+        normalized = match.group(0)
+        if "." in normalized:
+            normalized = normalized.rstrip("0").rstrip(".")
+            if not normalized:
+                normalized = "0"
+            return normalized
+
+        try:
+            return str(int(normalized))
+        except ValueError:
+            cleaned = normalized.lstrip("0")
+            return cleaned or "0"

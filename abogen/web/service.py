@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -263,6 +264,7 @@ def _split_people_field(raw: Any) -> List[str]:
 
 
 _LIST_SPLIT_RE = re.compile(r"[;,\n]")
+_SERIES_SEQUENCE_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 
 _SERIES_SEQUENCE_TAG_KEYS: Tuple[str, ...] = (
     "series_index",
@@ -357,7 +359,13 @@ def _build_audiobookshelf_metadata(job: Job) -> Dict[str, Any]:
         tags.get("series_title"),
         tags.get("seriestitle"),
     )
-    series_sequence = _first_nonempty(*(tags.get(key) for key in _SERIES_SEQUENCE_TAG_KEYS))
+    series_sequence = None
+    for key in _SERIES_SEQUENCE_TAG_KEYS:
+        raw_value = tags.get(key)
+        normalized_sequence = _normalize_series_sequence(raw_value)
+        if normalized_sequence:
+            series_sequence = normalized_sequence
+            break
     data: Dict[str, Any] = {
         "title": title,
         "authors": authors,
@@ -398,6 +406,39 @@ def _build_audiobookshelf_metadata(job: Job) -> Dict[str, Any]:
             continue
         cleaned[key] = value
     return cleaned
+
+
+def _normalize_series_sequence(raw: Any) -> Optional[str]:
+    if raw is None:
+        return None
+
+    if isinstance(raw, (int, float)):
+        if isinstance(raw, float) and (math.isnan(raw) or math.isinf(raw)):
+            return None
+        text = str(raw)
+    else:
+        text = str(raw).strip()
+
+    if not text:
+        return None
+
+    candidate = text.replace(",", ".")
+    match = _SERIES_SEQUENCE_NUMBER_RE.search(candidate)
+    if not match:
+        return None
+
+    normalized = match.group(0)
+    if "." in normalized:
+        normalized = normalized.rstrip("0").rstrip(".")
+        if not normalized:
+            normalized = "0"
+        return normalized
+
+    try:
+        return str(int(normalized))
+    except ValueError:
+        cleaned = normalized.lstrip("0")
+        return cleaned or "0"
 
 
 def _load_audiobookshelf_chapters(job: Job) -> Optional[List[Dict[str, Any]]]:
