@@ -106,9 +106,14 @@ _FRACTION_SLASH_CLASS = re.escape(_FRACTION_SLASHES)
 _FRACTION_RE = re.compile(
     rf"(?<!\w)(?P<numerator>-?\d+)\s*[{_FRACTION_SLASH_CLASS}]\s*(?P<denominator>-?\d+)(?![\w{_FRACTION_SLASH_CLASS}])"
 )
+_DECIMAL_NUMBER_RE = re.compile(
+    rf"(?<![\w{_NUMBER_RANGE_CLASS}/])(?P<number>-?(?:\d{{1,3}}(?:,\d{{3}})+|\d+)\.(?P<fraction>\d+))(?![\w{_NUMBER_RANGE_CLASS}/])"
+)
 _PLAIN_NUMBER_RE = re.compile(
     rf"(?<![\w{_NUMBER_RANGE_CLASS}/])(?P<number>{_NUMBER_CORE_PATTERN})(?![\w{_NUMBER_RANGE_CLASS}/])"
 )
+
+_DIGIT_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
 
 
 def _int_to_words(value: int, language: str) -> Optional[str]:
@@ -927,10 +932,57 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
         words = _int_to_words(value, language)
         return words or str(value)
 
+    def _replace_decimal(match: re.Match[str]) -> str:
+        token = match.group("number")
+        fraction_part = match.group("fraction")
+        start, end = match.span()
+        source = match.string
+
+        if end < len(source) and source[end] == ".":
+            next_char = source[end + 1] if end + 1 < len(source) else ""
+            if next_char.isdigit():
+                return token
+
+        is_negative = token.startswith("-")
+        core = token[1:] if is_negative else token
+        if "." not in core:
+            return token
+
+        integer_part, _, _ = core.partition(".")
+        if not integer_part or not fraction_part:
+            return token
+
+        integer_value = _coerce_int_token(integer_part.replace(",", ""))
+        if integer_value is None:
+            return token
+
+        trimmed_fraction = fraction_part.rstrip("0")
+        integer_words = _int_to_words(integer_value, language)
+
+        if not trimmed_fraction:
+            if integer_words is None:
+                return token
+            spoken = integer_words
+            return f"minus {spoken}" if is_negative else spoken
+
+        if integer_words is None:
+            fallback_core = core.replace(".", " point ")
+            return f"minus {fallback_core}" if is_negative else fallback_core
+
+        digit_words: List[str] = []
+        for digit in trimmed_fraction:
+            if not digit.isdigit():
+                return token
+            digit_words.append(_DIGIT_WORDS[int(digit)])
+
+        spoken = f"{integer_words} point {' '.join(digit_words)}"
+        return f"minus {spoken}" if is_negative else spoken
+
     normalized = text
     normalized = _NUMBER_RANGE_RE.sub(lambda m: _replace_number_range(m, language), normalized)
     normalized = _NUMBER_SPACE_RANGE_RE.sub(lambda m: _replace_space_separated_range(m, language), normalized)
     normalized = _FRACTION_RE.sub(lambda m: _replace_fraction(m, language), normalized)
+    normalized = _DECIMAL_NUMBER_RE.sub(_replace_decimal, normalized)
     normalized = _NUMBER_WITH_GROUP_RE.sub(_replace_grouped, normalized)
     normalized = _PLAIN_NUMBER_RE.sub(_replace_plain, normalized)
     return normalized

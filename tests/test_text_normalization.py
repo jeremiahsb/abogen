@@ -91,6 +91,11 @@ def test_plain_numbers_are_spelled_out() -> None:
     assert "forty-two" in normalized.lower()
 
 
+def test_decimal_numbers_include_point() -> None:
+    normalized = _normalize_for_pipeline("Book 4.5 of the series.")
+    assert "four point five" in normalized.lower()
+
+
 def test_space_separated_numbers_become_ranges() -> None:
     normalized = _normalize_for_pipeline("Read pages 12 14 tonight.")
     assert "pages twelve to fourteen" in normalized.lower()
