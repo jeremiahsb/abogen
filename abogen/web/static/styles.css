@@ -1595,6 +1595,77 @@ button.step-indicator__item:focus-visible {
   background: rgba(56, 189, 248, 0.08);
 }
 
+
+.entity-table-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+  margin-bottom: 1.5rem;
+}
+
+.entity-table-tools__filter {
+  flex: 1 1 240px;
+  max-width: 360px;
+}
+
+.entity-table-tools__filter input {
+  max-width: none;
+}
+
+.entity-table-tools__clear {
+  align-self: center;
+}
+
+.entity-create {
+  gap: 1.25rem;
+}
+
+.entity-create__description {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.entity-create__actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.entity-preview {
+  display: grid;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.entity-preview__controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.entity-preview__audio {
+  width: min(100%, 220px);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.entity-preview__status {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.entity-preview__status[data-state="success"] {
+  color: var(--success);
+}
+
+.entity-preview__status[data-state="error"] {
+  color: var(--danger);
+}
+
 .overrides-table__token {
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -1637,6 +1708,26 @@ button.step-indicator__item:focus-visible {
 
 .overrides-table__form {
   margin: 0;
+}
+
+.button[data-loading="true"][data-role="preview-button"] {
+  position: relative;
+  padding-left: 2.3rem;
+  pointer-events: none;
+}
+
+.button[data-loading="true"][data-role="preview-button"]::after {
+  content: "";
+  position: absolute;
+  left: 0.9rem;
+  top: 50%;
+  width: 1rem;
+  height: 1rem;
+  margin-top: -0.5rem;
+  border-radius: 50%;
+  border: 2px solid rgba(148, 163, 184, 0.4);
+  border-right-color: rgba(56, 189, 248, 0.8);
+  animation: spin 0.85s linear infinite;
 }
 
 .progress-bar {
@@ -1872,8 +1963,17 @@ button.step-indicator__item:focus-visible {
 }
 
 .button--danger {
-  background: linear-gradient(135deg, var(--danger), #ef4444);
-  box-shadow: 0 12px 30px rgba(239, 68, 68, 0.2);
+  background: rgba(248, 113, 113, 0.16);
+  color: var(--danger);
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  box-shadow: 0 10px 24px rgba(248, 113, 113, 0.18);
+}
+
+.button--danger:hover {
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.85), #ef4444);
+  color: #fff;
+  border-color: rgba(248, 113, 113, 0.65);
+  box-shadow: 0 16px 36px rgba(248, 113, 113, 0.32);
 }
 
 

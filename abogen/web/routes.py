@@ -3543,8 +3543,10 @@ def entities_page() -> ResponseReturnValue:
     ]
 
     status_message = ""
-    if status_code == "saved":
+    if status_code in {"saved", "updated"}:
         status_message = f"Updated override for {status_token or 'override'}."
+    elif status_code == "created":
+        status_message = f"Added override for {status_token or 'override'}."
     elif status_code == "deleted":
         status_message = f"Deleted override for {status_token or 'override'}."
 
@@ -3579,7 +3581,8 @@ def entities_override_update() -> ResponseReturnValue:
     action = (request.form.get("action") or "save").strip().lower()
     pronunciation_value = (request.form.get("pronunciation") or "").strip()
     voice_value = (request.form.get("voice") or "").strip()
-    notes_value = (request.form.get("notes") or "").strip()
+    notes_present = "notes" in request.form
+    notes_value = (request.form.get("notes") or "").strip() if notes_present else ""
 
     redirect_params: Dict[str, Any] = {"lang": language}
     state_mappings = (
@@ -3598,21 +3601,42 @@ def entities_override_update() -> ResponseReturnValue:
         redirect_params["error"] = "Missing override token."
         return redirect(url_for("web.entities_page", **redirect_params))
 
-    status_code = "saved"
+    normalized_token = normalize_entity_token(token_value)
+    if not normalized_token:
+        redirect_params["status"] = "error"
+        redirect_params["error"] = "Token is too generic to override."
+        return redirect(url_for("web.entities_page", **redirect_params))
+
+    existing_map = load_pronunciation_overrides(language=language, tokens=[token_value])
+    existing_override = existing_map.get(normalized_token)
+
+    if notes_present:
+        notes_payload: Optional[str] = notes_value or None
+    elif existing_override:
+        notes_payload = existing_override.get("notes")
+    else:
+        notes_payload = None
+
+    status_code = "updated"
+    saved_override: Optional[Dict[str, Any]] = None
     try:
         if action == "delete":
             delete_pronunciation_override(language=language, token=token_value)
             status_code = "deleted"
         else:
-            save_pronunciation_override(
+            saved_override = save_pronunciation_override(
                 language=language,
                 token=token_value,
                 pronunciation=pronunciation_value or None,
                 voice=voice_value or None,
-                notes=notes_value or None,
+                notes=notes_payload,
                 context=None,
             )
-            status_code = "saved"
+            status_code = "updated" if existing_override else "created"
+    except ValueError as exc:
+        redirect_params["status"] = "error"
+        redirect_params["error"] = str(exc)
+        return redirect(url_for("web.entities_page", **redirect_params))
     except Exception as exc:  # pragma: no cover - defensive logging
         current_app.logger.exception("Failed to %s override for token %s", action, token_value)
         redirect_params["status"] = "error"
@@ -3620,7 +3644,7 @@ def entities_override_update() -> ResponseReturnValue:
         return redirect(url_for("web.entities_page", **redirect_params))
 
     redirect_params["status"] = status_code
-    redirect_params["token"] = token_value
+    redirect_params["token"] = (saved_override or {}).get("token") or token_value
     return redirect(url_for("web.entities_page", **redirect_params))
 
 
