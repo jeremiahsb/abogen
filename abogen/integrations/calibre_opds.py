@@ -166,7 +166,12 @@ class CalibreOPDSClient:
         href = href.strip()
         if href.startswith("http://") or href.startswith("https://"):
             return href
-        return urljoin(self._base_url, href)
+        if href.startswith("/") or href.startswith("?") or href.startswith("#"):
+            return urljoin(self._base_url, href)
+        if href.startswith("./") or href.startswith("../"):
+            return urljoin(self._base_url, href)
+        # Ensure relative paths like "search" keep the catalog prefix
+        return urljoin(self._base_url, f"./{href}")
 
     def _open_client(self) -> httpx.Client:
         return httpx.Client(

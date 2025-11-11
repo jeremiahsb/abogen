@@ -95,3 +95,12 @@ This is the detailed summary text.</summary>
     assert entry.rating_max == 5.0
     assert entry.summary == "This is the detailed summary text."
     assert entry.published == "2024-01-15T00:00:00+00:00"
+
+
+def test_calibre_opds_relative_urls_keep_catalog_prefix() -> None:
+  client = CalibreOPDSClient("http://example.com/opds/")
+
+  assert client._make_url("search") == "http://example.com/opds/search"
+  assert client._make_url("books/sample.epub") == "http://example.com/opds/books/sample.epub"
+  assert client._make_url("/cover/1") == "http://example.com/cover/1"
+  assert client._make_url("?page=2") == "http://example.com/opds/?page=2"
