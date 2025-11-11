@@ -4,6 +4,7 @@ import dataclasses
 import html
 import re
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 from urllib.parse import urljoin, urlparse
 from xml.etree import ElementTree as ET
@@ -38,6 +39,8 @@ _EPUB_MIME_TYPES = {
     "application/x-zip",
     "application/x-zip-compressed",
 }
+_SUPPORTED_DOWNLOAD_MIME_TYPES = set(_EPUB_MIME_TYPES) | {"application/pdf"}
+_SUPPORTED_DOWNLOAD_EXTENSIONS = {".epub", ".pdf"}
 
 
 class CalibreOPDSError(RuntimeError):
@@ -270,7 +273,12 @@ class CalibreOPDSClient:
         feed_id = root.findtext("atom:id", default=None, namespaces=NS)
         feed_title = root.findtext("atom:title", default=None, namespaces=NS)
         links = self._parse_links(root.findall("atom:link", NS), base_url)
-        entries = [self._parse_entry(node, base_url) for node in root.findall("atom:entry", NS)]
+        parsed_entries = [self._parse_entry(node, base_url) for node in root.findall("atom:entry", NS)]
+        entries = [
+            entry
+            for entry in parsed_entries
+            if entry.download and self._is_supported_download(entry.download)
+        ]
         return OPDSFeed(id=feed_id, title=feed_title, entries=entries, links=links)
 
     def _parse_entry(self, node: ET.Element, base_url: str) -> OPDSEntry:
@@ -577,13 +585,26 @@ class CalibreOPDSClient:
         return results
 
     @staticmethod
+    def _is_supported_download(link: OPDSLink) -> bool:
+        mime = (link.type or "").split(";")[0].strip().lower()
+        if mime in _SUPPORTED_DOWNLOAD_MIME_TYPES:
+            return True
+        href = (link.href or "").strip()
+        if not href:
+            return False
+        parsed_path = urlparse(href).path or ""
+        extension = PurePosixPath(parsed_path).suffix.lower()
+        return extension in _SUPPORTED_DOWNLOAD_EXTENSIONS
+
+    @staticmethod
     def _select_download_link(links: Mapping[str, OPDSLink] | Iterable[OPDSLink]) -> Optional[OPDSLink]:
         if isinstance(links, Mapping):
             iterable: List[OPDSLink] = list(links.values())
         else:
             iterable = list(links)
+        supported = [link for link in iterable if CalibreOPDSClient._is_supported_download(link)]
         best: Optional[OPDSLink] = None
-        for link in iterable:
+        for link in supported:
             rel = (link.rel or "").lower()
             if "acquisition" not in rel:
                 continue
@@ -594,11 +615,8 @@ class CalibreOPDSClient:
                 best = link
         if best:
             return best
-        # Fallback to first epub-like link even without explicit acquisition rel
-        for link in iterable:
-            mime = (link.type or "").lower()
-            if mime in _EPUB_MIME_TYPES:
-                return link
+        if supported:
+            return supported[0]
         # No valid acquisition-style link exposed
         return None
 

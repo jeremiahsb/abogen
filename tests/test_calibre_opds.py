@@ -104,3 +104,41 @@ def test_calibre_opds_relative_urls_keep_catalog_prefix() -> None:
   assert client._make_url("books/sample.epub") == "http://example.com/opds/books/sample.epub"
   assert client._make_url("/cover/1") == "http://example.com/cover/1"
   assert client._make_url("?page=2") == "http://example.com/opds/?page=2"
+
+
+def test_calibre_opds_filters_out_unsupported_formats() -> None:
+    client = CalibreOPDSClient("http://example.com/catalog")
+    xml_payload = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+    <feed xmlns=\"http://www.w3.org/2005/Atom\">
+      <id>catalog</id>
+      <title>Example Catalog</title>
+      <entry>
+        <id>audio-book</id>
+        <title>Unsupported Audio</title>
+        <link rel=\"http://opds-spec.org/acquisition\"
+              href=\"books/sample.mp3\"
+              type=\"audio/mpeg\" />
+      </entry>
+      <entry>
+        <id>pdf-book</id>
+        <title>Allowed PDF</title>
+        <link rel=\"http://opds-spec.org/acquisition\"
+              href=\"books/sample.pdf\"
+              type=\"application/pdf\" />
+      </entry>
+      <entry>
+        <id>epub-book</id>
+        <title>Allowed EPUB</title>
+        <link rel=\"http://opds-spec.org/acquisition\"
+              href=\"books/sample.epub\" />
+      </entry>
+    </feed>
+    """
+
+    feed = client._parse_feed(xml_payload, base_url="http://example.com/catalog")
+
+    identifiers = {entry.id for entry in feed.entries}
+    assert identifiers == {"pdf-book", "epub-book"}
+    for entry in feed.entries:
+        assert entry.download is not None
+        assert entry.download.href.endswith((".pdf", ".epub"))
