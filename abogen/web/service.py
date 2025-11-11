@@ -359,6 +359,33 @@ def _build_audiobookshelf_metadata(job: Job) -> Dict[str, Any]:
         tags.get("series_title"),
         tags.get("seriestitle"),
     )
+    if series_name:
+        normalized_series = series_name.strip()
+        if normalized_series:
+            author_candidates: set[str] = set()
+            for name in authors:
+                author_name = name.strip()
+                if author_name:
+                    author_candidates.add(author_name.casefold())
+            raw_author_fields = (
+                tags.get("authors"),
+                tags.get("author"),
+                tags.get("album_artist"),
+                tags.get("artist"),
+                tags.get("writer"),
+                tags.get("composer"),
+            )
+            for raw_author in raw_author_fields:
+                if not raw_author:
+                    continue
+                author_text = str(raw_author).strip()
+                if author_text:
+                    author_candidates.add(author_text.casefold())
+            joined_authors = ", ".join(authors)
+            if joined_authors:
+                author_candidates.add(joined_authors.casefold())
+            if normalized_series.casefold() in author_candidates:
+                series_name = None
     series_sequence = None
     for key in _SERIES_SEQUENCE_TAG_KEYS:
         raw_value = tags.get(key)
@@ -366,6 +393,8 @@ def _build_audiobookshelf_metadata(job: Job) -> Dict[str, Any]:
         if normalized_sequence:
             series_sequence = normalized_sequence
             break
+    if not series_name:
+        series_sequence = None
     data: Dict[str, Any] = {
         "title": title,
         "authors": authors,
