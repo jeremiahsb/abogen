@@ -101,6 +101,48 @@ def test_space_separated_numbers_become_ranges() -> None:
     assert "pages twelve to fourteen" in normalized.lower()
 
 
+def test_year_like_numbers_use_common_pronunciation() -> None:
+    normalized = _normalize_for_pipeline("In 1924 the journey began")
+    folded = normalized.lower().replace("-", " ")
+    assert "nineteen twenty four" in folded
+
+
+def test_early_century_years_use_hundred_format() -> None:
+    normalized = _normalize_for_pipeline("In 1204 the city fell")
+    assert "twelve hundred" in normalized.lower()
+    assert "oh four" in normalized.lower()
+
+
+def test_roman_numerals_in_titles_are_converted() -> None:
+    normalized = _normalize_for_pipeline("Chapter IV begins now")
+    assert "chapter four" in normalized.lower()
+
+
+def test_roman_numeral_suffixes_use_ordinals() -> None:
+    normalized = _normalize_for_pipeline("Bob Smith II arrived late")
+    assert "bob smith the second" in normalized.lower()
+
+
+def test_recent_years_split_twenty_style() -> None:
+    normalized = _normalize_for_pipeline("In 2025 we planned ahead")
+    folded = normalized.lower().replace("-", " ")
+    assert "twenty twenty five" in folded
+
+
+def test_two_thousands_use_two_thousand_prefix() -> None:
+    normalized = _normalize_for_pipeline("In 2005 we celebrated")
+    assert "two thousand five" in normalized.lower()
+
+
+def test_year_style_can_be_disabled() -> None:
+    normalized = _normalize_for_pipeline(
+        "In 2025 we planned ahead",
+        normalization_overrides={"normalization_numbers_year_style": "off"},
+    )
+    folded = normalized.lower().replace("-", " ")
+    assert "twenty twenty five" not in folded
+
+
 def test_contractions_can_be_kept_when_override_disabled() -> None:
     normalized = _normalize_for_pipeline(
         "It's a good day.",

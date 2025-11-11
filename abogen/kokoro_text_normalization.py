@@ -49,6 +49,7 @@ class ApostropheConfig:
     protect_cultural_names: bool = True           # Always keep O'Brien, D'Angelo, etc.
     convert_numbers: bool = True                  # Convert grouped numbers such as 12,500 to words
     number_lang: str = "en"                       # num2words language code
+    year_pronunciation_mode: str = "american"     # off|american (extend if needed)
     contraction_categories: Dict[str, bool] = field(default_factory=lambda: dict(CONTRACTION_CATEGORY_DEFAULTS))
 
     def is_contraction_enabled(self, category: str) -> bool:
@@ -430,6 +431,105 @@ _ROMAN_COMPOSE_ORDER = [
 
 _ROMAN_PREFIX_RE = re.compile(r"^(?P<roman>[IVXLCDM]+)(?P<sep>[\s\.:,;\-–—]*)", re.IGNORECASE)
 
+_ROMAN_TOKEN_RE = re.compile(r"^[IVXLCDM]+$")
+_ROMAN_CARDINAL_CONTEXTS = {
+    "act",
+    "appendix",
+    "article",
+    "battle",
+    "book",
+    "campaign",
+    "chapter",
+    "episode",
+    "film",
+    "final",
+    "fantasy",
+    "game",
+    "installment",
+    "lesson",
+    "level",
+    "mission",
+    "movement",
+    "opus",
+    "operation",
+    "page",
+    "part",
+    "phase",
+    "psalm",
+    "round",
+    "scene",
+    "season",
+    "section",
+    "series",
+    "song",
+    "super",
+    "bowl",
+    "stage",
+    "step",
+    "track",
+    "volume",
+    "war",
+    "world",
+}
+_ROMAN_NAME_TITLES = {
+    "baron",
+    "baroness",
+    "captain",
+    "cardinal",
+    "count",
+    "countess",
+    "duchess",
+    "duke",
+    "emperor",
+    "empress",
+    "general",
+    "governor",
+    "king",
+    "lord",
+    "lady",
+    "major",
+    "pope",
+    "president",
+    "prince",
+    "princess",
+    "queen",
+    "saint",
+    "sir",
+}
+_ROMAN_NAME_CONNECTORS = {
+    "de",
+    "del",
+    "della",
+    "der",
+    "di",
+    "dos",
+    "la",
+    "le",
+    "of",
+    "the",
+    "van",
+    "von",
+}
+_ROMAN_BREAK_TOKENS = {
+    ",",
+    ".",
+    "!",
+    "?",
+    ";",
+    ":",
+    "(",
+    ")",
+    "[",
+    "]",
+    "{",
+    "}",
+    "—",
+    "–",
+    "-",
+    "'",
+    '"',
+}
+
 
 def _roman_to_int(token: str) -> Optional[int]:
     if not token:
@@ -460,6 +560,100 @@ def _int_to_roman(value: int) -> str:
         while remaining >= amount:
             parts.append(symbol)
             remaining -= amount
+    return "".join(parts)
+
+
+def _is_titlecase_token(token: str) -> bool:
+    cleaned = token.replace("'", "").replace("-", "")
+    if not cleaned:
+        return False
+    if not cleaned[0].isalpha() or not cleaned[0].isupper():
+        return False
+    tail = cleaned[1:]
+    return not tail or tail.islower()
+
+
+def _token_is_cardinal_context(token: str) -> bool:
+    return token.lower() in _ROMAN_CARDINAL_CONTEXTS
+
+
+def _should_render_ordinal(
+    tokens: Sequence[Tuple[str, int, int]],
+    index: int,
+    value: int,
+) -> bool:
+    # Treat trailing roman numerals in name-like sequences as ordinals while
+    # leaving enumerated headings or series labels as cardinals.
+    if value <= 0:
+        return False
+    if index <= 0:
+        return False
+
+    uppercase_count = 0
+    title_count = 0
+    j = index - 1
+    while j >= 0:
+        token, *_ = tokens[j]
+        lowered = token.lower()
+
+        if lowered in _ROMAN_CARDINAL_CONTEXTS:
+            return False
+        if lowered in _ROMAN_BREAK_TOKENS or token.isdigit():
+            break
+        if lowered in _ROMAN_NAME_CONNECTORS:
+            j -= 1
+            continue
+        if _is_titlecase_token(token):
+            uppercase_count += 1
+            if lowered in _ROMAN_NAME_TITLES:
+                title_count += 1
+            j -= 1
+            continue
+        break
+
+    if not uppercase_count:
+        return False
+
+    if title_count:
+        return value <= 50
+
+    if uppercase_count >= 2:
+        return value <= 20
+
+    return False
+
+
+def _normalize_roman_numerals(text: str, language: str) -> str:
+    if not text:
+        return text
+
+    tokens = tokenize_with_spans(text)
+    if not tokens:
+        return text
+
+    parts: List[str] = []
+    cursor = 0
+
+    for index, (token, start, end) in enumerate(tokens):
+        parts.append(text[cursor:start])
+        replacement = token
+
+        if len(token) >= 2 and token.isupper() and _ROMAN_TOKEN_RE.match(token):
+            numeric_value = _roman_to_int(token)
+            if numeric_value is not None:
+                if _should_render_ordinal(tokens, index, numeric_value):
+                    ordinal = _int_to_ordinal_words(numeric_value, language)
+                    if ordinal:
+                        replacement = f"the {ordinal}"
+                else:
+                    words = _int_to_words(numeric_value, language)
+                    if words:
+                        replacement = words
+
+        parts.append(replacement)
+        cursor = end
+
+    parts.append(text[cursor:])
     return "".join(parts)
 
 
@@ -890,6 +1084,105 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
 
     language = (cfg.number_lang or "en").strip() or "en"
 
+    def _year_mode() -> str:
+        mode = (cfg.year_pronunciation_mode or "").strip().lower()
+        if mode in {"", "none", "off", "disabled"}:
+            return "off"
+        if mode not in {"american"}:
+            return "off"
+        return mode
+
+    year_mode = _year_mode()
+
+    def _format_year_tail(value: int, *, allow_oh: bool = True) -> Optional[str]:
+        if value == 0:
+            return ""
+        if value < 10:
+            if allow_oh:
+                return f"oh {_DIGIT_WORDS[value]}"
+            return _DIGIT_WORDS[value]
+        words = _int_to_words(value, language)
+        if not words:
+            return None
+        return words
+
+    def _format_year_like(token: str, value: int) -> Optional[str]:
+        if year_mode == "off" or num2words is None:
+            return None
+        if len(token) != 4 or not token.isdigit():
+            return None
+        if value < 1000 or value > 9999:
+            return None
+        style = year_mode
+
+        def _words(value_to_convert: int) -> Optional[str]:
+            words = _int_to_words(value_to_convert, language)
+            return words
+
+        if style == "american":
+            if value % 1000 == 0:
+                thousands = value // 1000
+                thousands_words = _words(thousands)
+                if thousands_words:
+                    return f"{thousands_words} thousand"
+                return None
+
+            first_two = value // 100
+            last_two = value % 100
+
+            # Special handling to match common American pronunciations.
+            if first_two == 20:
+                if last_two == 0:
+                    return "two thousand"
+                if last_two < 10:
+                    tail_word = _words(last_two)
+                    if tail_word:
+                        return f"two thousand {tail_word}"
+                    return None
+                prefix = _words(first_two)
+                tail = _words(last_two)
+                if prefix and tail:
+                    return f"{prefix} {tail}"
+                return prefix
+
+            prefix = _words(first_two)
+            if not prefix:
+                return None
+
+            if first_two == 10:
+                if last_two == 0:
+                    return "one thousand"
+                tail = _format_year_tail(last_two)
+                if tail:
+                    return f"{prefix} {tail}"
+                return prefix
+
+            if first_two <= 12:
+                if last_two == 0:
+                    return f"{prefix} hundred"
+                tail = _format_year_tail(last_two)
+                if tail:
+                    return f"{prefix} hundred {tail}"
+                return f"{prefix} hundred"
+
+            if first_two <= 19:
+                if last_two == 0:
+                    return f"{prefix} hundred"
+                tail = _format_year_tail(last_two)
+                if tail:
+                    return f"{prefix} {tail}"
+                return prefix
+
+            if last_two == 0:
+                return f"{prefix} hundred"
+
+            tail = _format_year_tail(last_two)
+            if tail:
+                return f"{prefix} {tail}"
+            return prefix
+
+        return None
+
     def _replace_grouped(match: re.Match[str]) -> str:
         token = match.group(1)
         value = _coerce_int_token(token)
@@ -927,6 +1220,9 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
         value = _coerce_int_token(token)
         if value is None:
             return token
+        year_like = _format_year_like(token, value)
+        if year_like:
+            return year_like
         if num2words is None:
             return str(value)
         words = _int_to_words(value, language)
@@ -985,6 +1281,7 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
     normalized = _DECIMAL_NUMBER_RE.sub(_replace_decimal, normalized)
     normalized = _NUMBER_WITH_GROUP_RE.sub(_replace_grouped, normalized)
     normalized = _PLAIN_NUMBER_RE.sub(_replace_plain, normalized)
+    normalized = _normalize_roman_numerals(normalized, language)
     return normalized
 
 # ---------- Optional phoneme hint post-processing ----------
