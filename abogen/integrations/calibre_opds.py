@@ -930,23 +930,24 @@ class CalibreOPDSClient:
     def _entry_matches_query(entry: OPDSEntry, tokens: List[str]) -> bool:
         if not tokens:
             return True
-        haystack_parts: List[str] = []
+        search_fragments: List[str] = []
         if entry.title:
-            haystack_parts.append(entry.title)
-        if entry.authors:
-            haystack_parts.extend(entry.authors)
+            search_fragments.append(entry.title.strip().lower())
         if entry.series:
-            haystack_parts.append(entry.series)
-        if entry.summary:
-            haystack_parts.append(entry.summary)
-        if entry.tags:
-            haystack_parts.extend(entry.tags)
-        if entry.alternate and entry.alternate.title:
-            haystack_parts.append(entry.alternate.title)
-        combined = " ".join(part for part in haystack_parts if part).lower()
-        if not combined:
+            search_fragments.append(entry.series.strip().lower())
+        for author in entry.authors:
+            cleaned = (author or "").strip()
+            if not cleaned:
+                continue
+            lower_value = cleaned.lower()
+            search_fragments.append(lower_value)
+            for part in re.split(r"[\s,]+", lower_value):
+                part = part.strip()
+                if part:
+                    search_fragments.append(part)
+        if not search_fragments:
             return False
-        return all(token in combined for token in tokens)
+        return all(any(token in fragment for fragment in search_fragments) for token in tokens)
 
     def _filter_feed_entries(self, feed: OPDSFeed, query: str) -> OPDSFeed:
         normalized = (query or "").strip().lower()
