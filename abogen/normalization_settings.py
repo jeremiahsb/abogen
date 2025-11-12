@@ -35,6 +35,7 @@ _SETTINGS_DEFAULTS: Dict[str, Any] = {
     "normalization_titles": True,
     "normalization_terminal": True,
     "normalization_phoneme_hints": True,
+    "normalization_caps_quotes": True,
     "normalization_apostrophes_contractions": True,
     "normalization_apostrophes_plural_possessives": True,
     "normalization_apostrophes_sibilant_possessives": True,

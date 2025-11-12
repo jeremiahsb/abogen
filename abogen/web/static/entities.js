@@ -116,9 +116,30 @@
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
-      if (!response.ok || data.error) {
-        throw new Error(data.error || 'Preview failed.');
+      const contentType = response.headers.get('Content-Type') || '';
+      let data = null;
+      if (contentType.includes('application/json')) {
+        try {
+          data = await response.json();
+        } catch (parseError) {
+          if (!response.ok) {
+            throw new Error('Preview failed.');
+          }
+          throw parseError instanceof Error ? parseError : new Error('Preview failed.');
+        }
+      } else {
+        if (!response.ok) {
+          const fallback = await response.text().catch(() => '');
+          throw new Error(fallback || 'Preview failed.');
+        }
+        throw new Error('Preview failed.');
+      }
+
+      if (!response.ok || (data && data.error)) {
+        throw new Error((data && data.error) || 'Preview failed.');
+      }
+      if (!data || typeof data !== 'object') {
+        throw new Error('Preview failed.');
       }
       if (!data.audio_base64) {
         throw new Error('Preview did not return audio.');

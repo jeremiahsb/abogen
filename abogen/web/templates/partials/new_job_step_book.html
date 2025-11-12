@@ -127,7 +127,12 @@
   {% set narrator_voice = '' %}
 {% endif %}
 {% set normalization_overrides = pending.normalization_overrides if pending and pending.normalization_overrides else {} %}
-{% set apostrophe_toggles = [
+{% set normalization_toggles = [
+  {
+    'name': 'normalization_caps_quotes',
+    'label': "Convert ALL CAPS dialogue inside quotes",
+    'value': normalization_overrides.get('normalization_caps_quotes', settings_dict.get('normalization_caps_quotes', True)),
+  },
   {
     'name': 'normalization_apostrophes_contractions',
     'label': "Expand contractions (it's -> it is)",
@@ -298,7 +303,7 @@
     <section class="form-section">
       <h3 class="form-section__title">Text normalization</h3>
       <div class="field-grid field-grid--compact">
-        {% for toggle in apostrophe_toggles %}
+  {% for toggle in normalization_toggles %}
         <div class="field field--stack">
           <label class="toggle-pill">
             <input type="hidden" name="{{ toggle.name }}" value="false">

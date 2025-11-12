@@ -108,9 +108,19 @@
         <span>Voice override</span>
         <select name="voice">
           <option value="" selected>No override</option>
-          {% for voice in options.voice_catalog %}
-          <option value="{{ voice.id }}">{{ voice.display_name }} - {{ voice.language_label }} - {{ voice.gender }}</option>
-          {% endfor %}
+          {% if options.voice_profile_options %}
+          <optgroup label="Saved mixes">
+            {% for profile in options.voice_profile_options %}
+            {% set profile_value = 'profile:' ~ profile.name %}
+            <option value="{{ profile_value }}">{{ profile.name }}{% if profile.language %} · {{ profile.language|upper }}{% endif %}</option>
+            {% endfor %}
+          </optgroup>
+          {% endif %}
+          <optgroup label="Stock voices">
+            {% for voice in options.voice_catalog %}
+            <option value="{{ voice.id }}">{{ voice.display_name }} - {{ voice.language_label }} - {{ voice.gender }}</option>
+            {% endfor %}
+          </optgroup>
         </select>
       </label>
     </div>
@@ -166,17 +176,45 @@
             >
           </td>
           <td data-label="Voice">
+            {% set current_voice = override.voice or '' %}
+            {% set known_voice = namespace(value=False) %}
+            {% if current_voice %}
+              {% if current_voice in options.voice_catalog_map %}
+                {% set known_voice.value = True %}
+              {% else %}
+                {% for profile in options.voice_profile_options %}
+                  {% if current_voice == 'profile:' ~ profile.name %}
+                    {% set known_voice.value = True %}
+                  {% endif %}
+                {% endfor %}
+              {% endif %}
+            {% endif %}
             <select
               class="overrides-table__select"
               name="voice"
               form="{{ form_id }}"
             >
-              <option value="" {% if not override.voice %}selected{% endif %}>No override</option>
-              {% for voice in options.voice_catalog %}
-              <option value="{{ voice.id }}" {% if override.voice == voice.id %}selected{% endif %}>
-                {{ voice.display_name }} - {{ voice.language_label }} - {{ voice.gender }}
-              </option>
-              {% endfor %}
+              <option value="" {% if not current_voice %}selected{% endif %}>No override</option>
+              {% if options.voice_profile_options %}
+              <optgroup label="Saved mixes">
+                {% for profile in options.voice_profile_options %}
+                {% set profile_value = 'profile:' ~ profile.name %}
+                <option value="{{ profile_value }}" {% if current_voice == profile_value %}selected{% endif %}>
+                  {{ profile.name }}{% if profile.language %} · {{ profile.language|upper }}{% endif %}
+                </option>
+                {% endfor %}
+              </optgroup>
+              {% endif %}
+              <optgroup label="Stock voices">
+                {% for voice in options.voice_catalog %}
+                <option value="{{ voice.id }}" {% if current_voice == voice.id %}selected{% endif %}>
+                  {{ voice.display_name }} - {{ voice.language_label }} - {{ voice.gender }}
+                </option>
+                {% endfor %}
+              </optgroup>
+              {% if current_voice and not known_voice.value %}
+              <option value="{{ current_voice }}" selected>{{ current_voice }}</option>
+              {% endif %}
             </select>
           </td>
           <td data-label="Usage">{{ override.usage_count }}</td>

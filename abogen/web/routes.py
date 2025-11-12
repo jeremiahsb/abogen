@@ -2095,6 +2095,7 @@ BOOLEAN_SETTINGS = {
     "normalization_titles",
     "normalization_terminal",
     "normalization_phoneme_hints",
+    "normalization_caps_quotes",
     "normalization_apostrophes_contractions",
     "normalization_apostrophes_plural_possessives",
     "normalization_apostrophes_sibilant_possessives",
@@ -2123,6 +2124,7 @@ _APOSTROPHE_OVERRIDE_KEYS = (
     "normalization_contraction_modal_would",
     "normalization_contraction_negation_not",
     "normalization_contraction_let_us",
+    "normalization_caps_quotes",
 )
 
 
@@ -2192,6 +2194,7 @@ def _settings_defaults() -> Dict[str, Any]:
         "normalization_titles": True,
         "normalization_terminal": True,
         "normalization_phoneme_hints": True,
+    "normalization_caps_quotes": True,
         "normalization_apostrophes_contractions": True,
         "normalization_apostrophes_plural_possessives": True,
         "normalization_apostrophes_sibilant_possessives": True,

@@ -302,6 +302,10 @@
                 <input type="checkbox" name="normalization_phoneme_hints" value="true" {% if settings.normalization_phoneme_hints %}checked{% endif %}>
                 <span>Add phoneme hints for possessives</span>
               </label>
+              <label class="toggle-pill">
+                <input type="checkbox" name="normalization_caps_quotes" value="true" {% if settings.normalization_caps_quotes %}checked{% endif %}>
+                <span>Convert ALL CAPS dialogue inside quotes</span>
+              </label>
               <span class="field__caption">Apostrophes</span>
               <label class="toggle-pill">
                 <input type="checkbox" name="normalization_apostrophes_contractions" value="true" {% if settings.normalization_apostrophes_contractions %}checked{% endif %}>

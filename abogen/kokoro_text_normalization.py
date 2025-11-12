@@ -530,6 +530,12 @@ _ROMAN_BREAK_TOKENS = {
     '"',
 }
 
+_ROMAN_CONTEXT_PASSTHROUGH = {"-", "–", "—", ":"}
+_ROMAN_CONTEXT_COMPOUND_RE = re.compile(
+    r"^(?P<context>[A-Za-z]+)(?P<sep>[-–—:])(?P<roman>[IVXLCDM]+)$",
+    re.IGNORECASE,
+)
+
 
 def _roman_to_int(token: str) -> Optional[int]:
     if not token:
@@ -575,6 +581,29 @@ def _is_titlecase_token(token: str) -> bool:
 
 def _token_is_cardinal_context(token: str) -> bool:
     return token.lower() in _ROMAN_CARDINAL_CONTEXTS
+
+
+def _has_cardinal_leading_context(tokens: Sequence[Tuple[str, int, int]], index: int) -> bool:
+    j = index - 1
+    while j >= 0:
+        token, *_ = tokens[j]
+        stripped = token.strip()
+        if not stripped:
+            j -= 1
+            continue
+        lowered = stripped.lower()
+        if lowered in _ROMAN_CONTEXT_PASSTHROUGH:
+            j -= 1
+            continue
+        if lowered in _ROMAN_BREAK_TOKENS:
+            return False
+        cleaned = lowered.strip("()[]{}\"'.,;!?")
+        if cleaned in _ROMAN_CARDINAL_CONTEXTS:
+            return True
+        if cleaned:
+            return False
+        j -= 1
+    return False
 
 
 def _should_render_ordinal(
@@ -638,23 +667,198 @@ def _normalize_roman_numerals(text: str, language: str) -> str:
         parts.append(text[cursor:start])
         replacement = token
 
-        if len(token) >= 2 and token.isupper() and _ROMAN_TOKEN_RE.match(token):
-            numeric_value = _roman_to_int(token)
-            if numeric_value is not None:
-                if _should_render_ordinal(tokens, index, numeric_value):
-                    ordinal = _int_to_ordinal_words(numeric_value, language)
-                    if ordinal:
-                        replacement = f"the {ordinal}"
-                else:
-                    words = _int_to_words(numeric_value, language)
-                    if words:
-                        replacement = words
+        compound_match = _ROMAN_CONTEXT_COMPOUND_RE.match(token)
+        if compound_match:
+            context_word = compound_match.group("context")
+            separator = compound_match.group("sep")
+            roman_part = compound_match.group("roman")
+            numeric_value = _roman_to_int(roman_part.upper())
+            if (
+                numeric_value is not None
+                and numeric_value <= 200
+                and context_word.lower() in _ROMAN_CARDINAL_CONTEXTS
+            ):
+                words = _int_to_words(numeric_value, language)
+                if words:
+                    if separator == ":":
+                        replacement = f"{context_word}: {words}"
+                    else:
+                        replacement = f"{context_word} {words}"
+        else:
+            candidate = token.upper()
+            if len(token) >= 2 and _ROMAN_TOKEN_RE.match(candidate):
+                numeric_value = _roman_to_int(candidate)
+                if numeric_value is not None:
+                    convert = False
+                    if token.isupper():
+                        convert = True
+                    elif numeric_value <= 200 and _has_cardinal_leading_context(tokens, index):
+                        convert = True
+
+                    if convert:
+                        if _should_render_ordinal(tokens, index, numeric_value):
+                            ordinal = _int_to_ordinal_words(numeric_value, language)
+                            if ordinal:
+                                replacement = f"the {ordinal}"
+                        else:
+                            words = _int_to_words(numeric_value, language)
+                            if words:
+                                replacement = words
 
         parts.append(replacement)
         cursor = end
 
     parts.append(text[cursor:])
     return "".join(parts)
+
+
+_ACRONYM_ALLOWLIST = {
+    "AI",
+    "API",
+    "CPU",
+    "DIY",
+    "GPU",
+    "HTML",
+    "HTTP",
+    "HTTPS",
+    "ID",
+    "JSON",
+    "MP3",
+    "MP4",
+    "M4B",
+    "NASA",
+    "OCR",
+    "PDF",
+    "SQL",
+    "TV",
+    "TTS",
+    "UK",
+    "UN",
+    "UFO",
+    "OK",
+    "URL",
+    "USA",
+    "US",
+    "VR",
+}
+_ROMAN_NUMERAL_LETTERS = frozenset("IVXLCDM")
+_CAPS_WORD_PATTERN = re.compile(r"[A-Z][A-Z0-9'\u2019-]*")
+_WORD_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9'\u2019-]*")
+_QUOTE_PAIRS = {
+    '"': '"',
+    "“": "”",
+    "„": "“",
+    "«": "»",
+    "‹": "›",
+}
+
+
+def _should_preserve_caps_word(word: str) -> bool:
+    letters = "".join(ch for ch in word if ch.isalpha())
+    if not letters:
+        return False
+    base = letters
+    if word.endswith(("'S", "’S")) and len(letters) > 1:
+        base = letters[:-1]
+    upper_base = base.upper()
+    if upper_base in _ACRONYM_ALLOWLIST:
+        return True
+    if all(ch in _ROMAN_NUMERAL_LETTERS for ch in letters.upper()) and len(letters) <= 7:
+        return True
+    return False
+
+
+def _should_normalize_caps_segment(segment: str) -> bool:
+    letters = [ch for ch in segment if ch.isalpha()]
+    if not letters:
+        return False
+    if any(ch.islower() for ch in letters):
+        return False
+    if len(letters) <= 1:
+        return False
+    if not any(ch.isspace() for ch in segment) and len(letters) <= 4:
+        return False
+    return True
+
+
+def _normalize_caps_segment(segment: str) -> str:
+    if not segment:
+        return segment
+
+    preserve: Dict[str, str] = {}
+    for match in _CAPS_WORD_PATTERN.finditer(segment):
+        word = match.group(0)
+        if _should_preserve_caps_word(word):
+            preserve[word.lower()] = word
+
+    lowered = segment.lower()
+    result_chars: List[str] = []
+    capitalize_next = True
+    for char in lowered:
+        if capitalize_next and char.isalpha():
+            result_chars.append(char.upper())
+            capitalize_next = False
+        else:
+            result_chars.append(char)
+            if char.isalpha():
+                capitalize_next = False
+        if char in ".!?":
+            capitalize_next = True
+        elif char in "\n":
+            capitalize_next = True
+
+    def _restore(match: re.Match[str]) -> str:
+        token = match.group(0)
+        lookup = preserve.get(token.lower())
+        if lookup:
+            return lookup
+        lower = token.lower()
+        if lower == "i":
+            return "I"
+        if lower.startswith("i'") or lower.startswith("i\u2019"):
+            return "I" + token[1:]
+        return token
+
+    return _WORD_PATTERN.sub(_restore, "".join(result_chars))
+
+
+def _normalize_all_caps_quotes(text: str) -> str:
+    if not text:
+        return text
+
+    builder: List[str] = []
+    index = 0
+    length = len(text)
+
+    while index < length:
+        char = text[index]
+        closing = _QUOTE_PAIRS.get(char)
+        if not closing:
+            builder.append(char)
+            index += 1
+            continue
+
+        cursor = index + 1
+        while cursor < length and text[cursor] != closing:
+            cursor += 1
+
+        if cursor >= length:
+            builder.append(text[index:])
+            break
+
+        body = text[index + 1 : cursor]
+        if _should_normalize_caps_segment(body):
+            normalized = _normalize_caps_segment(body)
+            builder.append(char + normalized + closing)
+        else:
+            builder.append(text[index : cursor + 1])
+
+        index = cursor + 1
+
+    if index < length:
+        builder.append(text[index:])
+
+    return "".join(builder)
 
 
 def normalize_roman_numeral_titles(
@@ -1611,6 +1815,8 @@ def normalize_for_pipeline(
         normalized = expand_titles_and_suffixes(normalized)
     if runtime_settings.get("normalization_terminal", True):
         normalized = ensure_terminal_punctuation(normalized)
+    if runtime_settings.get("normalization_caps_quotes", True):
+        normalized = _normalize_all_caps_quotes(normalized)
 
     if cfg.add_phoneme_hints:
         normalized = apply_phoneme_hints(normalized, iz_marker=cfg.sibilant_iz_marker)
