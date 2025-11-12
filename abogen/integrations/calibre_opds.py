@@ -3,9 +3,10 @@ from __future__ import annotations
 import dataclasses
 import html
 import re
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Deque, Dict, Iterable, List, Mapping, Optional, Set
 from urllib.parse import urljoin, urlparse
 from xml.etree import ElementTree as ET
 
@@ -207,17 +208,134 @@ class CalibreOPDSClient:
             (None, {"search": cleaned}),
         ]
         last_error: Optional[Exception] = None
+        base_feed: Optional[OPDSFeed] = None
         for path, params in candidates:
             try:
                 feed = self.fetch_feed(path, params=params)
-                return self._filter_feed_entries(feed, cleaned)
             except CalibreOPDSError as exc:
                 last_error = exc
                 continue
-        if last_error is not None:
+            filtered = self._filter_feed_entries(feed, cleaned)
+            if filtered.entries:
+                return filtered
+            fallback = self._local_search(cleaned, seed_feed=feed)
+            if fallback.entries:
+                return fallback
+            if base_feed is None:
+                try:
+                    base_feed = self.fetch_feed()
+                except CalibreOPDSError:
+                    base_feed = None
+            if base_feed is not None:
+                filtered_root = self._filter_feed_entries(base_feed, cleaned)
+                if filtered_root.entries:
+                    return filtered_root
+                fallback_root = self._local_search(cleaned, seed_feed=base_feed)
+                if fallback_root.entries:
+                    return fallback_root
+        if last_error is not None and base_feed is None:
             raise last_error
-        feed = self.fetch_feed()
-        return self._filter_feed_entries(feed, cleaned)
+        if base_feed is None:
+            base_feed = self.fetch_feed()
+        filtered = self._filter_feed_entries(base_feed, cleaned)
+        if filtered.entries:
+            return filtered
+        return self._local_search(cleaned, seed_feed=base_feed)
+
+    def _local_search(
+        self,
+        query: str,
+        *,
+        seed_feed: Optional[OPDSFeed] = None,
+        max_pages: int = 40,
+    ) -> OPDSFeed:
+        normalized = (query or "").strip()
+        if not normalized:
+            return seed_feed or self.fetch_feed()
+        tokens = [token for token in re.split(r"\s+", normalized.lower()) if token]
+        if not tokens:
+            return seed_feed or self.fetch_feed()
+
+        start_feed = seed_feed or self.fetch_feed()
+        initial_filtered = self._filter_feed_entries(start_feed, normalized)
+        if initial_filtered.entries:
+            return initial_filtered
+
+        queue: Deque[str] = deque()
+        queued: Set[str] = set()
+        visited: Set[str] = set()
+
+        def is_navigation_link(rel_hint: Optional[str], link: OPDSLink) -> bool:
+            rel_candidates: List[str] = []
+            if rel_hint:
+                rel_candidates.append(rel_hint)
+            if link.rel and link.rel not in rel_candidates:
+                rel_candidates.append(link.rel)
+            rel_candidates = [(rel or "").strip().lower() for rel in rel_candidates if rel]
+            link_type = (link.type or "").strip().lower()
+            if link_type and "opds-catalog" in link_type:
+                return True
+            for rel_value in rel_candidates:
+                if not rel_value:
+                    continue
+                if "acquisition" in rel_value:
+                    return False
+                if rel_value == "self":
+                    continue
+                if rel_value == "next":
+                    return True
+                if rel_value in {"start", "up", "down"}:
+                    return True
+                if rel_value.endswith("navigation") or rel_value.endswith("collection"):
+                    return True
+                if rel_value.startswith("http://opds-spec.org/"):
+                    if rel_value.startswith("http://opds-spec.org/group") or rel_value.startswith(
+                        "http://opds-spec.org/sort"
+                    ):
+                        return True
+                    if rel_value.endswith("navigation") or rel_value.endswith("collection"):
+                        return True
+            return False
+
+        def enqueue_link(link: OPDSLink, rel_hint: Optional[str] = None) -> None:
+            if not is_navigation_link(rel_hint, link):
+                return
+            href = (link.href or "").strip()
+            if not href:
+                return
+            absolute = self._make_url(href)
+            if absolute in queued or absolute in visited:
+                return
+            queued.add(absolute)
+            queue.append(absolute)
+
+        for rel_key, link in (start_feed.links or {}).items():
+            enqueue_link(link, rel_key)
+        for entry in start_feed.entries:
+            for link in entry.links:
+                enqueue_link(link, link.rel)
+
+        pages_examined = 0
+        while queue and pages_examined < max_pages:
+            href = queue.popleft()
+            if href in visited:
+                continue
+            visited.add(href)
+            pages_examined += 1
+            try:
+                feed = self.fetch_feed(href)
+            except CalibreOPDSError:
+                continue
+            filtered = self._filter_feed_entries(feed, normalized)
+            if filtered.entries:
+                return filtered
+            for rel_key, link in (feed.links or {}).items():
+                enqueue_link(link, rel_key)
+            for entry in feed.entries:
+                for link in entry.links:
+                    enqueue_link(link, link.rel)
+
+        return dataclasses.replace(start_feed, entries=[])
 
     def download(self, href: str) -> DownloadedResource:
         if not href:

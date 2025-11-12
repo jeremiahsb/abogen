@@ -5,6 +5,7 @@ if (modal && browser) {
   const statusEl = browser.querySelector('[data-role="opds-status"]');
   const resultsEl = browser.querySelector('[data-role="opds-results"]');
   const navEl = browser.querySelector('[data-role="opds-nav"]');
+  const alphaPickerEl = browser.querySelector('[data-role="opds-alpha-picker"]');
   const tabsEl = modal.querySelector('[data-role="opds-tabs"]');
   const searchForm = modal.querySelector('[data-role="opds-search"]');
   const searchInput = searchForm?.querySelector('input[name="q"]');
@@ -24,6 +25,10 @@ if (modal && browser) {
     OTHER: 'other',
   };
 
+  const LETTER_ALL = 'ALL';
+  const LETTER_NUMERIC = '#';
+  const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
   const state = {
     query: '',
     currentHref: '',
@@ -31,6 +36,15 @@ if (modal && browser) {
     tabs: [],
     tabsReady: false,
     requestToken: 0,
+    feedTitle: '',
+    lastEntries: [],
+    activeLetter: LETTER_ALL,
+    availableLetters: new Set(),
+    totalStats: null,
+    filteredStats: null,
+    status: { message: '', level: null },
+    baseStatus: null,
+    lastContextKey: '',
   };
 
   let isOpen = false;
@@ -102,7 +116,265 @@ if (modal && browser) {
     return '';
   };
 
-  const setStatus = (message, level) => {
+  const deriveBrowseMode = () => {
+    const title = (state.feedTitle || '').toLowerCase();
+    if (!title) {
+      return 'generic';
+    }
+    if (title.includes('author')) {
+      return 'author';
+    }
+    if (title.includes('series')) {
+      return 'series';
+    }
+    if (title.includes('title')) {
+      return 'title';
+    }
+    if (title.includes('books')) {
+      return 'title';
+    }
+    return 'generic';
+  };
+
+  const stripLeadingArticle = (text) => text.replace(/^(?:the|a|an)\s+/i, '').trim();
+
+  const extractAlphabetSource = (entry) => {
+    if (!entry) {
+      return '';
+    }
+    const mode = deriveBrowseMode();
+    if (mode === 'author') {
+      if (Array.isArray(entry.authors) && entry.authors.length) {
+        return entry.authors[0] || '';
+      }
+    }
+    if (mode === 'series' && entry.series) {
+      return entry.series;
+    }
+    if (entry.title) {
+      return entry.title;
+    }
+    if (entry.series) {
+      return entry.series;
+    }
+    const navLink = findNavigationLink(entry);
+    if (navLink?.title) {
+      return navLink.title;
+    }
+    return '';
+  };
+
+  const deriveAlphabetKey = (entry) => {
+    const mode = deriveBrowseMode();
+    let source = (extractAlphabetSource(entry) || '').trim();
+    if (!source) {
+      return '';
+    }
+    if (mode === 'author') {
+      if (source.includes(',')) {
+        source = source.split(',')[0];
+      } else {
+        const parts = source.split(/\s+/);
+        if (parts.length > 1) {
+          source = parts[parts.length - 1];
+        }
+      }
+    } else if (mode === 'title') {
+      source = stripLeadingArticle(source);
+    }
+    source = source.replace(/^[^\p{L}\p{N}]+/u, '');
+    return source;
+  };
+
+  const deriveAlphabetLetter = (entry) => {
+    const key = deriveAlphabetKey(entry);
+    if (!key) {
+      return LETTER_NUMERIC;
+    }
+    const initial = key.charAt(0).toUpperCase();
+    if (initial >= 'A' && initial <= 'Z') {
+      return initial;
+    }
+    return LETTER_NUMERIC;
+  };
+
+  const collectAlphabetCounts = (entries) => {
+    const counts = new Map();
+    if (!Array.isArray(entries)) {
+      return counts;
+    }
+    entries.forEach((entry) => {
+      const letter = deriveAlphabetLetter(entry);
+      counts.set(letter, (counts.get(letter) || 0) + 1);
+    });
+    return counts;
+  };
+
+  const detectEntryType = (entry, navigationLink) => {
+    if (!entry) {
+      return EntryTypes.OTHER;
+    }
+    const downloadLink = entry.download && entry.download.href ? entry.download.href : null;
+    if (downloadLink) {
+      return EntryTypes.BOOK;
+    }
+    const navLink = navigationLink === undefined ? findNavigationLink(entry) : navigationLink;
+    if (navLink && navLink.href) {
+      return EntryTypes.NAVIGATION;
+    }
+    return EntryTypes.OTHER;
+  };
+
+  const computeEntryStats = (entries) => {
+    const stats = {
+      [EntryTypes.BOOK]: 0,
+      [EntryTypes.NAVIGATION]: 0,
+      [EntryTypes.OTHER]: 0,
+    };
+    if (!Array.isArray(entries)) {
+      return stats;
+    }
+    entries.forEach((entry) => {
+      const type = detectEntryType(entry);
+      stats[type] += 1;
+    });
+    return stats;
+  };
+
+  const shouldShowAlphabetPicker = (entries, stats) => {
+    if (!alphaPickerEl || state.query) {
+      return false;
+    }
+    if (!Array.isArray(entries) || entries.length < 6) {
+      return false;
+    }
+    const mode = deriveBrowseMode();
+    const counts = stats || computeEntryStats(entries);
+    const hasNavigation = counts[EntryTypes.NAVIGATION] > 0;
+    if (mode === 'generic' && !hasNavigation) {
+      return false;
+    }
+    const alphabetCounts = collectAlphabetCounts(entries);
+    return alphabetCounts.size > 1;
+  };
+
+  const refreshAlphabetActiveState = () => {
+    if (!alphaPickerEl) {
+      return;
+    }
+    const buttons = alphaPickerEl.querySelectorAll('button[data-letter]');
+    buttons.forEach((button) => {
+      const value = button.dataset.letter || LETTER_ALL;
+      const isActive = value === state.activeLetter;
+      button.classList.toggle('is-active', isActive);
+      button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+  };
+
+  const describeAlphabetLetter = (letter) => {
+    if (letter === LETTER_ALL) {
+      return 'all entries';
+    }
+    if (letter === LETTER_NUMERIC) {
+      return 'numbers or symbols';
+    }
+    return `letter ${letter}`;
+  };
+
+  const updateAlphabetPicker = (entries, { reset = false, stats = null } = {}) => {
+    if (!alphaPickerEl) {
+      return;
+    }
+    const list = Array.isArray(entries) ? entries : [];
+    if (reset) {
+      state.activeLetter = LETTER_ALL;
+    }
+    const counts = collectAlphabetCounts(list);
+    state.availableLetters = new Set(counts.keys());
+    const shouldShow = shouldShowAlphabetPicker(list, stats);
+    if (!shouldShow) {
+      alphaPickerEl.innerHTML = '';
+      alphaPickerEl.hidden = true;
+      state.activeLetter = LETTER_ALL;
+      return;
+    }
+
+    if (state.activeLetter !== LETTER_ALL && !state.availableLetters.has(state.activeLetter)) {
+      state.activeLetter = LETTER_ALL;
+    }
+
+    alphaPickerEl.hidden = false;
+    alphaPickerEl.innerHTML = '';
+    const letters = [LETTER_ALL, ...ALPHABET, LETTER_NUMERIC];
+    letters.forEach((letter) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'opds-alpha-picker__button';
+      button.dataset.letter = letter;
+      button.textContent = letter === LETTER_ALL ? 'All' : letter === LETTER_NUMERIC ? '# / 0-9' : letter;
+      const enabledCount = letter === LETTER_ALL ? list.length : counts.get(letter) || 0;
+      if (letter !== LETTER_ALL && enabledCount === 0) {
+        button.disabled = true;
+        button.setAttribute('aria-disabled', 'true');
+      } else {
+        button.addEventListener('click', () => handleAlphabetSelect(letter));
+      }
+      alphaPickerEl.appendChild(button);
+    });
+    refreshAlphabetActiveState();
+  };
+
+  const handleAlphabetSelect = (letter) => {
+    const normalized = letter || LETTER_ALL;
+    if (!Array.isArray(state.lastEntries) || !state.lastEntries.length) {
+      return;
+    }
+    if (normalized === state.activeLetter) {
+      return;
+    }
+    state.activeLetter = normalized;
+    const filtered = applyAlphabetFilter(state.lastEntries);
+    state.filteredStats = renderEntries(filtered);
+    refreshAlphabetActiveState();
+    if (!filtered.length) {
+      setStatus(`No entries found for ${describeAlphabetLetter(normalized)}.`, 'info');
+    } else if (normalized === LETTER_ALL && state.baseStatus) {
+      restoreBaseStatus();
+    }
+  };
+
+  const applyAlphabetFilter = (entries) => {
+    if (!Array.isArray(entries) || !entries.length) {
+      return [];
+    }
+    if (state.activeLetter === LETTER_ALL) {
+      return entries.slice();
+    }
+    return entries.filter((entry) => {
+      const letter = deriveAlphabetLetter(entry);
+      if (state.activeLetter === LETTER_NUMERIC) {
+        return letter === LETTER_NUMERIC;
+      }
+      return letter === state.activeLetter;
+    });
+  };
+
+  const setEntries = (entries, { resetAlphabet = false } = {}) => {
+    const list = Array.isArray(entries) ? entries.slice() : [];
+    state.lastEntries = list;
+    const totalStats = computeEntryStats(list);
+    state.totalStats = totalStats;
+    if (resetAlphabet) {
+      state.activeLetter = LETTER_ALL;
+    }
+    const filtered = applyAlphabetFilter(list);
+    const filteredStats = renderEntries(filtered);
+    state.filteredStats = filteredStats;
+    updateAlphabetPicker(list, { reset: resetAlphabet, stats: totalStats });
+    return { stats: totalStats, filteredStats };
+  };
+
+  const setStatus = (message, level, { persist = false } = {}) => {
     if (!statusEl) {
       return;
     }
@@ -112,9 +384,21 @@ if (modal && browser) {
     } else {
       delete statusEl.dataset.state;
     }
+    state.status = { message: message || '', level: level || null };
+    if (persist) {
+      state.baseStatus = { ...state.status };
+    }
   };
 
   const clearStatus = () => setStatus('', null);
+
+  const restoreBaseStatus = () => {
+    if (state.baseStatus) {
+      setStatus(state.baseStatus.message, state.baseStatus.level);
+    } else {
+      clearStatus();
+    }
+  };
 
   const focusSearch = () => {
     if (!searchInput) {
@@ -291,11 +575,11 @@ if (modal && browser) {
     const header = document.createElement('div');
     header.className = 'opds-browser__entry-head';
 
-  const title = document.createElement('h3');
-  title.className = 'opds-browser__title';
-  const positionLabel = Number.isFinite(entry?.position) ? Number(entry.position) : null;
-  const baseTitle = entry.title || 'Untitled';
-  title.textContent = positionLabel !== null ? `${positionLabel}. ${baseTitle}` : baseTitle;
+    const title = document.createElement('h3');
+    title.className = 'opds-browser__title';
+    const positionLabel = Number.isFinite(entry?.position) ? Number(entry.position) : null;
+    const baseTitle = entry.title || 'Untitled';
+    title.textContent = positionLabel !== null ? `${positionLabel}. ${baseTitle}` : baseTitle;
     header.appendChild(title);
 
     const authors = formatAuthors(entry.authors);
@@ -345,12 +629,9 @@ if (modal && browser) {
     const downloadLink = entry.download && entry.download.href ? entry.download.href : null;
     const alternateLink = entry.alternate && entry.alternate.href ? entry.alternate.href : null;
     const navigationLink = findNavigationLink(entry);
+    const entryType = detectEntryType(entry, navigationLink);
 
-    let entryType = EntryTypes.OTHER;
-    if (downloadLink) {
-      entryType = EntryTypes.BOOK;
-    } else if (navigationLink && navigationLink.href) {
-      entryType = EntryTypes.NAVIGATION;
+    if (entryType === EntryTypes.NAVIGATION && navigationLink) {
       item.classList.add('opds-browser__entry--navigation');
     }
 
@@ -400,10 +681,17 @@ if (modal && browser) {
       return { [EntryTypes.BOOK]: 0, [EntryTypes.NAVIGATION]: 0, [EntryTypes.OTHER]: 0 };
     }
     resultsEl.innerHTML = '';
-    if (!Array.isArray(entries) || !entries.length) {
+    const list = Array.isArray(entries) ? entries : [];
+    if (!list.length) {
       const empty = document.createElement('li');
       empty.className = 'opds-browser__empty';
-      empty.textContent = 'No catalog entries found here yet.';
+      if (state.activeLetter !== LETTER_ALL) {
+        empty.textContent = `No entries start with ${describeAlphabetLetter(state.activeLetter)}.`;
+      } else if (state.query) {
+        empty.textContent = 'No results returned for this view yet.';
+      } else {
+        empty.textContent = 'No catalog entries found here yet.';
+      }
       resultsEl.appendChild(empty);
       return { [EntryTypes.BOOK]: 0, [EntryTypes.NAVIGATION]: 0, [EntryTypes.OTHER]: 0 };
     }
@@ -413,7 +701,7 @@ if (modal && browser) {
       [EntryTypes.NAVIGATION]: 0,
       [EntryTypes.OTHER]: 0,
     };
-    entries.forEach((entry) => {
+    list.forEach((entry) => {
       const { element, type } = createEntry(entry);
       stats[type] += 1;
       fragment.appendChild(element);
@@ -550,6 +838,7 @@ if (modal && browser) {
         throw new Error(payload.error || 'Unable to load the Calibre catalog.');
       }
       const feed = payload.feed || {};
+      state.feedTitle = feed.title || '';
       state.currentHref = href;
       state.query = query;
       if (typeof activeTab === 'string') {
@@ -573,36 +862,36 @@ if (modal && browser) {
       }
 
       renderNav(feed.links);
-      const stats = renderEntries(feed.entries || []);
+      const { stats } = setEntries(feed.entries || [], { resetAlphabet: true });
       const books = stats?.[EntryTypes.BOOK] || 0;
       const views = stats?.[EntryTypes.NAVIGATION] || 0;
 
       if (query) {
         if (books) {
-          setStatus(`Found ${books} book${books === 1 ? '' : 's'} for "${query}".`, 'success');
+          setStatus(`Found ${books} book${books === 1 ? '' : 's'} for "${query}".`, 'success', { persist: true });
         } else if (views) {
-          setStatus(`Browse ${views} catalog view${views === 1 ? '' : 's'} related to "${query}".`, 'info');
+          setStatus(`Browse ${views} catalog view${views === 1 ? '' : 's'} related to "${query}".`, 'info', { persist: true });
         } else {
-          setStatus(`No results for "${query}".`, 'error');
+          setStatus(`No results for "${query}".`, 'error', { persist: true });
         }
         return;
       }
 
       if (books && views) {
-        setStatus(`Showing ${books} book${books === 1 ? '' : 's'} and ${views} catalog view${views === 1 ? '' : 's'}.`, 'success');
+        setStatus(`Showing ${books} book${books === 1 ? '' : 's'} and ${views} catalog view${views === 1 ? '' : 's'}.`, 'success', { persist: true });
       } else if (books) {
-        setStatus(`Found ${books} book${books === 1 ? '' : 's'} in this view.`, 'success');
+        setStatus(`Found ${books} book${books === 1 ? '' : 's'} in this view.`, 'success', { persist: true });
       } else if (views) {
-        setStatus(`Browse ${views} catalog view${views === 1 ? '' : 's'} to drill deeper.`, 'info');
+        setStatus(`Browse ${views} catalog view${views === 1 ? '' : 's'} to drill deeper.`, 'info', { persist: true });
       } else {
-        setStatus('No catalog entries found here yet.', 'info');
+        setStatus('No catalog entries found here yet.', 'info', { persist: true });
       }
     } catch (error) {
       if (requestId !== state.requestToken) {
         return;
       }
-      setStatus(error instanceof Error ? error.message : 'Unable to load the Calibre catalog.', 'error');
-      renderEntries([]);
+      setStatus(error instanceof Error ? error.message : 'Unable to load the Calibre catalog.', 'error', { persist: true });
+      setEntries([], { resetAlphabet: true });
       if (navEl) {
         navEl.innerHTML = '';
       }

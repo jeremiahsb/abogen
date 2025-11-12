@@ -1,9 +1,4 @@
-from abogen.integrations.calibre_opds import (
-  CalibreOPDSClient,
-  OPDSEntry,
-  OPDSFeed,
-  feed_to_dict,
-)
+from abogen.integrations.calibre_opds import CalibreOPDSClient, OPDSEntry, OPDSFeed, OPDSLink, feed_to_dict
 
 
 def test_calibre_opds_feed_exposes_series_metadata() -> None:
@@ -207,3 +202,97 @@ def test_calibre_opds_search_filters_by_title_and_author() -> None:
 
   filtered = client._filter_feed_entries(feed, "missing")
   assert filtered.entries == []
+
+
+def test_calibre_opds_local_search_follows_next(monkeypatch) -> None:
+  client = CalibreOPDSClient("http://example.com/catalog")
+  page_one = OPDSFeed(
+    id="catalog",
+    title="Catalog",
+    entries=[OPDSEntry(id="1", title="Unrelated", authors=["Alice Smith"])],
+    links={"next": OPDSLink(href="http://example.com/catalog?page=2", rel="next")},
+  )
+  page_two = OPDSFeed(
+    id="catalog",
+    title="Catalog",
+    entries=[OPDSEntry(id="2", title="The Journey Continues", authors=["Bob Johnson"])],
+    links={},
+  )
+
+  def fake_fetch(href=None, params=None):
+    if href == "http://example.com/catalog?page=2":
+      return page_two
+    return page_one
+
+  monkeypatch.setattr(client, "fetch_feed", fake_fetch)
+
+  result = client._local_search("journey", seed_feed=page_one)
+  assert [entry.id for entry in result.entries] == ["2"]
+
+
+def test_calibre_opds_local_search_traverses_navigation(monkeypatch) -> None:
+  client = CalibreOPDSClient("http://example.com/catalog")
+  root_feed = OPDSFeed(
+    id="catalog",
+    title="Catalog",
+    entries=[
+      OPDSEntry(
+        id="nav-authors",
+        title="Browse Authors",
+        links=[
+          OPDSLink(
+            href="http://example.com/catalog/authors",
+            rel="http://opds-spec.org/navigation",
+            type="application/atom+xml;profile=opds-catalog",
+          )
+        ],
+      )
+    ],
+    links={},
+  )
+  authors_feed = OPDSFeed(
+    id="authors",
+    title="Authors",
+    entries=[
+      OPDSEntry(id="book-42", title="The Count of Monte Cristo", authors=["Alexandre Dumas"])
+    ],
+    links={},
+  )
+
+  def fake_fetch(href=None, params=None):
+    if href == "http://example.com/catalog/authors":
+      return authors_feed
+    return root_feed
+
+  monkeypatch.setattr(client, "fetch_feed", fake_fetch)
+
+  result = client._local_search("monte cristo", seed_feed=root_feed)
+  assert [entry.id for entry in result.entries] == ["book-42"]
+
+
+def test_calibre_opds_search_falls_back_to_local_search(monkeypatch) -> None:
+  client = CalibreOPDSClient("http://example.com/catalog")
+  search_page = OPDSFeed(
+    id="catalog",
+    title="Catalog",
+    entries=[OPDSEntry(id="1", title="Unrelated", authors=["Alice Smith"])],
+    links={"next": OPDSLink(href="http://example.com/catalog?page=2", rel="next")},
+  )
+  next_page = OPDSFeed(
+    id="catalog",
+    title="Catalog",
+    entries=[OPDSEntry(id="2", title="Journey in Space", authors=["Cara Nguyen"])],
+    links={},
+  )
+
+  def fake_fetch(path=None, params=None):
+    if path == "search":
+      return search_page
+    if path == "http://example.com/catalog?page=2":
+      return next_page
+    return search_page
+
+  monkeypatch.setattr(client, "fetch_feed", fake_fetch)
+
+  result = client.search("journey")
+  assert [entry.id for entry in result.entries] == ["2"]
