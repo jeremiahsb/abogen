@@ -296,3 +296,84 @@ def test_calibre_opds_search_falls_back_to_local_search(monkeypatch) -> None:
 
   result = client.search("journey")
   assert [entry.id for entry in result.entries] == ["2"]
+
+
+def test_calibre_opds_browse_letter_traverses_next(monkeypatch) -> None:
+  client = CalibreOPDSClient("http://example.com/catalog")
+  root_feed = OPDSFeed(
+    id="catalog",
+    title="Browse Authors",
+    entries=[
+      OPDSEntry(
+        id="nav-a",
+        title="A",
+        links=[
+          OPDSLink(
+            href="http://example.com/catalog/authors/a",
+            rel="http://opds-spec.org/navigation",
+            type="application/atom+xml;profile=opds-catalog",
+          )
+        ],
+      )
+    ],
+    links={"next": OPDSLink(href="http://example.com/catalog?page=2", rel="next")},
+  )
+  page_two = OPDSFeed(
+    id="catalog",
+    title="Browse Authors",
+    entries=[
+      OPDSEntry(
+        id="nav-c",
+        title="C",
+        links=[
+          OPDSLink(
+            href="http://example.com/catalog/authors/c",
+            rel="http://opds-spec.org/navigation",
+            type="application/atom+xml;profile=opds-catalog",
+          )
+        ],
+      )
+    ],
+    links={},
+  )
+  letter_feed = OPDSFeed(
+    id="authors-c",
+    title="Authors starting with C",
+    entries=[OPDSEntry(id="author-1", title="Clarke, Arthur C.")],
+    links={},
+  )
+
+  def fake_fetch(href=None, params=None):
+    if not href:
+      return root_feed
+    if href == "http://example.com/catalog?page=2":
+      return page_two
+    if href == "http://example.com/catalog/authors/c":
+      return letter_feed
+    return root_feed
+
+  monkeypatch.setattr(client, "fetch_feed", fake_fetch)
+
+  result = client.browse_letter("C")
+  assert [entry.id for entry in result.entries] == ["author-1"]
+
+
+def test_calibre_opds_browse_letter_filters_when_missing_navigation(monkeypatch) -> None:
+  client = CalibreOPDSClient("http://example.com/catalog")
+  titles_feed = OPDSFeed(
+    id="catalog",
+    title="Browse Titles",
+    entries=[
+      OPDSEntry(id="book-1", title="The Moon is a Harsh Mistress"),
+      OPDSEntry(id="book-2", title="Another Story"),
+    ],
+    links={},
+  )
+
+  def fake_fetch(href=None, params=None):
+    return titles_feed
+
+  monkeypatch.setattr(client, "fetch_feed", fake_fetch)
+
+  result = client.browse_letter("M")
+  assert [entry.id for entry in result.entries] == ["book-1"]

@@ -688,6 +688,10 @@ body {
   cursor: default;
 }
 
+.opds-alpha-picker__button[data-empty="true"] {
+  opacity: 0.6;
+}
+
 .opds-modal__results-wrap {
   flex: 1 1 auto;
   min-height: 0;

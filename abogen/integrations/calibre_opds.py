@@ -743,24 +743,101 @@ class CalibreOPDSClient:
         return None
 
     @staticmethod
-    def _has_navigation_link(entry: OPDSEntry) -> bool:
-        for link in entry.links:
-            href = (link.href or "").strip()
-            if not href:
-                continue
-            rel = (link.rel or "").strip().lower()
-            link_type = (link.type or "").strip().lower()
-            if "acquisition" in rel:
-                continue
-            if rel == "self":
-                continue
-            if "opds-catalog" in link_type:
-                return True
-            if rel.endswith("navigation") or rel.endswith("collection"):
-                return True
-            if rel.startswith("http://opds-spec.org/sort") or rel.startswith("http://opds-spec.org/group"):
-                return True
+    def _resolve_link(links: Optional[Mapping[str, OPDSLink]], rel: str) -> Optional[OPDSLink]:
+        if not links:
+            return None
+        if rel in links:
+            return links[rel]
+        rel_lower = rel.lower()
+        for key, link in links.items():
+            key_lower = (key or "").strip().lower()
+            if key_lower == rel_lower or key_lower.endswith(rel_lower):
+                return link
+        return None
+
+    @staticmethod
+    def _is_navigation_link(link: OPDSLink) -> bool:
+        href = (link.href or "").strip()
+        if not href:
+            return False
+        rel = (link.rel or "").strip().lower()
+        link_type = (link.type or "").strip().lower()
+        if "acquisition" in rel:
+            return False
+        if rel == "self":
+            return False
+        if "opds-catalog" in link_type:
+            return True
+        if rel.endswith("navigation") or rel.endswith("collection"):
+            return True
+        if rel.startswith("http://opds-spec.org/sort") or rel.startswith("http://opds-spec.org/group"):
+            return True
         return False
+
+    @staticmethod
+    def _has_navigation_link(entry: OPDSEntry) -> bool:
+        return any(CalibreOPDSClient._is_navigation_link(link) for link in entry.links)
+
+    @staticmethod
+    def _browse_mode_for_title(title: Optional[str]) -> str:
+        if not title:
+            return "generic"
+        lowered = title.lower()
+        if "author" in lowered:
+            return "author"
+        if "series" in lowered:
+            return "series"
+        if "title" in lowered or "book" in lowered:
+            return "title"
+        return "generic"
+
+    @staticmethod
+    def _strip_leading_article(text: str) -> str:
+        working = text.strip()
+        lowered = working.lower()
+        for article in ("the ", "a ", "an "):
+            if lowered.startswith(article):
+                return working[len(article):].strip()
+        return working
+
+    @staticmethod
+    def _alphabet_source(entry: OPDSEntry, mode: str) -> str:
+        if mode == "author" and entry.authors:
+            candidate = entry.authors[0] or ""
+            if "," in candidate:
+                return candidate.split(",", 1)[0].strip()
+            parts = candidate.split()
+            if len(parts) > 1:
+                return parts[-1].strip()
+            return candidate.strip()
+        if mode == "series" and entry.series:
+            return entry.series.strip()
+        if entry.title:
+            return entry.title.strip()
+        if entry.series:
+            return entry.series.strip()
+        for link in entry.links:
+            if link.title:
+                return link.title.strip()
+        return ""
+
+    @staticmethod
+    def _alphabet_letter_for_entry(entry: OPDSEntry, mode: str) -> Optional[str]:
+        source = CalibreOPDSClient._alphabet_source(entry, mode)
+        if not source:
+            return None
+        if mode == "title":
+            source = CalibreOPDSClient._strip_leading_article(source)
+        source = re.sub(r"^[^0-9A-Za-z]+", "", source)
+        if not source:
+            return "#"
+        initial = source[0]
+        if initial.isalpha():
+            return initial.upper()
+        if initial.isdigit():
+            return "#"
+        normalized = initial.upper()
+        return normalized if normalized.isalpha() else "#"
 
     @staticmethod
     def _entry_matches_query(entry: OPDSEntry, tokens: List[str]) -> bool:
@@ -793,6 +870,70 @@ class CalibreOPDSClient:
             return feed
         filtered = [entry for entry in feed.entries if self._entry_matches_query(entry, tokens)]
         return dataclasses.replace(feed, entries=filtered)
+
+    def browse_letter(
+        self,
+        letter: str,
+        *,
+        start_href: Optional[str] = None,
+        max_pages: int = 40,
+    ) -> OPDSFeed:
+        normalized = (letter or "").strip()
+        if not normalized:
+            return self.fetch_feed(start_href)
+        key = normalized.upper()
+        if key in {"ALL", "*"}:
+            return self.fetch_feed(start_href)
+        if key in {"0-9", "NUMERIC"}:
+            key = "#"
+        if len(key) > 1 and key != "#":
+            key = key[0]
+        base_feed = self.fetch_feed(start_href)
+        mode = self._browse_mode_for_title(base_feed.title)
+
+        def matches_letter(entry: OPDSEntry) -> bool:
+            letter_value = self._alphabet_letter_for_entry(entry, mode)
+            if not letter_value:
+                return False
+            if key == "#":
+                return letter_value == "#"
+            return letter_value == key
+
+        def find_navigation(feed: OPDSFeed) -> Optional[OPDSLink]:
+            for entry in feed.entries:
+                for link in entry.links:
+                    if not self._is_navigation_link(link):
+                        continue
+                    if matches_letter(entry):
+                        return link
+            return None
+
+        candidate = find_navigation(base_feed)
+        if candidate and candidate.href:
+            return self.fetch_feed(candidate.href)
+
+        visited: Set[str] = set()
+        pages_examined = 0
+        next_link = self._resolve_link(base_feed.links, "next")
+        while next_link and pages_examined < max_pages:
+            href = (next_link.href or "").strip()
+            if not href or href in visited:
+                break
+            visited.add(href)
+            pages_examined += 1
+            try:
+                feed = self.fetch_feed(href)
+            except CalibreOPDSError:
+                break
+            candidate = find_navigation(feed)
+            if candidate and candidate.href:
+                return self.fetch_feed(candidate.href)
+            next_link = self._resolve_link(feed.links, "next")
+
+        filtered_entries = [entry for entry in base_feed.entries if matches_letter(entry)]
+        if filtered_entries:
+            return dataclasses.replace(base_feed, entries=filtered_entries)
+        return dataclasses.replace(base_feed, entries=[])
 
 
 def feed_to_dict(feed: OPDSFeed) -> Dict[str, Any]:

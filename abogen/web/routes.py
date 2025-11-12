@@ -2909,8 +2909,11 @@ def calibre_opds_feed() -> ResponseReturnValue:
 
     href = request.args.get("href", type=str)
     query = request.args.get("q", type=str)
+    letter = request.args.get("letter", type=str)
     try:
-        if query:
+        if letter:
+            feed = client.browse_letter(letter, start_href=href)
+        elif query:
             feed = client.search(query)
         else:
             feed = client.fetch_feed(href)

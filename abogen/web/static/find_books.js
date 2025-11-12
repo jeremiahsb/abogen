@@ -45,6 +45,7 @@ if (modal && browser) {
     status: { message: '', level: null },
     baseStatus: null,
     lastContextKey: '',
+    currentLinks: {},
   };
 
   let isOpen = false;
@@ -314,33 +315,45 @@ if (modal && browser) {
       button.textContent = letter === LETTER_ALL ? 'All' : letter === LETTER_NUMERIC ? '# / 0-9' : letter;
       const enabledCount = letter === LETTER_ALL ? list.length : counts.get(letter) || 0;
       if (letter !== LETTER_ALL && enabledCount === 0) {
-        button.disabled = true;
-        button.setAttribute('aria-disabled', 'true');
-      } else {
-        button.addEventListener('click', () => handleAlphabetSelect(letter));
+        button.dataset.empty = 'true';
       }
+      button.title = `Show entries for ${describeAlphabetLetter(letter)} (${enabledCount} in view)`;
+      button.addEventListener('click', () => {
+        handleAlphabetSelect(letter).catch((error) => {
+          console.error('Alphabet picker failed', error);
+        });
+      });
       alphaPickerEl.appendChild(button);
     });
     refreshAlphabetActiveState();
   };
 
-  const handleAlphabetSelect = (letter) => {
+  const handleAlphabetSelect = async (letter) => {
     const normalized = letter || LETTER_ALL;
-    if (!Array.isArray(state.lastEntries) || !state.lastEntries.length) {
+    if (normalized === LETTER_ALL) {
+      state.activeLetter = LETTER_ALL;
+      refreshAlphabetActiveState();
+      const upLink = resolveRelLink(state.currentLinks, 'up') || resolveRelLink(state.currentLinks, '/up') || resolveRelLink(state.currentLinks, 'start');
+      const targetHref = upLink?.href || '';
+      await loadFeed({ href: targetHref, query: '', letter: '', activeTab: targetHref ? TabIds.CUSTOM : TabIds.ROOT, updateTabs: true });
       return;
     }
-    if (normalized === state.activeLetter) {
-      return;
+
+    if (!Array.isArray(state.lastEntries)) {
+      state.lastEntries = [];
     }
+
     state.activeLetter = normalized;
     const filtered = applyAlphabetFilter(state.lastEntries);
-    state.filteredStats = renderEntries(filtered);
-    refreshAlphabetActiveState();
-    if (!filtered.length) {
-      setStatus(`No entries found for ${describeAlphabetLetter(normalized)}.`, 'info');
-    } else if (normalized === LETTER_ALL && state.baseStatus) {
-      restoreBaseStatus();
+    if (filtered.length) {
+      state.filteredStats = renderEntries(filtered);
+      refreshAlphabetActiveState();
+      setStatus(`Showing ${filtered.length} entr${filtered.length === 1 ? 'y' : 'ies'} for ${describeAlphabetLetter(normalized)}.`, 'info');
+      return;
     }
+
+    refreshAlphabetActiveState();
+    await loadFeed({ href: state.currentHref || '', query: '', letter: normalized, activeTab: TabIds.CUSTOM, updateTabs: true });
   };
 
   const applyAlphabetFilter = (entries) => {
@@ -359,13 +372,15 @@ if (modal && browser) {
     });
   };
 
-  const setEntries = (entries, { resetAlphabet = false } = {}) => {
+  const setEntries = (entries, { resetAlphabet = false, activeLetter = null } = {}) => {
     const list = Array.isArray(entries) ? entries.slice() : [];
     state.lastEntries = list;
     const totalStats = computeEntryStats(list);
     state.totalStats = totalStats;
     if (resetAlphabet) {
       state.activeLetter = LETTER_ALL;
+    } else if (activeLetter && activeLetter !== LETTER_ALL) {
+      state.activeLetter = activeLetter;
     }
     const filtered = applyAlphabetFilter(list);
     const filteredStats = renderEntries(filtered);
@@ -815,13 +830,28 @@ if (modal && browser) {
     }
   };
 
-  const loadFeed = async ({ href = '', query = '', activeTab = null, updateTabs = false } = {}) => {
+  const loadFeed = async ({ href = '', query = '', letter = '', activeTab = null, updateTabs = false } = {}) => {
     const params = new URLSearchParams();
-    if (href) {
-      params.set('href', href);
+    const normalizedHref = href || '';
+    const normalizedQuery = (query || '').trim();
+    let normalizedLetter = (letter || '').trim();
+    if (normalizedLetter === LETTER_ALL) {
+      normalizedLetter = '';
     }
-    if (query) {
-      params.set('q', query);
+    if (normalizedQuery) {
+      normalizedLetter = '';
+    }
+    if (normalizedLetter && normalizedLetter !== LETTER_NUMERIC) {
+      normalizedLetter = normalizedLetter.toUpperCase();
+    }
+    if (normalizedHref) {
+      params.set('href', normalizedHref);
+    }
+    if (normalizedQuery) {
+      params.set('q', normalizedQuery);
+    }
+    if (!normalizedQuery && normalizedLetter) {
+      params.set('letter', normalizedLetter);
     }
 
     const requestId = ++state.requestToken;
@@ -839,20 +869,27 @@ if (modal && browser) {
       }
       const feed = payload.feed || {};
       state.feedTitle = feed.title || '';
-      state.currentHref = href;
-      state.query = query;
+      state.currentHref = normalizedHref;
+      state.currentLinks = feed.links || {};
+      const selfLink = resolveRelLink(state.currentLinks, 'self');
+      if (selfLink?.href) {
+        state.currentHref = selfLink.href;
+      }
+      state.query = normalizedLetter ? '' : normalizedQuery;
       if (typeof activeTab === 'string') {
         state.activeTab = activeTab;
-      } else if (query) {
+      } else if (normalizedQuery) {
         state.activeTab = TabIds.SEARCH;
-      } else if (href) {
-        state.activeTab = resolveTabIdForHref(href) || TabIds.CUSTOM;
+      } else if (normalizedLetter) {
+        state.activeTab = TabIds.CUSTOM;
+      } else if (normalizedHref) {
+        state.activeTab = resolveTabIdForHref(normalizedHref) || TabIds.CUSTOM;
       } else {
         state.activeTab = TabIds.ROOT;
       }
 
       if (searchInput) {
-        searchInput.value = query || '';
+        searchInput.value = state.query || '';
       }
 
       if (updateTabs || !state.tabsReady) {
@@ -862,17 +899,42 @@ if (modal && browser) {
       }
 
       renderNav(feed.links);
-      const { stats } = setEntries(feed.entries || [], { resetAlphabet: true });
+      const { stats } = setEntries(feed.entries || [], {
+        resetAlphabet: !normalizedLetter,
+        activeLetter: normalizedLetter || null,
+      });
       const books = stats?.[EntryTypes.BOOK] || 0;
       const views = stats?.[EntryTypes.NAVIGATION] || 0;
 
-      if (query) {
-        if (books) {
-          setStatus(`Found ${books} book${books === 1 ? '' : 's'} for "${query}".`, 'success', { persist: true });
+      if (normalizedLetter) {
+        const letterDescription = describeAlphabetLetter(normalizedLetter);
+        if (books && views) {
+          setStatus(
+            `Showing ${books} book${books === 1 ? '' : 's'} and ${views} catalog view${views === 1 ? '' : 's'} for ${letterDescription}.`,
+            'success',
+            { persist: true },
+          );
+        } else if (books) {
+          setStatus(`Found ${books} book${books === 1 ? '' : 's'} for ${letterDescription}.`, 'success', { persist: true });
         } else if (views) {
-          setStatus(`Browse ${views} catalog view${views === 1 ? '' : 's'} related to "${query}".`, 'info', { persist: true });
+          setStatus(`Browse ${views} catalog view${views === 1 ? '' : 's'} for ${letterDescription}.`, 'info', { persist: true });
         } else {
-          setStatus(`No results for "${query}".`, 'error', { persist: true });
+          setStatus(`No catalog entries found for ${letterDescription}.`, 'info', { persist: true });
+        }
+        return;
+      }
+
+      if (normalizedQuery) {
+        if (books) {
+          setStatus(`Found ${books} book${books === 1 ? '' : 's'} for "${normalizedQuery}".`, 'success', { persist: true });
+        } else if (views) {
+          setStatus(
+            `Browse ${views} catalog view${views === 1 ? '' : 's'} related to "${normalizedQuery}".`,
+            'info',
+            { persist: true },
+          );
+        } else {
+          setStatus(`No results for "${normalizedQuery}".`, 'error', { persist: true });
         }
         return;
       }
@@ -895,6 +957,7 @@ if (modal && browser) {
       if (navEl) {
         navEl.innerHTML = '';
       }
+      state.currentLinks = {};
     }
   };
 
