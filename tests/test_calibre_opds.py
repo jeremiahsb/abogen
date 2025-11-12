@@ -298,6 +298,79 @@ def test_calibre_opds_search_falls_back_to_local_search(monkeypatch) -> None:
   assert [entry.id for entry in result.entries] == ["2"]
 
 
+def test_calibre_opds_search_collects_next_page_results(monkeypatch) -> None:
+  client = CalibreOPDSClient("http://example.com/catalog")
+  first_page = OPDSFeed(
+    id="catalog",
+    title="Catalog",
+    entries=[OPDSEntry(id="1", title="Ryan's Adventure")],
+    links={"next": OPDSLink(href="http://example.com/catalog?page=2", rel="next")},
+  )
+  second_page = OPDSFeed(
+    id="catalog",
+    title="Catalog",
+    entries=[OPDSEntry(id="2", title="Return of Ryan")],
+    links={},
+  )
+
+  def fake_fetch(path=None, params=None):
+    if path == "search":
+      return first_page
+    if path == "http://example.com/catalog?page=2":
+      return second_page
+    if path is None and params is None:
+      return first_page
+    return first_page
+
+  monkeypatch.setattr(client, "fetch_feed", fake_fetch)
+
+  result = client.search("ryan")
+  assert [entry.id for entry in result.entries] == ["1", "2"]
+
+
+def test_calibre_opds_search_supplements_with_local_navigation(monkeypatch) -> None:
+  client = CalibreOPDSClient("http://example.com/catalog")
+  search_feed = OPDSFeed(
+    id="catalog",
+    title="Catalog",
+    entries=[
+      OPDSEntry(id="book-1", title="Ryan's First Mission"),
+      OPDSEntry(
+        id="nav-authors",
+        title="Browse Authors",
+        links=[
+          OPDSLink(
+            href="http://example.com/catalog/authors",
+            rel="http://opds-spec.org/navigation",
+            type="application/atom+xml;profile=opds-catalog",
+          )
+        ],
+      ),
+    ],
+    links={},
+  )
+  authors_feed = OPDSFeed(
+    id="authors",
+    title="Authors",
+    entries=[OPDSEntry(id="book-2", title="Chronicles of Ryan")],
+    links={},
+  )
+
+  def fake_fetch(path=None, params=None):
+    if path == "search":
+      return search_feed
+    if path == "http://example.com/catalog/authors":
+      return authors_feed
+    if path is None and params is None:
+      return search_feed
+    return search_feed
+
+  monkeypatch.setattr(client, "fetch_feed", fake_fetch)
+
+  result = client.search("ryan")
+  assert [entry.id for entry in result.entries] == ["book-1", "book-2"]
+
+
 def test_calibre_opds_browse_letter_traverses_next(monkeypatch) -> None:
   client = CalibreOPDSClient("http://example.com/catalog")
   root_feed = OPDSFeed(
@@ -377,3 +450,95 @@ def test_calibre_opds_browse_letter_filters_when_missing_navigation(monkeypatch)
 
   result = client.browse_letter("M")
   assert [entry.id for entry in result.entries] == ["book-1"]
+
+
+def test_calibre_opds_browse_letter_collects_paginated_entries(monkeypatch) -> None:
+  client = CalibreOPDSClient("http://example.com/catalog")
+  first_page = OPDSFeed(
+    id="catalog",
+    title="Browse Titles",
+    entries=[
+      OPDSEntry(id="book-1", title="Ryan's First Adventure"),
+      OPDSEntry(id="book-2", title="Another Tale"),
+    ],
+    links={"next": OPDSLink(href="http://example.com/catalog?page=2", rel="next")},
+  )
+  second_page = OPDSFeed(
+    id="catalog",
+    title="Browse Titles",
+    entries=[OPDSEntry(id="book-3", title="Return of Ryan")],
+    links={},
+  )
+
+  def fake_fetch(href=None, params=None):
+    if not href:
+      return first_page
+    if href == "http://example.com/catalog?page=2":
+      return second_page
+    return first_page
+
+  monkeypatch.setattr(client, "fetch_feed", fake_fetch)
+
+  result = client.browse_letter("R")
+  assert [entry.id for entry in result.entries] == ["book-1", "book-3"]
+
+
+def test_calibre_opds_browse_letter_collects_paginated_navigation(monkeypatch) -> None:
+  client = CalibreOPDSClient("http://example.com/catalog")
+  root_feed = OPDSFeed(
+    id="catalog",
+    title="Browse Authors",
+    entries=[
+      OPDSEntry(
+        id="nav-a",
+        title="A",
+        links=[
+          OPDSLink(
+            href="http://example.com/catalog/authors/a",
+            rel="http://opds-spec.org/navigation",
+            type="application/atom+xml;profile=opds-catalog",
+          )
+        ],
+      ),
+      OPDSEntry(
+        id="nav-r",
+        title="R",
+        links=[
+          OPDSLink(
+            href="http://example.com/catalog/authors/r",
+            rel="http://opds-spec.org/navigation",
+            type="application/atom+xml;profile=opds-catalog",
+          )
+        ],
+      ),
+    ],
+    links={},
+  )
+  letter_feed = OPDSFeed(
+    id="authors-r",
+    title="Authors — R",
+    entries=[
+      OPDSEntry(id="author-1", title="Ryan, Alice"),
+    ],
+    links={"next": OPDSLink(href="http://example.com/catalog/authors/r?page=2", rel="next")},
+  )
+  letter_page_two = OPDSFeed(
+    id="authors-r",
+    title="Authors — R",
+    entries=[OPDSEntry(id="author-2", title="Ryan, Bob")],
+    links={},
+  )
+
+  def fake_fetch(href=None, params=None):
+    if not href:
+      return root_feed
+    if href == "http://example.com/catalog/authors/r":
+      return letter_feed
+    if href == "http://example.com/catalog/authors/r?page=2":
+      return letter_page_two
+    return root_feed
+
+  monkeypatch.setattr(client, "fetch_feed", fake_fetch)
+
+  result = client.browse_letter("R")
+  assert [entry.id for entry in result.entries] == ["author-1", "author-2"]

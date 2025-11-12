@@ -46,6 +46,7 @@ if (modal && browser) {
     baseStatus: null,
     lastContextKey: '',
     currentLinks: {},
+    alphabetBaseHref: '',
   };
 
   let isOpen = false;
@@ -333,27 +334,18 @@ if (modal && browser) {
     if (normalized === LETTER_ALL) {
       state.activeLetter = LETTER_ALL;
       refreshAlphabetActiveState();
-      const upLink = resolveRelLink(state.currentLinks, 'up') || resolveRelLink(state.currentLinks, '/up') || resolveRelLink(state.currentLinks, 'start');
-      const targetHref = upLink?.href || '';
-      await loadFeed({ href: targetHref, query: '', letter: '', activeTab: targetHref ? TabIds.CUSTOM : TabIds.ROOT, updateTabs: true });
+      const startLink = resolveRelLink(state.currentLinks, 'start') || resolveRelLink(state.currentLinks, '/start');
+      const upLink = resolveRelLink(state.currentLinks, 'up') || resolveRelLink(state.currentLinks, '/up');
+      const baseHref = startLink?.href || state.alphabetBaseHref || upLink?.href || state.currentHref || '';
+      await loadFeed({ href: baseHref, query: '', letter: '', activeTab: baseHref ? TabIds.CUSTOM : TabIds.ROOT, updateTabs: true });
       return;
-    }
-
-    if (!Array.isArray(state.lastEntries)) {
-      state.lastEntries = [];
     }
 
     state.activeLetter = normalized;
-    const filtered = applyAlphabetFilter(state.lastEntries);
-    if (filtered.length) {
-      state.filteredStats = renderEntries(filtered);
-      refreshAlphabetActiveState();
-      setStatus(`Showing ${filtered.length} entr${filtered.length === 1 ? 'y' : 'ies'} for ${describeAlphabetLetter(normalized)}.`, 'info');
-      return;
-    }
-
     refreshAlphabetActiveState();
-    await loadFeed({ href: state.currentHref || '', query: '', letter: normalized, activeTab: TabIds.CUSTOM, updateTabs: true });
+    const startLink = resolveRelLink(state.currentLinks, 'start') || resolveRelLink(state.currentLinks, '/start');
+    const baseHref = startLink?.href || state.alphabetBaseHref || state.currentHref || '';
+    await loadFeed({ href: baseHref, query: '', letter: normalized, activeTab: TabIds.CUSTOM, updateTabs: true });
   };
 
   const applyAlphabetFilter = (entries) => {
@@ -560,6 +552,9 @@ if (modal && browser) {
       { key: 'next', label: 'Next page' },
     ];
     descriptors.forEach(({ key, label }) => {
+      if (state.activeLetter !== LETTER_ALL && key !== 'up') {
+        return;
+      }
       const link = resolveRelLink(links, key) || resolveRelLink(links, `/${key}`);
       const button = document.createElement('button');
       button.type = 'button';
@@ -876,6 +871,14 @@ if (modal && browser) {
         state.currentHref = selfLink.href;
       }
       state.query = normalizedLetter ? '' : normalizedQuery;
+      if (!normalizedLetter) {
+        const startLink = resolveRelLink(state.currentLinks, 'start') || resolveRelLink(state.currentLinks, '/start');
+        if (startLink?.href) {
+          state.alphabetBaseHref = startLink.href;
+        } else if (state.currentHref) {
+          state.alphabetBaseHref = state.currentHref;
+        }
+      }
       if (typeof activeTab === 'string') {
         state.activeTab = activeTab;
       } else if (normalizedQuery) {

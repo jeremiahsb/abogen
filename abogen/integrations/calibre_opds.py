@@ -6,7 +6,7 @@ import re
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
-from typing import Any, Deque, Dict, Iterable, List, Mapping, Optional, Set
+from typing import Any, Deque, Dict, Iterable, Iterator, List, Mapping, Optional, Set
 from urllib.parse import urljoin, urlparse
 from xml.etree import ElementTree as ET
 
@@ -209,38 +209,115 @@ class CalibreOPDSClient:
         ]
         last_error: Optional[Exception] = None
         base_feed: Optional[OPDSFeed] = None
+        base_combined: Optional[OPDSFeed] = None
         for path, params in candidates:
             try:
                 feed = self.fetch_feed(path, params=params)
             except CalibreOPDSError as exc:
                 last_error = exc
                 continue
-            filtered = self._filter_feed_entries(feed, cleaned)
-            if filtered.entries:
-                return filtered
-            fallback = self._local_search(cleaned, seed_feed=feed)
-            if fallback.entries:
-                return fallback
+            combined = self._merge_feed_entries(
+                self._collect_search_results(feed, cleaned),
+                self._local_search(cleaned, seed_feed=feed),
+            )
+            if combined.entries:
+                return combined
             if base_feed is None:
                 try:
                     base_feed = self.fetch_feed()
                 except CalibreOPDSError:
                     base_feed = None
-            if base_feed is not None:
-                filtered_root = self._filter_feed_entries(base_feed, cleaned)
-                if filtered_root.entries:
-                    return filtered_root
-                fallback_root = self._local_search(cleaned, seed_feed=base_feed)
-                if fallback_root.entries:
-                    return fallback_root
-        if last_error is not None and base_feed is None:
-            raise last_error
+            if base_feed is not None and base_combined is None:
+                base_combined = self._merge_feed_entries(
+                    self._collect_search_results(base_feed, cleaned),
+                    self._local_search(cleaned, seed_feed=base_feed),
+                )
+            if base_combined is not None and base_combined.entries:
+                return base_combined
         if base_feed is None:
-            base_feed = self.fetch_feed()
-        filtered = self._filter_feed_entries(base_feed, cleaned)
-        if filtered.entries:
-            return filtered
-        return self._local_search(cleaned, seed_feed=base_feed)
+            try:
+                base_feed = self.fetch_feed()
+            except CalibreOPDSError as exc:
+                if last_error is not None:
+                    raise last_error
+                raise exc
+        if base_feed is None:
+            if last_error is not None:
+                raise last_error
+            raise CalibreOPDSError("Calibre OPDS base feed is unavailable")
+        if base_combined is None:
+            base_combined = self._merge_feed_entries(
+                self._collect_search_results(base_feed, cleaned),
+                self._local_search(cleaned, seed_feed=base_feed),
+            )
+        if base_combined.entries:
+            return base_combined
+        if last_error is not None:
+            raise last_error
+        return base_combined
+
+    def _collect_search_results(
+        self,
+        seed_feed: OPDSFeed,
+        query: str,
+        *,
+        max_pages: int = 40,
+    ) -> OPDSFeed:
+        normalized = (query or "").strip()
+        if not normalized:
+            return seed_feed
+        seen_ids: Set[str] = set()
+        collected: List[OPDSEntry] = []
+        for page in self._iter_paginated_feeds(seed_feed, max_pages=max_pages):
+            filtered = self._filter_feed_entries(page, normalized)
+            for entry in filtered.entries:
+                entry_id = (entry.id or "").strip()
+                if entry_id:
+                    if entry_id in seen_ids:
+                        continue
+                    seen_ids.add(entry_id)
+                collected.append(entry)
+        return dataclasses.replace(seed_feed, entries=collected)
+
+    def _iter_paginated_feeds(self, seed_feed: OPDSFeed, *, max_pages: int = 40) -> Iterator[OPDSFeed]:
+        yield seed_feed
+        next_link = self._resolve_link(seed_feed.links, "next")
+        visited: Set[str] = set()
+        pages_examined = 0
+        while next_link and pages_examined < max_pages:
+            href = (next_link.href or "").strip()
+            if not href:
+                break
+            absolute = self._make_url(href)
+            if absolute in visited:
+                break
+            visited.add(absolute)
+            pages_examined += 1
+            try:
+                page = self.fetch_feed(absolute)
+            except CalibreOPDSError:
+                break
+            yield page
+            next_link = self._resolve_link(page.links, "next")
+
+    @staticmethod
+    def _merge_feed_entries(primary: OPDSFeed, secondary: OPDSFeed) -> OPDSFeed:
+        if primary is secondary or not secondary.entries:
+            return primary
+        seen_ids: Set[str] = set()
+        combined: List[OPDSEntry] = list(primary.entries)
+        for entry in primary.entries:
+            entry_id = (entry.id or "").strip()
+            if entry_id:
+                seen_ids.add(entry_id)
+        for entry in secondary.entries:
+            entry_id = (entry.id or "").strip()
+            if entry_id and entry_id in seen_ids:
+                continue
+            if entry_id:
+                seen_ids.add(entry_id)
+            combined.append(entry)
+        return dataclasses.replace(primary, entries=combined)
 
     def _local_search(
         self,
@@ -257,9 +334,20 @@ class CalibreOPDSClient:
             return seed_feed or self.fetch_feed()
 
         start_feed = seed_feed or self.fetch_feed()
-        initial_filtered = self._filter_feed_entries(start_feed, normalized)
-        if initial_filtered.entries:
-            return initial_filtered
+        collected: List[OPDSEntry] = []
+        seen_match_ids: Set[str] = set()
+
+        def add_matches(feed: OPDSFeed) -> None:
+            filtered = self._filter_feed_entries(feed, normalized)
+            for entry in filtered.entries:
+                entry_id = (entry.id or "").strip()
+                if entry_id:
+                    if entry_id in seen_match_ids:
+                        continue
+                    seen_match_ids.add(entry_id)
+                collected.append(entry)
+
+        add_matches(start_feed)
 
         queue: Deque[str] = deque()
         queued: Set[str] = set()
@@ -326,15 +414,14 @@ class CalibreOPDSClient:
                 feed = self.fetch_feed(href)
             except CalibreOPDSError:
                 continue
-            filtered = self._filter_feed_entries(feed, normalized)
-            if filtered.entries:
-                return filtered
+            add_matches(feed)
             for rel_key, link in (feed.links or {}).items():
                 enqueue_link(link, rel_key)
             for entry in feed.entries:
                 for link in entry.links:
                     enqueue_link(link, link.rel)
-
+        if collected:
+            return dataclasses.replace(start_feed, entries=collected)
         return dataclasses.replace(start_feed, entries=[])
 
     def download(self, href: str) -> DownloadedResource:
@@ -886,54 +973,68 @@ class CalibreOPDSClient:
             return self.fetch_feed(start_href)
         if key in {"0-9", "NUMERIC"}:
             key = "#"
-        if len(key) > 1 and key != "#":
+        if len(key) > 1:
             key = key[0]
+        if key != "#" and not key.isalpha():
+            key = "#"
         base_feed = self.fetch_feed(start_href)
         mode = self._browse_mode_for_title(base_feed.title)
 
-        def matches_letter(entry: OPDSEntry) -> bool:
-            letter_value = self._alphabet_letter_for_entry(entry, mode)
+        def letter_matches(entry: OPDSEntry, active_mode: str) -> bool:
+            letter_value = self._alphabet_letter_for_entry(entry, active_mode)
             if not letter_value:
                 return False
             if key == "#":
                 return letter_value == "#"
             return letter_value == key
 
-        def find_navigation(feed: OPDSFeed) -> Optional[OPDSLink]:
-            for entry in feed.entries:
-                for link in entry.links:
-                    if not self._is_navigation_link(link):
-                        continue
-                    if matches_letter(entry):
-                        return link
-            return None
+        collected: List[OPDSEntry] = []
+        seen_ids: Set[str] = set()
+        letter_href: Optional[str] = None
 
-        candidate = find_navigation(base_feed)
-        if candidate and candidate.href:
-            return self.fetch_feed(candidate.href)
+        def add_entry(entry: OPDSEntry) -> None:
+            entry_id = (entry.id or "").strip()
+            if entry_id:
+                if entry_id in seen_ids:
+                    return
+                seen_ids.add(entry_id)
+            collected.append(entry)
 
-        visited: Set[str] = set()
-        pages_examined = 0
-        next_link = self._resolve_link(base_feed.links, "next")
-        while next_link and pages_examined < max_pages:
-            href = (next_link.href or "").strip()
-            if not href or href in visited:
-                break
-            visited.add(href)
-            pages_examined += 1
+        for page in self._iter_paginated_feeds(base_feed, max_pages=max_pages):
+            for entry in page.entries:
+                if not letter_matches(entry, mode):
+                    continue
+                if self._has_navigation_link(entry):
+                    if letter_href is None:
+                        for link in entry.links:
+                            if self._is_navigation_link(link):
+                                href = (link.href or "").strip()
+                                if href:
+                                    letter_href = href
+                                    break
+                else:
+                    add_entry(entry)
+
+        letter_feed: Optional[OPDSFeed] = None
+        if letter_href:
             try:
-                feed = self.fetch_feed(href)
+                letter_feed = self.fetch_feed(letter_href)
             except CalibreOPDSError:
-                break
-            candidate = find_navigation(feed)
-            if candidate and candidate.href:
-                return self.fetch_feed(candidate.href)
-            next_link = self._resolve_link(feed.links, "next")
+                letter_feed = None
+            else:
+                letter_mode = self._browse_mode_for_title(letter_feed.title)
+                for page in self._iter_paginated_feeds(letter_feed, max_pages=max_pages):
+                    for entry in page.entries:
+                        if not letter_matches(entry, letter_mode):
+                            continue
+                        if self._has_navigation_link(entry):
+                            continue
+                        add_entry(entry)
 
-        filtered_entries = [entry for entry in base_feed.entries if matches_letter(entry)]
-        if filtered_entries:
-            return dataclasses.replace(base_feed, entries=filtered_entries)
-        return dataclasses.replace(base_feed, entries=[])
+        template = letter_feed or base_feed
+        if collected:
+            return dataclasses.replace(template, entries=collected)
+        return dataclasses.replace(template, entries=[])
 
 
 def feed_to_dict(feed: OPDSFeed) -> Dict[str, Any]:
