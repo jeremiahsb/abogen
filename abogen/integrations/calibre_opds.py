@@ -209,13 +209,15 @@ class CalibreOPDSClient:
         last_error: Optional[Exception] = None
         for path, params in candidates:
             try:
-                return self.fetch_feed(path, params=params)
+                feed = self.fetch_feed(path, params=params)
+                return self._filter_feed_entries(feed, cleaned)
             except CalibreOPDSError as exc:
                 last_error = exc
                 continue
         if last_error is not None:
             raise last_error
-        return self.fetch_feed()
+        feed = self.fetch_feed()
+        return self._filter_feed_entries(feed, cleaned)
 
     def download(self, href: str) -> DownloadedResource:
         if not href:
@@ -274,11 +276,13 @@ class CalibreOPDSClient:
         feed_title = root.findtext("atom:title", default=None, namespaces=NS)
         links = self._parse_links(root.findall("atom:link", NS), base_url)
         parsed_entries = [self._parse_entry(node, base_url) for node in root.findall("atom:entry", NS)]
-        entries = [
-            entry
-            for entry in parsed_entries
-            if entry.download and self._is_supported_download(entry.download)
-        ]
+        entries: List[OPDSEntry] = []
+        for entry in parsed_entries:
+            if entry.download and self._is_supported_download(entry.download):
+                entries.append(entry)
+                continue
+            if self._has_navigation_link(entry):
+                entries.append(entry)
         return OPDSFeed(id=feed_id, title=feed_title, entries=entries, links=links)
 
     def _parse_entry(self, node: ET.Element, base_url: str) -> OPDSEntry:
@@ -619,6 +623,58 @@ class CalibreOPDSClient:
             return supported[0]
         # No valid acquisition-style link exposed
         return None
+
+    @staticmethod
+    def _has_navigation_link(entry: OPDSEntry) -> bool:
+        for link in entry.links:
+            href = (link.href or "").strip()
+            if not href:
+                continue
+            rel = (link.rel or "").strip().lower()
+            link_type = (link.type or "").strip().lower()
+            if "acquisition" in rel:
+                continue
+            if rel == "self":
+                continue
+            if "opds-catalog" in link_type:
+                return True
+            if rel.endswith("navigation") or rel.endswith("collection"):
+                return True
+            if rel.startswith("http://opds-spec.org/sort") or rel.startswith("http://opds-spec.org/group"):
+                return True
+        return False
+
+    @staticmethod
+    def _entry_matches_query(entry: OPDSEntry, tokens: List[str]) -> bool:
+        if not tokens:
+            return True
+        haystack_parts: List[str] = []
+        if entry.title:
+            haystack_parts.append(entry.title)
+        if entry.authors:
+            haystack_parts.extend(entry.authors)
+        if entry.series:
+            haystack_parts.append(entry.series)
+        if entry.summary:
+            haystack_parts.append(entry.summary)
+        if entry.tags:
+            haystack_parts.extend(entry.tags)
+        if entry.alternate and entry.alternate.title:
+            haystack_parts.append(entry.alternate.title)
+        combined = " ".join(part for part in haystack_parts if part).lower()
+        if not combined:
+            return False
+        return all(token in combined for token in tokens)
+
+    def _filter_feed_entries(self, feed: OPDSFeed, query: str) -> OPDSFeed:
+        normalized = (query or "").strip().lower()
+        if not normalized:
+            return feed
+        tokens = [token for token in re.split(r"\s+", normalized) if token]
+        if not tokens:
+            return feed
+        filtered = [entry for entry in feed.entries if self._entry_matches_query(entry, tokens)]
+        return dataclasses.replace(feed, entries=filtered)
 
 
 def feed_to_dict(feed: OPDSFeed) -> Dict[str, Any]:

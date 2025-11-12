@@ -1,4 +1,9 @@
-from abogen.integrations.calibre_opds import CalibreOPDSClient, feed_to_dict
+from abogen.integrations.calibre_opds import (
+  CalibreOPDSClient,
+  OPDSEntry,
+  OPDSFeed,
+  feed_to_dict,
+)
 
 
 def test_calibre_opds_feed_exposes_series_metadata() -> None:
@@ -132,13 +137,73 @@ def test_calibre_opds_filters_out_unsupported_formats() -> None:
         <link rel=\"http://opds-spec.org/acquisition\"
               href=\"books/sample.epub\" />
       </entry>
+      <entry>
+        <id>nav-author</id>
+        <title>Authors (A)</title>
+        <link rel=\"http://opds-spec.org/subsection\"
+              href=\"/opds/authors/a\"
+              type=\"application/atom+xml;profile=opds-catalog\" />
+      </entry>
     </feed>
     """
 
     feed = client._parse_feed(xml_payload, base_url="http://example.com/catalog")
 
     identifiers = {entry.id for entry in feed.entries}
-    assert identifiers == {"pdf-book", "epub-book"}
+    assert identifiers == {"pdf-book", "epub-book", "nav-author"}
     for entry in feed.entries:
-        assert entry.download is not None
-        assert entry.download.href.endswith((".pdf", ".epub"))
+        if entry.id.startswith("nav-"):
+            assert entry.download is None
+            assert entry.links, "Expected navigation entry to preserve links"
+        else:
+            assert entry.download is not None
+            assert entry.download.href.endswith((".pdf", ".epub"))
+
+
+def test_calibre_opds_navigation_entries_without_download_are_preserved() -> None:
+    client = CalibreOPDSClient("http://example.com/catalog")
+    xml_payload = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+    <feed xmlns=\"http://www.w3.org/2005/Atom\">
+      <id>catalog</id>
+      <title>Example Catalog</title>
+      <entry>
+        <id>nav-series</id>
+        <title>Series</title>
+        <link rel=\"http://opds-spec.org/subsection\"
+              href=\"/opds/series\"
+              type=\"application/atom+xml;profile=opds-catalog\" />
+      </entry>
+    </feed>
+    """
+
+    feed = client._parse_feed(xml_payload, base_url="http://example.com/catalog")
+
+    assert [entry.id for entry in feed.entries] == ["nav-series"]
+    entry = feed.entries[0]
+    assert entry.download is None
+    assert any(link.href.endswith("/opds/series") for link in entry.links)
+
+
+def test_calibre_opds_search_filters_by_title_and_author() -> None:
+  client = CalibreOPDSClient("http://example.com/catalog")
+  feed = OPDSFeed(
+    id="catalog",
+    title="Catalog",
+    entries=[
+      OPDSEntry(id="1", title="The Long Journey", authors=["Alice Smith"]),
+      OPDSEntry(id="2", title="Hidden Worlds", authors=["Bob Johnson"]),
+      OPDSEntry(id="3", title="Side Stories", authors=["Cara Nguyen"], series="Journey Tales"),
+    ],
+  )
+
+  filtered = client._filter_feed_entries(feed, "journey alice")
+  assert [entry.id for entry in filtered.entries] == ["1"]
+
+  filtered = client._filter_feed_entries(feed, "bob")
+  assert [entry.id for entry in filtered.entries] == ["2"]
+
+  filtered = client._filter_feed_entries(feed, "journey tales")
+  assert [entry.id for entry in filtered.entries] == ["3"]
+
+  filtered = client._filter_feed_entries(feed, "missing")
+  assert filtered.entries == []
