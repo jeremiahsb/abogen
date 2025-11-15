@@ -260,7 +260,9 @@ if exist %PYPROJECT_FILE% (
 :: Install misaki again if MISAKI_LANG is not set to "en"
 if "%MISAKI_LANG%" NEQ "en" (
     echo Configuring language pack: %MISAKI_LANG%
-    %PYTHON_CONSOLE_PATH% -m pip install misaki[%MISAKI_LANG%] --upgrade --no-warn-script-location
+    :: We need to use an older version of PyTorch (2.8.0) until this issue is fixed: https://github.com/pytorch/pytorch/issues/166628
+    :: Solution mentioned by @mazenemam19 in #99:
+    %PYTHON_CONSOLE_PATH% -m pip install torch==2.8.0+cu128 torchvision==0.23.0+cu128 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128 --no-warn-script-location
     if errorlevel 1 (
         echo Failed to install misaki language pack.
         pause
@@ -279,7 +281,9 @@ if /I "%IS_NVIDIA%"=="true" (
 
     if "%cuda_available%"=="False" (
         echo Installing PyTorch with CUDA (12.8) support...
-        %PYTHON_CONSOLE_PATH% -m pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/cu128 --no-warn-script-location
+        :: We need to use an older version of PyTorch (2.8.0) until this issue is fixed: https://github.com/pytorch/pytorch/issues/166628
+        :: Solution mentioned by @mazenemam19 in #99:
+        %PYTHON_CONSOLE_PATH% -m pip install torch==2.8.0+cu128 torchvision==0.23.0+cu128 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128 --no-warn-script-location
         echo.
         if errorlevel 1 (
             echo Failed to install PyTorch.

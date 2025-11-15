@@ -42,7 +42,8 @@ python -m venv venv
 venv\Scripts\activate
 
 # For NVIDIA GPUs:
-pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/cu128
+# We need to use an older version of PyTorch (2.8.0) until this issue is fixed: https://github.com/pytorch/pytorch/issues/166628
+pip install torch==2.8.0+cu128 torchvision==0.23.0+cu128 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
 
 # For AMD GPUs:
 # Not supported yet, because ROCm is not available on Windows. Use Linux if you have AMD GPU.
@@ -345,14 +346,20 @@ This will start Abogen in command-line mode and display detailed error messages.
 <a name="cuda-warning">How to fix "CUDA GPU is not available. Using CPU" warning?</a>
 </b></summary>
 
-> This message means PyTorch couldn't use your GPU. On Windows, Abogen supports NVIDIA GPUs with CUDA. AMD GPUs are supported only on Linux. Abogen will still run on the CPU, but it will be slower.
+> This message means PyTorch could not use your GPU and has fallen back to the CPU. On Windows, Abogen only supports NVIDIA GPUs with CUDA. AMD GPUs are not supported on Windows (they are only supported on Linux with ROCm). Abogen will still work on the CPU, but processing will be slower compared to a supported GPU.
 >
 > If you have a compatible NVIDIA GPU on Windows and still see this warning:
 > Open your terminal in the Abogen folder (the folder that contains `python_embedded`) and type:
 > ```bash
-> python_embedded\python.exe -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+> python_embedded\python.exe -m pip install --force-reinstall torch==2.8.0+cu128 torchvision==0.23.0+cu128 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
 > ```
-> If you have an AMD GPU, use Linux and follow the Linux/ROCm [instructions](#how-to-install-). If you want to keep running on CPU, no action is required, but performance will just be reduced. See [#32](https://github.com/denizsafak/abogen/issues/32) for more details.
+>
+> If this does not resolve the issue and you are using an older NVIDIA GPU that does not support CUDA 12.8, you can try installing an older version of PyTorch that supports your GPU. For example, for CUDA 12.6, run:
+> ```bash
+> python_embedded\python.exe -m pip install --force-reinstall torch==2.8.0+cu126 torchvision==0.23.0+cu126 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu126
+> ```
+> 
+> If you have an AMD GPU, you need to use Linux and follow the Linux/ROCm [instructions](#linux). If you want to keep running on CPU, no action is required, but performance will just be reduced. See [#32](https://github.com/denizsafak/abogen/issues/32) for more details.
 
 </details>
 
@@ -382,7 +389,7 @@ This will start Abogen in command-line mode and display detailed error messages.
 > I faced this error when trying to run Abogen in a virtual Windows machine without GPU support. Here's how I fixed it:
 > If you installed Abogen using the Windows installer `(WINDOWS_INSTALL.bat)`, go to Abogen's folder (that contains `python_embedded`), open your terminal there and run:
 > ```bash
-> python_embedded\python.exe -m pip install torch==2.8.0 torchaudio==2.8.0 torchvision==0.23.0
+> python_embedded\python.exe -m pip install --force-reinstall torch==2.8.0+cu128 torchvision==0.23.0+cu128 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
 > ```
 > If you installed Abogen using pip, open your terminal in the virtual environment and run:
 > ```bash

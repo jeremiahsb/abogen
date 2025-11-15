@@ -4,23 +4,17 @@ import platform
 import atexit
 import signal
 
-# Fix PyTorch DLL loading issue on Windows before importing PyQt6
+# Fix PyTorch DLL loading issue ([WinError 1114]) on Windows before importing PyQt6
 if platform.system() == "Windows":
     import ctypes
-    import site
-    
-    for site_path in site.getsitepackages():
-        torch_lib_path = os.path.join(site_path, "torch", "lib")
-        if os.path.exists(torch_lib_path):
-            # Pre-load torch DLLs before Qt can interfere
-            for dll in ['c10.dll', 'torch_cpu.dll', 'torch_python.dll']:
-                dll_path = os.path.join(torch_lib_path, dll)
-                if os.path.exists(dll_path):
-                    try:
-                        ctypes.CDLL(dll_path)
-                    except Exception:
-                        pass
-            break
+    from importlib.util import find_spec
+    try:
+        if (spec := find_spec("torch")) and spec.origin and os.path.exists(
+            dll_path := os.path.join(os.path.dirname(spec.origin), "lib", "c10.dll")
+        ):
+            ctypes.CDLL(os.path.normpath(dll_path))
+    except Exception:
+        pass
 
 # Qt platform plugin detection (fixes #59)
 try:
