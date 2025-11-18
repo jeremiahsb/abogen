@@ -161,7 +161,7 @@ class InputBox(QLabel):
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setAcceptDrops(True)
         self.setText(
-            "Drag and drop your file here or click to browse.\n(.txt, .epub, .pdf, .md)"
+            "Drag and drop your file here or click to browse.\n(.txt, .epub, .pdf, .md, .srt, .ass, .vtt)"
         )
         self.setStyleSheet(
             f"QLabel {{ {self.STYLE_DEFAULT} }} QLabel:hover {{ {self.STYLE_DEFAULT_HOVER} }}"
@@ -255,7 +255,7 @@ class InputBox(QLabel):
             except Exception:
                 return str(n)
 
-        doc_extensions = (".epub", ".pdf", ".md", ".markdown")
+        doc_extensions = (".epub", ".pdf", ".md", ".markdown", ".srt", ".ass", ".vtt")
         char_source_path = file_path
         cached_char_count = None
 
@@ -321,11 +321,11 @@ class InputBox(QLabel):
             else:  # PDF - always use Pages
                 self.chapters_btn.setText(f"Pages ({chapter_count})")
 
-        # Hide textbox and show edit only for .txt files
+        # Hide textbox and show edit only for .txt, .srt, .ass, .vtt files
         self.textbox_btn.hide()
-        # Show edit button for txt files directly
+        # Show edit button for txt/subtitle files directly
         # Or for epub/pdf files that have generated a temp txt file
-        should_show_edit = file_path.lower().endswith(".txt")
+        should_show_edit = file_path.lower().endswith((".txt", ".srt", ".ass", ".vtt"))
 
         # For epub/pdf files, show edit if we have a selected_file (temp txt)
         if (
@@ -337,6 +337,12 @@ class InputBox(QLabel):
 
         self.edit_btn.setVisible(should_show_edit)
         self.go_to_folder_btn.show()
+        
+        # Disable subtitle generation for subtitle input files
+        is_subtitle_input = file_path.lower().endswith((".srt", ".ass", ".vtt"))
+        if hasattr(window, "subtitle_combo"):
+            window.subtitle_combo.setEnabled(not is_subtitle_input)
+        
         # Enable add to queue button only when file is accepted (input box is green)
         self.resizeEvent(None)
         if hasattr(window, "btn_add_to_queue"):
@@ -367,7 +373,7 @@ class InputBox(QLabel):
         self.window().save_chapters_separately = None
         self.window().merge_chapters_at_end = None
         self.setText(
-            "Drag and drop your file here or click to browse.\n(.txt, .epub, .pdf, .md)"
+            "Drag and drop your file here or click to browse.\n(.txt, .epub, .pdf, .md, .srt, .ass, .vtt)"
         )
         self.setStyleSheet(
             f"QLabel {{ {self.STYLE_DEFAULT} }} QLabel:hover {{ {self.STYLE_DEFAULT_HOVER} }}"
@@ -379,9 +385,19 @@ class InputBox(QLabel):
         self.textbox_btn.show()
         self.edit_btn.hide()
         self.go_to_folder_btn.hide()
+        
+        # Re-enable subtitle and replace newlines controls when cleared
+        window = self.window()
+        if hasattr(window, "subtitle_combo"):
+            # Only enable if language supports it
+            current_lang = getattr(window, "lang_code", "a")
+            window.subtitle_combo.setEnabled(current_lang in SUPPORTED_LANGUAGES_FOR_SUBTITLE_GENERATION)
+        if hasattr(window, "replace_newlines_combo"):
+            window.replace_newlines_combo.setEnabled(True)
+        
         # Disable add to queue button when input is cleared
-        if hasattr(self.window(), "btn_add_to_queue"):
-            self.window().btn_add_to_queue.setEnabled(False)
+        if hasattr(window, "btn_add_to_queue"):
+            window.btn_add_to_queue.setEnabled(False)
         # Reset the input_box_cleared_by_queue flag after setting file info
         if hasattr(self.window(), "input_box_cleared_by_queue"):
             self.window().input_box_cleared_by_queue = True
@@ -407,6 +423,7 @@ class InputBox(QLabel):
                     or ext.endswith(".epub")
                     or ext.endswith(".pdf")
                     or ext.endswith((".md", ".markdown"))
+                    or ext.endswith((".srt", ".ass", ".vtt"))
                 ):
                     event.acceptProposedAction()
                     # Set hover style based on current state
@@ -460,12 +477,20 @@ class InputBox(QLabel):
                 file_path.lower().endswith(".epub")
                 or file_path.lower().endswith(".pdf")
                 or file_path.lower().endswith((".md", ".markdown"))
+                or file_path.lower().endswith((".srt", ".ass", ".vtt"))
             ):
                 # Determine file type
                 if file_path.lower().endswith(".epub"):
                     file_type = "epub"
                 elif file_path.lower().endswith(".pdf"):
                     file_type = "pdf"
+                elif file_path.lower().endswith((".srt", ".ass", ".vtt")):
+                    # For subtitle files, treat them like txt files (direct processing)
+                    win.selected_file, win.selected_file_type = file_path, "txt"
+                    win.displayed_file_path = file_path
+                    self.set_file_info(file_path)
+                    event.acceptProposedAction()
+                    return
                 else:
                     file_type = "markdown"
 
@@ -477,7 +502,7 @@ class InputBox(QLabel):
                 )
                 event.acceptProposedAction()
             else:
-                self.set_error("Please drop a .txt, .epub, .pdf, or .md file.")
+                self.set_error("Please drop a .txt, .epub, .pdf, .md, .srt, .ass, or .vtt file.")
                 event.ignore()
         else:
             event.ignore()
@@ -796,6 +821,8 @@ class abogen(QWidget):
             "use_gpu", True  # Load GPU setting with default True
         )
         self.replace_single_newlines = self.config.get("replace_single_newlines", False)
+        self.use_silent_gaps = self.config.get("use_silent_gaps", False)
+        self.subtitle_speed_method = self.config.get("subtitle_speed_method", "tts")
         self._pending_close_event = None
         self.gpu_ok = False  # Initialize GPU availability status
 
@@ -1291,7 +1318,7 @@ class abogen(QWidget):
             return
         try:
             file_path, _ = QFileDialog.getOpenFileName(
-                self, "Select File", "", "Supported Files (*.txt *.epub *.pdf *.md)"
+                self, "Select File", "", "Supported Files (*.txt *.epub *.pdf *.md *.srt *.ass *.vtt)"
             )
             if not file_path:
                 return
@@ -1312,6 +1339,11 @@ class abogen(QWidget):
                 # Don't set file info immediately, open_book_file will handle it after dialog is accepted
                 if not self.open_book_file(file_path):
                     return
+            elif file_path.lower().endswith((".srt", ".ass", ".vtt")):
+                # Handle subtitle files like text files
+                self.selected_file, self.selected_file_type = file_path, "txt"
+                self.displayed_file_path = file_path
+                self.input_box.set_file_info(file_path)
             else:
                 self.selected_file, self.selected_file_type = file_path, "txt"
                 self.displayed_file_path = (
@@ -1817,6 +1849,8 @@ class abogen(QWidget):
             output_format=self.selected_format,
             total_char_count=self.char_count,
             replace_single_newlines=self.replace_single_newlines,
+            use_silent_gaps=self.use_silent_gaps,
+            subtitle_speed_method=self.subtitle_speed_method,
             save_base_path=save_base_path,
             save_chapters_separately=getattr(self, "save_chapters_separately", None),
             merge_chapters_at_end=getattr(self, "merge_chapters_at_end", None),
@@ -1899,6 +1933,9 @@ class abogen(QWidget):
             self.char_count = queued_item.total_char_count
             self.replace_single_newlines = getattr(
                 queued_item, "replace_single_newlines", False
+            )
+            self.use_silent_gaps = getattr(
+                queued_item, "use_silent_gaps", False
             )
             # Restore the original file path for save location
             self.displayed_file_path = (
@@ -2045,6 +2082,12 @@ class abogen(QWidget):
             self.conversion_thread.replace_single_newlines = (
                 self.replace_single_newlines
             )
+            # Pass use_silent_gaps setting
+            self.conversion_thread.use_silent_gaps = (
+                self.use_silent_gaps
+            )
+            # Pass subtitle_speed_method setting
+            self.conversion_thread.subtitle_speed_method = self.subtitle_speed_method
             # Pass separate_chapters_format setting
             self.conversion_thread.separate_chapters_format = (
                 self.separate_chapters_format
@@ -2767,21 +2810,31 @@ class abogen(QWidget):
 
     def show_chapter_options_dialog(self, chapter_count):
         """Show dialog to ask user about chapter processing options when chapters are detected in a .txt file"""
+        # Check if this is a timestamp detection (-1) or chapter detection
+        if chapter_count == -1:
+            from abogen.conversion import TimestampDetectionDialog
+            
+            dialog = TimestampDetectionDialog(parent=self)
+            dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+            
+            # Dialog always accepts (Yes or No), never cancels the conversion
+            dialog.exec()
+            treat_as_subtitle = dialog.use_timestamps()
+            if hasattr(self, "conversion_thread") and self.conversion_thread.isRunning():
+                self.conversion_thread.set_timestamp_response(treat_as_subtitle)
+            return
+        
+        # Normal chapter detection
         from abogen.conversion import ChapterOptionsDialog
 
         dialog = ChapterOptionsDialog(chapter_count, parent=self)
         dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
 
-        # If dialog is accepted, pass the options to the conversion thread
         if dialog.exec() == QDialog.DialogCode.Accepted:
             options = dialog.get_options()
-            if (
-                hasattr(self, "conversion_thread")
-                and self.conversion_thread.isRunning()
-            ):
+            if hasattr(self, "conversion_thread") and self.conversion_thread.isRunning():
                 self.conversion_thread.set_chapter_options(options)
         else:
-            # If dialog is rejected, cancel the conversion
             self.cancel_conversion()
 
     def apply_theme(self, theme):
@@ -3040,6 +3093,40 @@ class abogen(QWidget):
         # Add separator
         menu.addSeparator()
 
+        # Add use silent gaps option (for subtitle files)
+        self.silent_gaps_action = QAction("Use silent gaps between subtitles", self)
+        self.silent_gaps_action.setCheckable(True)
+        self.silent_gaps_action.setChecked(self.use_silent_gaps)
+        self.silent_gaps_action.triggered.connect(
+            lambda checked: self.toggle_use_silent_gaps(checked)
+        )
+        menu.addAction(self.silent_gaps_action)
+
+        # Subtitle speed adjustment method
+        speed_method_menu = menu.addMenu("Subtitle speed adjustment method")
+        speed_method_menu.setToolTip(
+            "Choose speed adjustment method:\n"
+            "TTS Regeneration: Better quality\n"
+            "FFmpeg Time-stretch: Faster processing"
+        )
+        
+        speed_method_group = QActionGroup(self)
+        speed_method_group.setExclusive(True)
+        
+        for method, label in [("tts", "TTS Regeneration (better quality)"), 
+                               ("ffmpeg", "FFmpeg Time-stretch (better speed)")]:
+            action = QAction(label, speed_method_menu)
+            action.setCheckable(True)
+            action.setChecked(self.subtitle_speed_method == method)
+            action.triggered.connect(lambda checked, m=method: self.toggle_subtitle_speed_method(m))
+            speed_method_group.addAction(action)
+            speed_method_menu.addAction(action)
+        
+        self.speed_method_group = speed_method_group
+
+        # Add separator
+        menu.addSeparator()
+
         # Add "Disable Kokoro's internet access" option
         disable_kokoro_action = QAction("Disable Kokoro's internet access", self)
         disable_kokoro_action.setCheckable(True)
@@ -3073,6 +3160,33 @@ class abogen(QWidget):
     def toggle_replace_single_newlines(self, enabled):
         self.replace_single_newlines = enabled
         self.config["replace_single_newlines"] = enabled
+        save_config(self.config)
+
+    def toggle_use_silent_gaps(self, enabled):
+        # Show confirmation dialog with explanation
+        action = "enable" if enabled else "disable"
+        message = ("When enabled, allows speech to continue naturally into the silent periods between subtitles, "
+                  "preventing unnecessary audio speed-up based on subtitle end timestamps.\n\nWhen disabled, ensures strict subtitle timing where "
+                  f"audio ends exactly when the subtitle ends.\n\nDo you want to {action} this option?")
+        
+        reply = QMessageBox.question(
+            self,
+            "Use Silent Gaps Between Subtitles",
+            message,
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
+        )
+        
+        if reply == QMessageBox.StandardButton.Ok:
+            self.use_silent_gaps = enabled
+            self.config["use_silent_gaps"] = enabled
+            save_config(self.config)
+        else:
+            # Revert the checkbox state if cancelled
+            self.silent_gaps_action.setChecked(not enabled)
+    
+    def toggle_subtitle_speed_method(self, method):
+        self.subtitle_speed_method = method
+        self.config["subtitle_speed_method"] = method
         save_config(self.config)
 
     def restart_app(self):

@@ -3,7 +3,7 @@ from abogen.utils import get_version
 # Program Information
 PROGRAM_NAME = "abogen"
 PROGRAM_DESCRIPTION = (
-    "Generate audiobooks from EPUBs, PDFs and text with synchronized captions."
+    "Generate audiobooks from EPUBs, PDFs, text and subtitles with synchronized captions."
 )
 GITHUB_URL = "https://github.com/denizsafak/abogen"
 VERSION = get_version()
@@ -44,6 +44,7 @@ SUPPORTED_SOUND_FORMATS = [
 SUPPORTED_SUBTITLE_FORMATS = [
     "srt",
     "ass",
+    "vtt",
 ]
 
 # Supported input formats
@@ -51,6 +52,9 @@ SUPPORTED_INPUT_FORMATS = [
     "epub",
     "pdf",
     "txt",
+    "srt",
+    "ass",
+    "vtt",
 ]
 
 # Supported languages for subtitle generation

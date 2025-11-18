@@ -87,7 +87,8 @@ class DroppableQueueListWidget(QListWidget):
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
-                if url.isLocalFile() and url.toLocalFile().lower().endswith(".txt"):
+                file_path = url.toLocalFile().lower()
+                if url.isLocalFile() and (file_path.endswith(".txt") or file_path.endswith((".srt", ".ass", ".vtt"))):
                     self.drag_overlay.resize(self.size())
                     self.drag_overlay.setVisible(True)
                     event.acceptProposedAction()
@@ -98,7 +99,8 @@ class DroppableQueueListWidget(QListWidget):
     def dragMoveEvent(self, event):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
-                if url.isLocalFile() and url.toLocalFile().lower().endswith(".txt"):
+                file_path = url.toLocalFile().lower()
+                if url.isLocalFile() and (file_path.endswith(".txt") or file_path.endswith((".srt", ".ass", ".vtt"))):
                     event.acceptProposedAction()
                     return
         event.ignore()
@@ -113,7 +115,7 @@ class DroppableQueueListWidget(QListWidget):
             file_paths = [
                 url.toLocalFile()
                 for url in event.mimeData().urls()
-                if url.isLocalFile() and url.toLocalFile().lower().endswith(".txt")
+                if url.isLocalFile() and (url.toLocalFile().lower().endswith(".txt") or url.toLocalFile().lower().endswith((".srt", ".ass", ".vtt")))
             ]
             if file_paths:
                 self.parent_dialog.add_files_from_paths(file_paths)
@@ -151,7 +153,7 @@ class QueueManager(QDialog):
         # Add informative instructions at the top
         instructions = QLabel(
             "<h2>How Queue Works?</h2>"
-            "You can add text files (.txt) directly using the '<b>Add files</b>' button below. "
+            "You can add text and subtitle files (.txt, .srt, .ass, .vtt) directly using the '<b>Add files</b>' button below. "
             "To add PDF, EPUB or markdown files, use the input box in the main window and click the <b>'Add to Queue'</b> button. "
             "Each file in the queue keeps the configuration settings active when it was added. "
             "Changing the main window configuration afterward <b>does not</b> affect files already in the queue. "
@@ -163,7 +165,7 @@ class QueueManager(QDialog):
         layout.addWidget(instructions)
         # Overlay label for empty queue
         self.empty_overlay = QLabel(
-            "Drag and drop your text files here or use the 'Add files' button.",
+            "Drag and drop your text or subtitle files here or use the 'Add files' button.",
             self.listwidget,
         )
         self.empty_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -290,7 +292,9 @@ class QueueManager(QDialog):
                 f"<b>Subtitle Mode:</b> {getattr(item, 'subtitle_mode', '')}<br>"
                 f"<b>Output Format:</b> {getattr(item, 'output_format', '')}<br>"
                 f"<b>Characters:</b> {getattr(item, 'total_char_count', '')}<br>"
-                f"<b>Replace Single Newlines:</b> {getattr(item, 'replace_single_newlines', False)}"
+                f"<b>Replace Single Newlines:</b> {getattr(item, 'replace_single_newlines', False)}<br>"
+                f"<b>Use Silent Gaps:</b> {getattr(item, 'use_silent_gaps', False)}<br>"
+                f"<b>Speed Method:</b> {getattr(item, 'subtitle_speed_method', 'tts')}"
             )
             # Add book handler options if present
             save_chapters_separately = getattr(item, "save_chapters_separately", None)
@@ -403,6 +407,14 @@ class QueueManager(QDialog):
             attrs["replace_single_newlines"] = getattr(
                 parent, "replace_single_newlines", False
             )
+            # use_silent_gaps
+            attrs["use_silent_gaps"] = getattr(
+                parent, "use_silent_gaps", False
+            )
+            # subtitle_speed_method
+            attrs["subtitle_speed_method"] = getattr(
+                parent, "subtitle_speed_method", "tts"
+            )
             # book handler options
             attrs["save_chapters_separately"] = getattr(
                 parent, "save_chapters_separately", None
@@ -449,6 +461,9 @@ class QueueManager(QDialog):
             )
             for attr, value in current_attrs.items():
                 setattr(item, attr, value)
+            # Override subtitle_mode to "Disabled" for subtitle files
+            if file_path.lower().endswith((".srt", ".ass", ".vtt")):
+                item.subtitle_mode = "Disabled"
             # Read file content and calculate total_char_count using calculate_text_length
             try:
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -480,6 +495,10 @@ class QueueManager(QDialog):
                     == getattr(item, "total_char_count", None)
                     and getattr(queued_item, "replace_single_newlines", False)
                     == getattr(item, "replace_single_newlines", False)
+                    and getattr(queued_item, "use_silent_gaps", False)
+                    == getattr(item, "use_silent_gaps", False)
+                    and getattr(queued_item, "subtitle_speed_method", "tts")
+                    == getattr(item, "subtitle_speed_method", "tts")
                     and getattr(queued_item, "save_base_path", None)
                     == getattr(item, "save_base_path", None)
                     and getattr(queued_item, "save_chapters_separately", None)
@@ -506,9 +525,9 @@ class QueueManager(QDialog):
         from PyQt6.QtWidgets import QFileDialog
         from abogen.utils import calculate_text_length  # import the function
 
-        # Only allow .txt files
+        # Allow .txt, .srt, .ass, and .vtt files
         files, _ = QFileDialog.getOpenFileNames(
-            self, "Select .txt files", "", "Text Files (*.txt)"
+            self, "Select text or subtitle files", "", "Supported Files (*.txt *.srt *.ass *.vtt)"
         )
         if not files:
             return

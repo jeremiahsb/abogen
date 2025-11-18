@@ -146,7 +146,7 @@ def main():
     # Set the .desktop name on Linux
     if platform.system() == "Linux":
         try:
-            app.setDesktopFileName("abogen.desktop")
+            app.setDesktopFileName("abogen")
         except AttributeError:
             pass
 
