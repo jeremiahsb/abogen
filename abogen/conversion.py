@@ -32,153 +32,156 @@ import platform
 def clean_subtitle_text(text):
     """Remove chapter markers and metadata tags from subtitle text."""
     # Remove metadata tags
-    text = re.sub(r'<<METADATA_[^:]+:[^>]*>>', '', text)
+    text = re.sub(r"<<METADATA_[^:]+:[^>]*>>", "", text)
     # Remove chapter markers
-    text = re.sub(r'<<CHAPTER_MARKER:[^>]*>>', '', text)
+    text = re.sub(r"<<CHAPTER_MARKER:[^>]*>>", "", text)
     return text.strip()
 
 
 def parse_srt_file(file_path):
     """
     Parse an SRT subtitle file and return a list of subtitle entries.
-    
+
     Args:
         file_path: Path to the SRT file
-        
+
     Returns:
         List of tuples: [(start_time_seconds, end_time_seconds, text), ...]
     """
     encoding = detect_encoding(file_path)
-    with open(file_path, 'r', encoding=encoding, errors='replace') as f:
+    with open(file_path, "r", encoding=encoding, errors="replace") as f:
         content = f.read()
-    
+
     # Split by double newlines to get individual subtitle blocks
-    blocks = re.split(r'\n\s*\n', content.strip())
-    
+    blocks = re.split(r"\n\s*\n", content.strip())
+
     subtitles = []
     for block in blocks:
         if not block.strip():
             continue
-        
-        lines = block.strip().split('\n')
+
+        lines = block.strip().split("\n")
         if len(lines) < 3:
             continue
-        
+
         # First line is index, second line is timestamp, rest is text
         try:
             timestamp_line = lines[1]
-            match = re.match(r'(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})', timestamp_line)
+            match = re.match(
+                r"(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})",
+                timestamp_line,
+            )
             if not match:
                 continue
-            
+
             start_str = match.group(1)
             end_str = match.group(2)
-            text = '\n'.join(lines[2:])
-            
+            text = "\n".join(lines[2:])
+
             # Convert timestamp to seconds
             def time_to_seconds(t):
-                h, m, s_ms = t.split(':')
-                s, ms = s_ms.split(',')
+                h, m, s_ms = t.split(":")
+                s, ms = s_ms.split(",")
                 return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
-            
+
             start_sec = time_to_seconds(start_str)
             end_sec = time_to_seconds(end_str)
-            
+
             # Clean text of any styling tags
-            text = re.sub(r'<[^>]+>', '', text)
+            text = re.sub(r"<[^>]+>", "", text)
             # Remove chapter markers and metadata tags
             text = clean_subtitle_text(text)
-            
+
             if text:  # Only add non-empty subtitles
                 subtitles.append((start_sec, end_sec, text))
         except (ValueError, IndexError):
             continue
-    
+
     return subtitles
 
 
 def parse_vtt_file(file_path):
     """
     Parse a VTT (WebVTT) subtitle file and return a list of subtitle entries.
-    
+
     Args:
         file_path: Path to the VTT file
-        
+
     Returns:
         List of tuples: [(start_time_seconds, end_time_seconds, text), ...]
     """
     encoding = detect_encoding(file_path)
-    with open(file_path, 'r', encoding=encoding, errors='replace') as f:
+    with open(file_path, "r", encoding=encoding, errors="replace") as f:
         content = f.read()
-    
+
     # Remove WEBVTT header and any style/note blocks
-    content = re.sub(r'^WEBVTT.*?\n', '', content, flags=re.MULTILINE)
-    content = re.sub(r'STYLE\s*\n.*?(?=\n\n|$)', '', content, flags=re.DOTALL)
-    content = re.sub(r'NOTE\s*\n.*?(?=\n\n|$)', '', content, flags=re.DOTALL)
-    
+    content = re.sub(r"^WEBVTT.*?\n", "", content, flags=re.MULTILINE)
+    content = re.sub(r"STYLE\s*\n.*?(?=\n\n|$)", "", content, flags=re.DOTALL)
+    content = re.sub(r"NOTE\s*\n.*?(?=\n\n|$)", "", content, flags=re.DOTALL)
+
     # Split by double newlines to get individual subtitle blocks
-    blocks = re.split(r'\n\s*\n', content.strip())
-    
+    blocks = re.split(r"\n\s*\n", content.strip())
+
     subtitles = []
     for block in blocks:
         if not block.strip():
             continue
-        
-        lines = block.strip().split('\n')
+
+        lines = block.strip().split("\n")
         if len(lines) < 2:
             continue
-        
+
         # VTT can have optional identifier on first line, timestamp on second or first
         timestamp_line = None
         text_start_idx = 0
-        
+
         # Check if first line is timestamp
-        if '-->' in lines[0]:
+        if "-->" in lines[0]:
             timestamp_line = lines[0]
             text_start_idx = 1
-        elif len(lines) > 1 and '-->' in lines[1]:
+        elif len(lines) > 1 and "-->" in lines[1]:
             timestamp_line = lines[1]
             text_start_idx = 2
         else:
             continue
-        
+
         try:
             # VTT format: 00:00:00.000 --> 00:00:05.000 or 00:00.000 --> 00:05.000
-            match = re.match(r'([\d:.]+)\s*-->\s*([\d:.]+)', timestamp_line)
+            match = re.match(r"([\d:.]+)\s*-->\s*([\d:.]+)", timestamp_line)
             if not match:
                 continue
-            
+
             start_str = match.group(1)
             end_str = match.group(2)
-            text = '\n'.join(lines[text_start_idx:])
-            
+            text = "\n".join(lines[text_start_idx:])
+
             # Convert timestamp to seconds
             def time_to_seconds(t):
-                parts = t.split(':')
+                parts = t.split(":")
                 if len(parts) == 3:  # HH:MM:SS.mmm
                     h, m, s = parts
-                    s, ms = s.split('.')
+                    s, ms = s.split(".")
                     return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
                 elif len(parts) == 2:  # MM:SS.mmm
                     m, s = parts
-                    s, ms = s.split('.')
+                    s, ms = s.split(".")
                     return int(m) * 60 + int(s) + int(ms) / 1000.0
                 return 0
-            
+
             start_sec = time_to_seconds(start_str)
             end_sec = time_to_seconds(end_str)
-            
+
             # Clean text of any styling tags and cue settings
-            text = re.sub(r'<[^>]+>', '', text)
-            text = re.sub(r'{[^}]+}', '', text)  # Remove voice tags
+            text = re.sub(r"<[^>]+>", "", text)
+            text = re.sub(r"{[^}]+}", "", text)  # Remove voice tags
             # Remove chapter markers and metadata tags
             text = clean_subtitle_text(text)
-            
+
             if text:  # Only add non-empty subtitles
                 subtitles.append((start_sec, end_sec, text))
         except (ValueError, IndexError, AttributeError):
             continue
-    
+
     return subtitles
 
 
@@ -186,14 +189,16 @@ def detect_timestamps_in_text(file_path):
     """Detect if text file contains timestamp markers (HH:MM:SS or HH:MM:SS,ms format) on separate lines."""
     try:
         encoding = detect_encoding(file_path)
-        with open(file_path, 'r', encoding=encoding, errors='replace') as f:
-            lines = [line.strip() for line in f.readlines()[:50] if line.strip()]  # Check first 50 non-empty lines
-        
+        with open(file_path, "r", encoding=encoding, errors="replace") as f:
+            lines = [
+                line.strip() for line in f.readlines()[:50] if line.strip()
+            ]  # Check first 50 non-empty lines
+
         # Count lines that are ONLY timestamps (no other text)
         # Supports HH:MM:SS or HH:MM:SS,ms format
-        timestamp_pattern = r'^(\d{1,2}:\d{2}:\d{2}(?:,\d{1,3})?)$'
+        timestamp_pattern = r"^(\d{1,2}:\d{2}:\d{2}(?:,\d{1,3})?)$"
         timestamp_lines = sum(1 for line in lines if re.match(timestamp_pattern, line))
-        
+
         # Must have at least 2 timestamp-only lines and they should be >5% of total lines
         return timestamp_lines >= 2 and (timestamp_lines / max(len(lines), 1)) > 0.05
     except Exception:
@@ -204,45 +209,45 @@ def parse_timestamp_text_file(file_path):
     """Parse text file with timestamps. Returns list of (start_time, end_time, text) tuples.
     Supports HH:MM:SS or HH:MM:SS,ms format. Returns time in seconds as float."""
     encoding = detect_encoding(file_path)
-    with open(file_path, 'r', encoding=encoding, errors='replace') as f:
+    with open(file_path, "r", encoding=encoding, errors="replace") as f:
         content = f.read()
-    
+
     # Split by timestamp pattern (supports HH:MM:SS or HH:MM:SS,ms)
-    pattern = r'^(\d{1,2}:\d{2}:\d{2}(?:,\d{1,3})?)$'
-    lines = content.split('\n')
-    
+    pattern = r"^(\d{1,2}:\d{2}:\d{2}(?:,\d{1,3})?)$"
+    lines = content.split("\n")
+
     def parse_time(time_str):
         """Convert HH:MM:SS or HH:MM:SS,ms to seconds as float."""
-        if ',' in time_str:
-            time_part, ms_part = time_str.split(',')
-            parts = time_part.split(':')
+        if "," in time_str:
+            time_part, ms_part = time_str.split(",")
+            parts = time_part.split(":")
             seconds = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-            milliseconds = int(ms_part.ljust(3, '0'))  # Pad to 3 digits
+            milliseconds = int(ms_part.ljust(3, "0"))  # Pad to 3 digits
             return seconds + milliseconds / 1000.0
         else:
-            parts = time_str.split(':')
+            parts = time_str.split(":")
             return float(int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2]))
-    
+
     entries = []
     current_time = None
     current_text = []
     pre_timestamp_text = []  # Text before first timestamp
-    
+
     for line in lines:
         match = re.match(pattern, line.strip())
         if match:
             # Save previous entry
             if current_time is not None and current_text:
-                text = '\n'.join(current_text).strip()
+                text = "\n".join(current_text).strip()
                 if text:
                     entries.append((current_time, text))
             elif current_time is None and pre_timestamp_text:
                 # First timestamp found, save pre-timestamp text with time 0
-                text = '\n'.join(pre_timestamp_text).strip()
+                text = "\n".join(pre_timestamp_text).strip()
                 if text:
                     entries.append((0.0, text))
                 pre_timestamp_text = []
-            
+
             # Start new entry
             time_str = match.group(1)
             current_time = parse_time(time_str)
@@ -252,18 +257,18 @@ def parse_timestamp_text_file(file_path):
         else:
             # Text before first timestamp
             pre_timestamp_text.append(line)
-    
+
     # Save last entry
     if current_time is not None and current_text:
-        text = '\n'.join(current_text).strip()
+        text = "\n".join(current_text).strip()
         if text:
             entries.append((current_time, text))
     elif not entries and pre_timestamp_text:
         # No timestamps found at all, treat entire file as starting at 0
-        text = '\n'.join(pre_timestamp_text).strip()
+        text = "\n".join(pre_timestamp_text).strip()
         if text:
             entries.append((0.0, text))
-    
+
     # Convert to subtitle format with end times
     subtitles = []
     for i, (start_time, text) in enumerate(entries):
@@ -272,81 +277,87 @@ def parse_timestamp_text_file(file_path):
         text = clean_subtitle_text(text)
         if text:  # Only add non-empty entries
             subtitles.append((start_time, end_time, text))
-    
+
     return subtitles
 
 
 def parse_ass_file(file_path):
     """
     Parse an ASS/SSA subtitle file and return a list of subtitle entries.
-    
+
     Args:
         file_path: Path to the ASS/SSA file
-        
+
     Returns:
         List of tuples: [(start_time_seconds, end_time_seconds, text), ...]
     """
     encoding = detect_encoding(file_path)
-    with open(file_path, 'r', encoding=encoding, errors='replace') as f:
+    with open(file_path, "r", encoding=encoding, errors="replace") as f:
         lines = f.readlines()
-    
+
     subtitles = []
     in_events = False
     format_indices = {}
-    
+
     for line in lines:
         line = line.strip()
-        
-        if line.startswith('[Events]'):
+
+        if line.startswith("[Events]"):
             in_events = True
             continue
-        
-        if line.startswith('[') and in_events:
+
+        if line.startswith("[") and in_events:
             # New section, stop processing
             break
-        
-        if in_events and line.startswith('Format:'):
+
+        if in_events and line.startswith("Format:"):
             # Parse format line to know column positions
-            parts = line.split(':', 1)[1].strip().split(',')
+            parts = line.split(":", 1)[1].strip().split(",")
             for i, part in enumerate(parts):
                 format_indices[part.strip().lower()] = i
             continue
-        
-        if in_events and (line.startswith('Dialogue:') or line.startswith('Comment:')):
-            if line.startswith('Comment:'):
+
+        if in_events and (line.startswith("Dialogue:") or line.startswith("Comment:")):
+            if line.startswith("Comment:"):
                 continue  # Skip comments
-                
-            parts = line.split(':', 1)[1].strip().split(',', len(format_indices) - 1)
-            
-            if 'start' in format_indices and 'end' in format_indices and 'text' in format_indices:
-                start_str = parts[format_indices['start']].strip()
-                end_str = parts[format_indices['end']].strip()
-                text = parts[format_indices['text']].strip()
-                
+
+            parts = line.split(":", 1)[1].strip().split(",", len(format_indices) - 1)
+
+            if (
+                "start" in format_indices
+                and "end" in format_indices
+                and "text" in format_indices
+            ):
+                start_str = parts[format_indices["start"]].strip()
+                end_str = parts[format_indices["end"]].strip()
+                text = parts[format_indices["text"]].strip()
+
                 # Convert timestamp to seconds (ASS format: H:MM:SS.CS where CS is centiseconds)
                 def ass_time_to_seconds(t):
-                    parts = t.split(':')
+                    parts = t.split(":")
                     if len(parts) == 3:
                         h, m, s = parts
-                        s_parts = s.split('.')
+                        s_parts = s.split(".")
                         seconds = float(s_parts[0])
                         centiseconds = float(s_parts[1]) if len(s_parts) > 1 else 0
-                        return int(h) * 3600 + int(m) * 60 + seconds + centiseconds / 100.0
+                        return (
+                            int(h) * 3600 + int(m) * 60 + seconds + centiseconds / 100.0
+                        )
                     return 0
-                
+
                 start_sec = ass_time_to_seconds(start_str)
                 end_sec = ass_time_to_seconds(end_str)
-                
+
                 # Clean text of ASS styling tags
-                text = re.sub(r'\{[^}]+\}', '', text)  # Remove {tags}
-                text = re.sub(r'\\N', '\n', text)  # Convert \N to newline
-                text = re.sub(r'\\n', '\n', text)  # Convert \n to newline
+                text = re.sub(r"\{[^}]+\}", "", text)  # Remove {tags}
+                text = re.sub(r"\\N", "\n", text)  # Convert \N to newline
+                text = re.sub(r"\\n", "\n", text)  # Convert \n to newline
                 # Remove chapter markers and metadata tags
                 text = clean_subtitle_text(text)
-                
+
                 if text:  # Only add non-empty subtitles
                     subtitles.append((start_sec, end_sec, text))
-    
+
     return subtitles
 
 
@@ -418,6 +429,7 @@ def sanitize_name_for_os(name, is_folder=True):
 
 class CountdownDialog(QDialog):
     """Base dialog with auto-accept countdown functionality"""
+
     def __init__(self, title, countdown_seconds, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -427,37 +439,41 @@ class CountdownDialog(QDialog):
             & ~Qt.WindowType.WindowCloseButtonHint
             & ~Qt.WindowType.WindowContextHelpButtonHint
         )
-        
+
         self.countdown_seconds = countdown_seconds
         self.layout = QVBoxLayout(self)
         self._timer = None
         self._button_box = None
-    
+
     def add_countdown_and_buttons(self):
         """Add countdown label and OK button - call this after adding custom content"""
-        self.countdown_label = QLabel(f"Auto-accepting in {self.countdown_seconds} seconds...")
+        self.countdown_label = QLabel(
+            f"Auto-accepting in {self.countdown_seconds} seconds..."
+        )
         self.countdown_label.setStyleSheet(f"color: {COLORS['GREEN']};")
         self.layout.addWidget(self.countdown_label)
-        
+
         self._button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
         self._button_box.accepted.connect(self.accept)
         self.layout.addWidget(self._button_box)
-        
+
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._on_timer_tick)
         self._timer.start(1000)
-    
+
     def _on_timer_tick(self):
         self.countdown_seconds -= 1
         if self.countdown_seconds > 0:
-            self.countdown_label.setText(f"Auto-accepting in {self.countdown_seconds} seconds...")
+            self.countdown_label.setText(
+                f"Auto-accepting in {self.countdown_seconds} seconds..."
+            )
         else:
             self._timer.stop()
             self._button_box.accepted.emit()
-    
+
     def closeEvent(self, event):
         event.ignore()
-    
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
             event.ignore()
@@ -468,31 +484,36 @@ class CountdownDialog(QDialog):
 class ChapterOptionsDialog(CountdownDialog):
     def __init__(self, chapter_count, parent=None):
         super().__init__("Chapter Options", CHAPTER_OPTIONS_COUNTDOWN, parent)
-        
-        self.layout.addWidget(QLabel(f"Detected {chapter_count} chapters in the text file."))
+
+        self.layout.addWidget(
+            QLabel(f"Detected {chapter_count} chapters in the text file.")
+        )
         self.layout.addWidget(QLabel("How would you like to process these chapters?"))
-        
+
         self.save_separately_checkbox = QCheckBox("Save each chapter separately")
         self.merge_at_end_checkbox = QCheckBox("Create a merged version at the end")
-        
+
         self.save_separately_checkbox.setChecked(False)
         self.merge_at_end_checkbox.setChecked(True)
-        
-        self.save_separately_checkbox.stateChanged.connect(self.update_merge_checkbox_state)
-        
+
+        self.save_separately_checkbox.stateChanged.connect(
+            self.update_merge_checkbox_state
+        )
+
         self.layout.addWidget(self.save_separately_checkbox)
         self.layout.addWidget(self.merge_at_end_checkbox)
-        
+
         self.add_countdown_and_buttons()
         self.update_merge_checkbox_state()
-    
+
     def update_merge_checkbox_state(self):
         self.merge_at_end_checkbox.setEnabled(self.save_separately_checkbox.isChecked())
-    
+
     def get_options(self):
         return {
             "save_chapters_separately": self.save_separately_checkbox.isChecked(),
-            "merge_chapters_at_end": self.merge_at_end_checkbox.isChecked() and self.merge_at_end_checkbox.isEnabled(),
+            "merge_chapters_at_end": self.merge_at_end_checkbox.isChecked()
+            and self.merge_at_end_checkbox.isEnabled(),
         }
 
 
@@ -503,53 +524,61 @@ class TimestampDetectionDialog(QDialog):
         self.setMinimumWidth(350)
         self.use_timestamps_result = True
         self.countdown_seconds = CHAPTER_OPTIONS_COUNTDOWN
-        
+
         layout = QVBoxLayout(self)
-        
+
         layout.addWidget(QLabel("This file contains timestamps in HH:MM:SS format."))
-        layout.addWidget(QLabel("Do you want to use these timestamps for precise audio timing?"))
-        
-        yes_label = QLabel("• Yes: Generate audio that matches each timestamp (subtitle mode will be ignored)")
+        layout.addWidget(
+            QLabel("Do you want to use these timestamps for precise audio timing?")
+        )
+
+        yes_label = QLabel(
+            "• Yes: Generate audio that matches each timestamp (subtitle mode will be ignored)"
+        )
         yes_label.setStyleSheet(f"color: {COLORS['BLUE_BORDER_HOVER']};")
         layout.addWidget(yes_label)
-        
+
         no_label = QLabel("• No: Ignore timestamps and process as regular text")
         no_label.setStyleSheet(f"color: {COLORS['ORANGE']};")
         layout.addWidget(no_label)
-        
+
         # Countdown label
-        self.countdown_label = QLabel(f"Auto-accepting in {self.countdown_seconds} seconds...")
+        self.countdown_label = QLabel(
+            f"Auto-accepting in {self.countdown_seconds} seconds..."
+        )
         self.countdown_label.setStyleSheet(f"color: {COLORS['GREEN']};")
         layout.addWidget(self.countdown_label)
-        
+
         button_box = QDialogButtonBox()
         yes_button = button_box.addButton("Yes", QDialogButtonBox.ButtonRole.AcceptRole)
         no_button = button_box.addButton("No", QDialogButtonBox.ButtonRole.RejectRole)
-        
+
         yes_button.clicked.connect(lambda: self._set_result(True))
         no_button.clicked.connect(lambda: self._set_result(False))
-        
+
         layout.addWidget(button_box)
-        
+
         # Timer for countdown
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._on_timer_tick)
         self._timer.start(1000)
-    
+
     def _on_timer_tick(self):
         self.countdown_seconds -= 1
         if self.countdown_seconds > 0:
-            self.countdown_label.setText(f"Auto-accepting in {self.countdown_seconds} seconds...")
+            self.countdown_label.setText(
+                f"Auto-accepting in {self.countdown_seconds} seconds..."
+            )
         else:
             self._timer.stop()
             self._set_result(True)
-    
+
     def _set_result(self, use_timestamps):
         if self._timer:
             self._timer.stop()
         self.use_timestamps_result = use_timestamps
         self.accept()
-    
+
     def use_timestamps(self):
         return self.use_timestamps_result
 
@@ -559,24 +588,24 @@ class ConversionThread(QThread):
     conversion_finished = pyqtSignal(object, object)  # Pass output path as second arg
     log_updated = pyqtSignal(object)  # Updated signal for log updates
     chapters_detected = pyqtSignal(int)  # Signal for chapter detection
-    
+
     # Default split pattern for TTS processing
     DEFAULT_SPLIT_PATTERN = r"\n+"
-    
+
     # Languages that should not use split pattern (better handled by Kokoro internally)
     # These languages have different text segmentation rules (no spaces, character-based, etc.)
-    NO_SPLIT_LANGUAGES = {'z', 'j'}  # Chinese, Japanese
-    
+    NO_SPLIT_LANGUAGES = {"z", "j"}  # Chinese, Japanese
+
     # Language-specific punctuation patterns for subtitle splitting
     LANGUAGE_PUNCTUATION = {
-        'z': {
-            'sentence': r"[。！？]",  # Chinese: period, exclamation, question
-            'comma': r"[。！？、，]",  # Chinese: includes enumeration comma and comma
+        "z": {
+            "sentence": r"[。！？]",  # Chinese: period, exclamation, question
+            "comma": r"[。！？、，]",  # Chinese: includes enumeration comma and comma
         },
-        'j': {
-            'sentence': r"[。！？]",  # Japanese: period, exclamation, question
-            'comma': r"[。！？、，]",  # Japanese: includes enumeration comma and comma
-        }
+        "j": {
+            "sentence": r"[。！？]",  # Japanese: period, exclamation, question
+            "comma": r"[。！？、，]",  # Japanese: includes enumeration comma and comma
+        },
     }
 
     def __init__(
@@ -627,7 +656,9 @@ class ConversionThread(QThread):
         self.max_subtitle_words = 50  # Default value, will be overridden from GUI
         self.silence_duration = 2.0  # Default value, will be overridden from GUI
         # Set split pattern based on language - some languages handle splitting better internally
-        self.split_pattern = None if lang_code in self.NO_SPLIT_LANGUAGES else self.DEFAULT_SPLIT_PATTERN
+        self.split_pattern = (
+            None if lang_code in self.NO_SPLIT_LANGUAGES else self.DEFAULT_SPLIT_PATTERN
+        )
 
     def _stream_audio_in_chunks(
         self, segments, process_func, progress_prefix="Processing"
@@ -736,20 +767,24 @@ class ConversionThread(QThread):
             self.log_updated.emit(f"- Save option: {self.save_option}")
             if self.replace_single_newlines:
                 self.log_updated.emit(f"- Replace single newlines: Yes")
-            
+
             # Check if input is a subtitle file for additional configuration
             is_subtitle_input = False
             if not self.is_direct_text and self.file_name:
                 file_ext = os.path.splitext(self.file_name)[1].lower()
-                if file_ext in ['.srt', '.ass', '.vtt']:
+                if file_ext in [".srt", ".ass", ".vtt"]:
                     is_subtitle_input = True
-            
+
             # Display subtitle-specific options if processing subtitle file
             if is_subtitle_input:
-                if getattr(self, 'use_silent_gaps', False):
+                if getattr(self, "use_silent_gaps", False):
                     self.log_updated.emit("- Use silent gaps: Yes")
-                speed_method = getattr(self, 'subtitle_speed_method', 'tts')
-                method_label = "TTS Regeneration" if speed_method == "tts" else "FFmpeg Time-stretch"
+                speed_method = getattr(self, "subtitle_speed_method", "tts")
+                method_label = (
+                    "TTS Regeneration"
+                    if speed_method == "tts"
+                    else "FFmpeg Time-stretch"
+                )
                 self.log_updated.emit(f"- Speed adjustment method: {method_label}")
 
             # Display save_chapters_separately flag if it's set
@@ -802,24 +837,26 @@ class ConversionThread(QThread):
             is_timestamp_text = False
             if not self.is_direct_text and self.file_name:
                 file_ext = os.path.splitext(self.file_name)[1].lower()
-                if file_ext in ['.srt', '.ass', '.vtt']:
+                if file_ext in [".srt", ".ass", ".vtt"]:
                     is_subtitle_file = True
-                    self.log_updated.emit(f"\nDetected subtitle file format: {file_ext}")
-                elif file_ext == '.txt' and detect_timestamps_in_text(self.file_name):
+                    self.log_updated.emit(
+                        f"\nDetected subtitle file format: {file_ext}"
+                    )
+                elif file_ext == ".txt" and detect_timestamps_in_text(self.file_name):
                     is_timestamp_text = True
                     self.log_updated.emit("\nDetected timestamps in text file")
                     # Signal to ask user (-1 indicates timestamp detection)
                     self.chapters_detected.emit(-1)
                     # Wait for user response
-                    while not hasattr(self, '_timestamp_response'):
+                    while not hasattr(self, "_timestamp_response"):
                         if self.cancel_requested:
                             self.conversion_finished.emit("Cancelled", None)
                             return
                         time.sleep(0.1)
                     if not self._timestamp_response:
                         is_timestamp_text = False
-                    delattr(self, '_timestamp_response')
-            
+                    delattr(self, "_timestamp_response")
+
             # Process subtitle files separately
             if is_subtitle_file or is_timestamp_text:
                 self._process_subtitle_file(tts, base_path, is_timestamp_text)
@@ -1650,53 +1687,86 @@ class ConversionThread(QThread):
                 subtitles = parse_timestamp_text_file(self.file_name)
             else:
                 file_ext = os.path.splitext(self.file_name)[1].lower()
-                if file_ext == '.srt':
+                if file_ext == ".srt":
                     subtitles = parse_srt_file(self.file_name)
-                elif file_ext == '.vtt':
+                elif file_ext == ".vtt":
                     subtitles = parse_vtt_file(self.file_name)
                 else:
                     subtitles = parse_ass_file(self.file_name)
-            
+
             if not subtitles:
                 self.log_updated.emit(("No valid subtitle entries found.", "red"))
-                self.conversion_finished.emit(("No subtitle entries to process.", "red"), None)
+                self.conversion_finished.emit(
+                    ("No subtitle entries to process.", "red"), None
+                )
                 return
-            
+
             self.log_updated.emit(f"\nFound {len(subtitles)} subtitle entries")
-            
+
             # Setup output paths
             base_name = os.path.splitext(os.path.basename(base_path))[0]
             sanitized_base_name = sanitize_name_for_os(base_name, is_folder=True)
-            parent_dir = (user_desktop_dir() if self.save_option == "Save to Desktop" 
-                         else os.path.dirname(base_path) if self.save_option == "Save next to input file"
-                         else self.output_folder or os.getcwd())
-            
+            parent_dir = (
+                user_desktop_dir()
+                if self.save_option == "Save to Desktop"
+                else (
+                    os.path.dirname(base_path)
+                    if self.save_option == "Save next to input file"
+                    else self.output_folder or os.getcwd()
+                )
+            )
+
             if not os.path.exists(parent_dir):
-                self.log_updated.emit((f"Output folder does not exist: {parent_dir}", "red"))
+                self.log_updated.emit(
+                    (f"Output folder does not exist: {parent_dir}", "red")
+                )
                 return
-            
+
             # Find unique filename
             counter = 1
             allowed_exts = set(SUPPORTED_SOUND_FORMATS + SUPPORTED_SUBTITLE_FORMATS)
             while True:
                 suffix = f"_{counter}" if counter > 1 else ""
-                if not any(os.path.splitext(f)[0] == f"{sanitized_base_name}{suffix}" 
-                          and os.path.splitext(f)[1][1:].lower() in allowed_exts 
-                          for f in os.listdir(parent_dir)):
+                if not any(
+                    os.path.splitext(f)[0] == f"{sanitized_base_name}{suffix}"
+                    and os.path.splitext(f)[1][1:].lower() in allowed_exts
+                    for f in os.listdir(parent_dir)
+                ):
                     break
                 counter += 1
-            
-            base_filepath_no_ext = os.path.join(parent_dir, f"{sanitized_base_name}{suffix}")
+
+            base_filepath_no_ext = os.path.join(
+                parent_dir, f"{sanitized_base_name}{suffix}"
+            )
             merged_out_path = f"{base_filepath_no_ext}.{self.output_format}"
             rate = 24000
-            
+
             # Setup audio output
             merged_out_file, ffmpeg_proc = None, None
             if self.output_format in ["wav", "mp3", "flac"]:
-                merged_out_file = sf.SoundFile(merged_out_path, "w", samplerate=rate, channels=1, format=self.output_format)
+                merged_out_file = sf.SoundFile(
+                    merged_out_path,
+                    "w",
+                    samplerate=rate,
+                    channels=1,
+                    format=self.output_format,
+                )
             else:
                 static_ffmpeg.add_paths()
-                cmd = ["ffmpeg", "-y", "-thread_queue_size", "32768", "-f", "f32le", "-ar", str(rate), "-ac", "1", "-i", "pipe:0"]
+                cmd = [
+                    "ffmpeg",
+                    "-y",
+                    "-thread_queue_size",
+                    "32768",
+                    "-f",
+                    "f32le",
+                    "-ar",
+                    str(rate),
+                    "-ac",
+                    "1",
+                    "-i",
+                    "pipe:0",
+                ]
                 if self.output_format == "m4b":
                     metadata_options, cover_path = (
                         self._extract_and_add_metadata_tags_to_ffmpeg_cmd()
@@ -1730,81 +1800,140 @@ class ConversionThread(QThread):
                 elif self.output_format == "opus":
                     cmd.extend(["-c:a", "libopus", "-b:a", "24000"])
                 else:
-                    self.log_updated.emit((f"Unsupported output format: {self.output_format}", "red"))
+                    self.log_updated.emit(
+                        (f"Unsupported output format: {self.output_format}", "red")
+                    )
                     return
                 cmd.append(merged_out_path)
                 ffmpeg_proc = create_process(cmd, stdin=subprocess.PIPE, text=False)
-            
+
             # Always generate subtitles for subtitle input files
             subtitle_file, subtitle_path = None, None
             subtitle_format = getattr(self, "subtitle_format", "srt")
             file_extension = "ass" if "ass" in subtitle_format else "srt"
             subtitle_path = f"{base_filepath_no_ext}.{file_extension}"
             subtitle_file = open(subtitle_path, "w", encoding="utf-8", errors="replace")
-            
+
             if "ass" in subtitle_format:
                 # Write ASS header
-                subtitle_file.write("[Script Info]\nTitle: Generated by Abogen\nScriptType: v4.00+\n\n")
+                subtitle_file.write(
+                    "[Script Info]\nTitle: Generated by Abogen\nScriptType: v4.00+\n\n"
+                )
                 if self.subtitle_mode == "Sentence + Highlighting":
-                    subtitle_file.write("[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
-                    subtitle_file.write("Style: Default,Arial,24,&H00FFFFFF,&H00808080,&H00000000,&H00404040,0,0,0,0,100,100,0,0,3,2,0,5,10,10,10,1\n\n")
-                subtitle_file.write("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
-                
+                    subtitle_file.write(
+                        "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+                    )
+                    subtitle_file.write(
+                        "Style: Default,Arial,24,&H00FFFFFF,&H00808080,&H00000000,&H00404040,0,0,0,0,100,100,0,0,3,2,0,5,10,10,10,1\n\n"
+                    )
+                subtitle_file.write(
+                    "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+                )
+
                 is_narrow = subtitle_format in ("ass_narrow", "ass_centered_narrow")
-                is_centered = subtitle_format in ("ass_centered_wide", "ass_centered_narrow")
+                is_centered = subtitle_format in (
+                    "ass_centered_wide",
+                    "ass_centered_narrow",
+                )
                 margin = "90" if is_narrow else ""
                 alignment = "{\\an5}" if is_centered else ""
-            
+
             # Load voice
-            loaded_voice = get_new_voice(tts, self.voice, self.use_gpu) if "*" in self.voice else self.voice
-            
+            loaded_voice = (
+                get_new_voice(tts, self.voice, self.use_gpu)
+                if "*" in self.voice
+                else self.voice
+            )
+
             # Calculate initial audio buffer size from timed subtitles only
-            max_end_time = max((end for _, end, _ in subtitles if end is not None), default=0)
-            audio_buffer = self.np.zeros(int(max_end_time * rate) + rate, dtype="float32")
-            
+            max_end_time = max(
+                (end for _, end, _ in subtitles if end is not None), default=0
+            )
+            audio_buffer = self.np.zeros(
+                int(max_end_time * rate) + rate, dtype="float32"
+            )
+
             # Process each subtitle and mix into buffer
             self.etr_start_time = time.time()
             srt_index = 1
-            
+
             for idx, (start_time, end_time, text) in enumerate(subtitles, 1):
                 if self.cancel_requested:
-                    if subtitle_file: subtitle_file.close()
+                    if subtitle_file:
+                        subtitle_file.close()
                     self.conversion_finished.emit("Cancelled", None)
                     return
-                
+
                 # Process text and timing
                 replace_nl = getattr(self, "replace_single_newlines", False)
                 processed_text = text.replace("\n", " ") if replace_nl else text
                 use_gaps = getattr(self, "use_silent_gaps", False)
-                next_start = subtitles[idx][0] if (use_gaps and idx < len(subtitles)) else float("inf")
+                next_start = (
+                    subtitles[idx][0]
+                    if (use_gaps and idx < len(subtitles))
+                    else float("inf")
+                )
                 subtitle_duration = None if end_time is None else end_time - start_time
 
-                h1, m1, s1 = int(start_time // 3600), int(start_time % 3600 // 60), int(start_time % 60)
+                h1, m1, s1 = (
+                    int(start_time // 3600),
+                    int(start_time % 3600 // 60),
+                    int(start_time % 60),
+                )
                 ms1 = int((start_time - int(start_time)) * 1000)
                 is_last = use_gaps and idx == len(subtitles)
                 if is_last:
-                    time_str = f"{h1:02d}:{m1:02d}:{s1:02d}" + (f",{ms1:03d}" if ms1 > 0 else "") + " - AUTO"
+                    time_str = (
+                        f"{h1:02d}:{m1:02d}:{s1:02d}"
+                        + (f",{ms1:03d}" if ms1 > 0 else "")
+                        + " - AUTO"
+                    )
                 else:
-                    h2, m2, s2 = int(end_time // 3600), int(end_time % 3600 // 60), int(end_time % 60)
+                    h2, m2, s2 = (
+                        int(end_time // 3600),
+                        int(end_time % 3600 // 60),
+                        int(end_time % 60),
+                    )
                     ms2 = int((end_time - int(end_time)) * 1000)
-                    time_str = (f"{h1:02d}:{m1:02d}:{s1:02d}" + (f",{ms1:03d}" if ms1 > 0 else "") + 
-                               " - " + f"{h2:02d}:{m2:02d}:{s2:02d}" + (f",{ms2:03d}" if ms2 > 0 else ""))
-                self.log_updated.emit(f"\n[{idx}/{len(subtitles)}] {time_str}: {processed_text}")
-                
+                    time_str = (
+                        f"{h1:02d}:{m1:02d}:{s1:02d}"
+                        + (f",{ms1:03d}" if ms1 > 0 else "")
+                        + " - "
+                        + f"{h2:02d}:{m2:02d}:{s2:02d}"
+                        + (f",{ms2:03d}" if ms2 > 0 else "")
+                    )
+                self.log_updated.emit(
+                    f"\n[{idx}/{len(subtitles)}] {time_str}: {processed_text}"
+                )
+
                 # Generate TTS audio
-                tts_results = [r for r in tts(processed_text, voice=loaded_voice, speed=self.speed, split_pattern=None) if not self.cancel_requested]
+                tts_results = [
+                    r
+                    for r in tts(
+                        processed_text,
+                        voice=loaded_voice,
+                        speed=self.speed,
+                        split_pattern=None,
+                    )
+                    if not self.cancel_requested
+                ]
                 audio_chunks = [r.audio for r in tts_results]
 
                 if self.cancel_requested:
-                    if subtitle_file: subtitle_file.close()
+                    if subtitle_file:
+                        subtitle_file.close()
                     self.conversion_finished.emit("Cancelled", None)
                     return
 
                 # Concatenate audio and determine duration
                 full_audio = (
-                    self.np.concatenate([a.numpy() if hasattr(a, "numpy") else a for a in audio_chunks])
+                    self.np.concatenate(
+                        [a.numpy() if hasattr(a, "numpy") else a for a in audio_chunks]
+                    )
                     if audio_chunks
-                    else self.np.zeros(int((subtitle_duration or 0) * rate), dtype="float32")
+                    else self.np.zeros(
+                        int((subtitle_duration or 0) * rate), dtype="float32"
+                    )
                 )
                 audio_duration = len(full_audio) / rate
 
@@ -1815,40 +1944,93 @@ class ConversionThread(QThread):
                 elif subtitle_duration is None:
                     subtitle_duration = audio_duration
                     end_time = start_time + audio_duration
-                
+
                 # Speed up if needed
-                speedup_threshold = next_start - start_time if use_gaps else subtitle_duration
+                speedup_threshold = (
+                    next_start - start_time if use_gaps else subtitle_duration
+                )
                 if audio_duration > speedup_threshold:
                     speed_factor = audio_duration / speedup_threshold
-                    
-                    if getattr(self, 'subtitle_speed_method', 'tts') == "ffmpeg":
+
+                    if getattr(self, "subtitle_speed_method", "tts") == "ffmpeg":
                         # FFmpeg time-stretch (faster processing)
-                        self.log_updated.emit((f"  -> FFmpeg time-stretch: {speed_factor:.2f}x", "grey"))
-                        
+                        self.log_updated.emit(
+                            (f"  -> FFmpeg time-stretch: {speed_factor:.2f}x", "grey")
+                        )
+
                         static_ffmpeg.add_paths()
-                        num_stages = max(1, int(self.np.ceil(self.np.log(speed_factor) / self.np.log(2.0))))
+                        num_stages = max(
+                            1,
+                            int(
+                                self.np.ceil(
+                                    self.np.log(speed_factor) / self.np.log(2.0)
+                                )
+                            ),
+                        )
                         tempo = speed_factor ** (1.0 / num_stages)
                         filter_str = ",".join([f"atempo={tempo:.6f}"] * num_stages)
-                        
+
                         speed_proc = subprocess.Popen(
-                            ["ffmpeg", "-y", "-f", "f32le", "-ar", str(rate), "-ac", "1", "-i", "pipe:0",
-                             "-filter:a", filter_str, "-f", "f32le", "-ar", str(rate), "-ac", "1", "pipe:1"],
-                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                            [
+                                "ffmpeg",
+                                "-y",
+                                "-f",
+                                "f32le",
+                                "-ar",
+                                str(rate),
+                                "-ac",
+                                "1",
+                                "-i",
+                                "pipe:0",
+                                "-filter:a",
+                                filter_str,
+                                "-f",
+                                "f32le",
+                                "-ar",
+                                str(rate),
+                                "-ac",
+                                "1",
+                                "pipe:1",
+                            ],
+                            stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
                         )
-                        full_audio = self.np.frombuffer(speed_proc.communicate(input=full_audio.tobytes())[0], dtype="float32")
+                        full_audio = self.np.frombuffer(
+                            speed_proc.communicate(input=full_audio.tobytes())[0],
+                            dtype="float32",
+                        )
                         audio_duration = len(full_audio) / rate
                     else:
                         # TTS regeneration (better quality)
                         new_speed = self.speed * speed_factor
-                        self.log_updated.emit((f"  -> Regenerating at {new_speed:.2f}x speed", "grey"))
+                        self.log_updated.emit(
+                            (f"  -> Regenerating at {new_speed:.2f}x speed", "grey")
+                        )
 
-                        tts_results = [r for r in tts(processed_text, voice=loaded_voice, speed=new_speed, split_pattern=None) if not self.cancel_requested]
+                        tts_results = [
+                            r
+                            for r in tts(
+                                processed_text,
+                                voice=loaded_voice,
+                                speed=new_speed,
+                                split_pattern=None,
+                            )
+                            if not self.cancel_requested
+                        ]
                         audio_chunks = [r.audio for r in tts_results]
 
                         full_audio = (
-                            self.np.concatenate([a.numpy() if hasattr(a, "numpy") else a for a in audio_chunks])
+                            self.np.concatenate(
+                                [
+                                    a.numpy() if hasattr(a, "numpy") else a
+                                    for a in audio_chunks
+                                ]
+                            )
                             if audio_chunks
-                            else self.np.zeros(int(subtitle_duration * rate), dtype="float32")
+                            else self.np.zeros(
+                                int(subtitle_duration * rate), dtype="float32"
+                            )
                         )
                         audio_duration = len(full_audio) / rate
 
@@ -1859,47 +2041,78 @@ class ConversionThread(QThread):
                 elif subtitle_duration is None:
                     subtitle_duration = audio_duration
                     end_time = start_time + audio_duration
-                
+
                 # Pad or trim to subtitle duration
                 target_samples = int(subtitle_duration * rate)
                 if len(full_audio) < target_samples:
-                    full_audio = self.np.concatenate([full_audio, self.np.zeros(target_samples - len(full_audio), dtype="float32")])
+                    full_audio = self.np.concatenate(
+                        [
+                            full_audio,
+                            self.np.zeros(
+                                target_samples - len(full_audio), dtype="float32"
+                            ),
+                        ]
+                    )
                 elif len(full_audio) > target_samples:
                     full_audio = full_audio[:target_samples]
-                
+
                 # Mix audio into buffer at the correct position (handles overlaps)
                 start_sample = int(start_time * rate)
                 end_sample = start_sample + len(full_audio)
                 if end_sample > len(audio_buffer):
                     # Extend buffer if needed
-                    audio_buffer = self.np.concatenate([audio_buffer, self.np.zeros(end_sample - len(audio_buffer), dtype="float32")])
-                
+                    audio_buffer = self.np.concatenate(
+                        [
+                            audio_buffer,
+                            self.np.zeros(
+                                end_sample - len(audio_buffer), dtype="float32"
+                            ),
+                        ]
+                    )
+
                 # Mix (add) the audio - this handles overlaps by combining them
                 audio_buffer[start_sample:end_sample] += full_audio
-                
+
                 # Write subtitle
                 if subtitle_file:
                     if "ass" in subtitle_format:
-                        effect = "karaoke" if self.subtitle_mode == "Sentence + Highlighting" else ""
-                        ass_text = processed_text if replace_nl else processed_text.replace('\n', '\\N')
-                        subtitle_file.write(f"Dialogue: 0,{self._ass_time(start_time)},{self._ass_time(end_time)},Default,,{margin},{margin},0,{effect},{alignment}{ass_text}\n")
+                        effect = (
+                            "karaoke"
+                            if self.subtitle_mode == "Sentence + Highlighting"
+                            else ""
+                        )
+                        ass_text = (
+                            processed_text
+                            if replace_nl
+                            else processed_text.replace("\n", "\\N")
+                        )
+                        subtitle_file.write(
+                            f"Dialogue: 0,{self._ass_time(start_time)},{self._ass_time(end_time)},Default,,{margin},{margin},0,{effect},{alignment}{ass_text}\n"
+                        )
                     else:
-                        subtitle_file.write(f"{srt_index}\n{self._srt_time(start_time)} --> {self._srt_time(end_time)}\n{processed_text}\n\n")
+                        subtitle_file.write(
+                            f"{srt_index}\n{self._srt_time(start_time)} --> {self._srt_time(end_time)}\n{processed_text}\n\n"
+                        )
                         srt_index += 1
-                
+
                 # Update progress
                 percent = min(int(idx / len(subtitles) * 100), 99)
                 elapsed = time.time() - self.etr_start_time
-                etr_str = ("Processing..." if elapsed <= 0.5 
-                          else f"{int(elapsed*(len(subtitles)-idx)/idx)//3600:02d}:{(int(elapsed*(len(subtitles)-idx)/idx)%3600)//60:02d}:{int(elapsed*(len(subtitles)-idx)/idx)%60:02d}")
+                etr_str = (
+                    "Processing..."
+                    if elapsed <= 0.5
+                    else f"{int(elapsed*(len(subtitles)-idx)/idx)//3600:02d}:{(int(elapsed*(len(subtitles)-idx)/idx)%3600)//60:02d}:{int(elapsed*(len(subtitles)-idx)/idx)%60:02d}"
+                )
                 self.progress_updated.emit(percent, etr_str)
-            
+
             # Normalize audio buffer to prevent clipping from mixed overlaps
             max_amplitude = self.np.abs(audio_buffer).max()
             if max_amplitude > 1.0:
-                self.log_updated.emit(f"\n  -> Normalizing audio (peak: {max_amplitude:.2f})")
+                self.log_updated.emit(
+                    f"\n  -> Normalizing audio (peak: {max_amplitude:.2f})"
+                )
                 audio_buffer = audio_buffer / max_amplitude
-            
+
             # Write the complete audio buffer
             self.log_updated.emit(("\nFinalizing audio. Please wait...", "grey"))
             if merged_out_file:
@@ -1909,21 +2122,26 @@ class ConversionThread(QThread):
                 ffmpeg_proc.stdin.write(audio_buffer.astype("float32").tobytes())
                 ffmpeg_proc.stdin.close()
                 ffmpeg_proc.wait()
-            
-            if subtitle_file: subtitle_file.close()
-            
+
+            if subtitle_file:
+                subtitle_file.close()
+
             self.progress_updated.emit(100, "00:00:00")
-            result_msg = (f"\nAudiobook saved to: {merged_out_path}" + 
-                         (f"\n\nSubtitle saved to: {subtitle_path}" if subtitle_path else ""))
+            result_msg = f"\nAudiobook saved to: {merged_out_path}" + (
+                f"\n\nSubtitle saved to: {subtitle_path}" if subtitle_path else ""
+            )
             self.conversion_finished.emit((result_msg, "green"), merged_out_path)
-            
+
         except Exception as e:
             try:
                 if "ffmpeg_proc" in locals() and ffmpeg_proc:
-                    ffmpeg_proc.stdin.close(); ffmpeg_proc.terminate(); ffmpeg_proc.wait()
+                    ffmpeg_proc.stdin.close()
+                    ffmpeg_proc.terminate()
+                    ffmpeg_proc.wait()
                 if "subtitle_file" in locals() and subtitle_file:
                     subtitle_file.close()
-            except: pass
+            except:
+                pass
             self.log_updated.emit((f"Error processing subtitle file: {str(e)}", "red"))
             self.conversion_finished.emit(("Audio generation failed.", "red"), None)
 
@@ -1933,7 +2151,7 @@ class ConversionThread(QThread):
         self.merge_chapters_at_end = options["merge_chapters_at_end"]
         self.waiting_for_user_input = False
         self._chapter_options_event.set()
-    
+
     def set_timestamp_response(self, treat_as_subtitle):
         """Set whether to treat timestamp text file as subtitle."""
         self._timestamp_response = treat_as_subtitle
@@ -2068,7 +2286,11 @@ class ConversionThread(QThread):
             # Sentence-based processing with karaoke highlighting
             # Use language-specific punctuation for CJK languages (without comma)
             lang_punct = self.LANGUAGE_PUNCTUATION.get(self.lang_code, {})
-            separator = lang_punct.get('sentence', r"[.!?]") if isinstance(lang_punct, dict) else r"[.!?]"
+            separator = (
+                lang_punct.get("sentence", r"[.!?]")
+                if isinstance(lang_punct, dict)
+                else r"[.!?]"
+            )
             current_sentence = []
             word_count = 0
 
@@ -2131,11 +2353,19 @@ class ConversionThread(QThread):
             elif self.subtitle_mode == "Sentence":
                 # Use language-specific punctuation for CJK languages (without comma)
                 lang_punct = self.LANGUAGE_PUNCTUATION.get(self.lang_code, {})
-                separator = lang_punct.get('sentence', r"[.!?]") if isinstance(lang_punct, dict) else r"[.!?]"
+                separator = (
+                    lang_punct.get("sentence", r"[.!?]")
+                    if isinstance(lang_punct, dict)
+                    else r"[.!?]"
+                )
             else:  # Sentence + Comma
                 # Use language-specific punctuation for CJK languages (with comma)
                 lang_punct = self.LANGUAGE_PUNCTUATION.get(self.lang_code, {})
-                separator = lang_punct.get('comma', r"[.!?,]") if isinstance(lang_punct, dict) else r"[.!?,]"
+                separator = (
+                    lang_punct.get("comma", r"[.!?,]")
+                    if isinstance(lang_punct, dict)
+                    else r"[.!?,]"
+                )
             current_sentence = []
             word_count = 0
 

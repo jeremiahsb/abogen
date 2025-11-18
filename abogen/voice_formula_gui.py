@@ -278,7 +278,7 @@ class VoiceMixer(QWidget):
         # Apply slider styling once when widget is shown and has access to parent
         if not self._slider_style_applied:
             self._slider_style_applied = True
-            
+
             # Fix slider in Windows
             if platform.system() == "Windows":
                 appstyle = QApplication.instance().style().objectName().lower()
@@ -303,7 +303,7 @@ class VoiceMixer(QWidget):
                         theme = parent_window.config.get("theme", "system")
                         break
                     parent_window = parent_window.parent()
-                
+
                 if theme == "light":
                     self.slider.setStyleSheet(
                         f"""

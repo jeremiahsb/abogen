@@ -8,9 +8,14 @@ import signal
 if platform.system() == "Windows":
     import ctypes
     from importlib.util import find_spec
+
     try:
-        if (spec := find_spec("torch")) and spec.origin and os.path.exists(
-            dll_path := os.path.join(os.path.dirname(spec.origin), "lib", "c10.dll")
+        if (
+            (spec := find_spec("torch"))
+            and spec.origin
+            and os.path.exists(
+                dll_path := os.path.join(os.path.dirname(spec.origin), "lib", "c10.dll")
+            )
         ):
             ctypes.CDLL(os.path.normpath(dll_path))
     except Exception:

@@ -377,9 +377,10 @@ class HandlerDialog(QDialog):
 
         # Include replace_single_newlines in cache key since it affects text cleaning
         from abogen.utils import load_config
+
         cfg = load_config()
         replace_single_newlines = cfg.get("replace_single_newlines", False)
-        
+
         cache_key = (self.book_path, mod_time, self.file_type, replace_single_newlines)
 
         # Check if content is already cached
@@ -2240,6 +2241,7 @@ class HandlerDialog(QDialog):
         if metadata.get("cover_image"):
             try:
                 import uuid
+
                 cache_dir = get_user_cache_path()
                 cover_path = os.path.join(cache_dir, f"cover_{uuid.uuid4()}.jpg")
                 cover_path = os.path.normpath(cover_path)

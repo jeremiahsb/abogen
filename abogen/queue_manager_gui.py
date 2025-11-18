@@ -88,7 +88,10 @@ class DroppableQueueListWidget(QListWidget):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 file_path = url.toLocalFile().lower()
-                if url.isLocalFile() and (file_path.endswith(".txt") or file_path.endswith((".srt", ".ass", ".vtt"))):
+                if url.isLocalFile() and (
+                    file_path.endswith(".txt")
+                    or file_path.endswith((".srt", ".ass", ".vtt"))
+                ):
                     self.drag_overlay.resize(self.size())
                     self.drag_overlay.setVisible(True)
                     event.acceptProposedAction()
@@ -100,7 +103,10 @@ class DroppableQueueListWidget(QListWidget):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 file_path = url.toLocalFile().lower()
-                if url.isLocalFile() and (file_path.endswith(".txt") or file_path.endswith((".srt", ".ass", ".vtt"))):
+                if url.isLocalFile() and (
+                    file_path.endswith(".txt")
+                    or file_path.endswith((".srt", ".ass", ".vtt"))
+                ):
                     event.acceptProposedAction()
                     return
         event.ignore()
@@ -115,7 +121,11 @@ class DroppableQueueListWidget(QListWidget):
             file_paths = [
                 url.toLocalFile()
                 for url in event.mimeData().urls()
-                if url.isLocalFile() and (url.toLocalFile().lower().endswith(".txt") or url.toLocalFile().lower().endswith((".srt", ".ass", ".vtt")))
+                if url.isLocalFile()
+                and (
+                    url.toLocalFile().lower().endswith(".txt")
+                    or url.toLocalFile().lower().endswith((".srt", ".ass", ".vtt"))
+                )
             ]
             if file_paths:
                 self.parent_dialog.add_files_from_paths(file_paths)
@@ -408,9 +418,7 @@ class QueueManager(QDialog):
                 parent, "replace_single_newlines", False
             )
             # use_silent_gaps
-            attrs["use_silent_gaps"] = getattr(
-                parent, "use_silent_gaps", False
-            )
+            attrs["use_silent_gaps"] = getattr(parent, "use_silent_gaps", False)
             # subtitle_speed_method
             attrs["subtitle_speed_method"] = getattr(
                 parent, "subtitle_speed_method", "tts"
@@ -527,7 +535,10 @@ class QueueManager(QDialog):
 
         # Allow .txt, .srt, .ass, and .vtt files
         files, _ = QFileDialog.getOpenFileNames(
-            self, "Select text or subtitle files", "", "Supported Files (*.txt *.srt *.ass *.vtt)"
+            self,
+            "Select text or subtitle files",
+            "",
+            "Supported Files (*.txt *.srt *.ass *.vtt)",
         )
         if not files:
             return

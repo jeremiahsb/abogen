@@ -259,7 +259,7 @@ def calculate_text_length(text):
 def get_gpu_acceleration(enabled):
     """
     Check GPU acceleration availability.
-    
+
     Note: On Windows, torch DLLs must be pre-loaded in main.py before PyQt6
     to avoid DLL initialization errors.
     """

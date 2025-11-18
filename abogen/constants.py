@@ -2,9 +2,7 @@ from abogen.utils import get_version
 
 # Program Information
 PROGRAM_NAME = "abogen"
-PROGRAM_DESCRIPTION = (
-    "Generate audiobooks from EPUBs, PDFs, text and subtitles with synchronized captions."
-)
+PROGRAM_DESCRIPTION = "Generate audiobooks from EPUBs, PDFs, text and subtitles with synchronized captions."
 GITHUB_URL = "https://github.com/denizsafak/abogen"
 VERSION = get_version()
 
