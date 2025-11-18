@@ -1,9 +1,9 @@
 # 1.2.2 (pre-release)
 - **You can now voice your subtitle files!** Simply add `.srt`, `.ass` or `.vtt` files to generate timed audio. Alternatively, add a text file with timestamps in `HH:MM:SS` or `HH:MM:SS,ms` format to generate audio that matches the timestamps. See [here](https://github.com/denizsafak/abogen?tab=readme-ov-file#about-timestamp-based-text-files) for detailed instructions.
-    - New option: **"Use silent gaps between subtitles"**: Prevents unnecessary audio speed-up by letting speech continue naturally into the silent gaps between subtitles.
+    - New option: **"Use silent gaps between subtitles"**: Prevents unnecessary audio speed-up by letting speech continue into the silent gaps between subtitles.
     - New option: **"Subtitle speed adjustment method"**: Choose how to speed up audio when needed:
-        - **TTS Regeneration (better quality):** Re-creates the audio at a faster speed for the most natural sound.
-        - **FFmpeg Time-stretch (better speed):** Quickly speeds up the existing audio.
+        - **TTS Regeneration (better quality):** Re-generates the audio at a faster speed for more natural sound.
+        - **FFmpeg Time-stretch (better speed):** Quickly speeds up the generated audio.
 - Fixed `[WinError 1114] A dynamic link library (DLL) initialization routine failed` error on Windows, pre-loading PyTorch DLLs before initializing PyQt6 to avoid DLL initialization errors, mentioned in #98 by @ephr0n.
 - Potential fix for `CUDA GPU is not available` issue, by ensuring PyTorch is installed correctly with CUDA support on Windows using the installer script.
 - Improvements in code and documentation.
