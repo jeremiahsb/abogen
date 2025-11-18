@@ -1000,7 +1000,7 @@ class ConversionThread(QThread):
                     static_ffmpeg.add_paths()
                     merged_out_file = None
                     ffmpeg_proc = None
-                    metadata_options = (
+                    metadata_options, cover_path = (
                         self._extract_and_add_metadata_tags_to_ffmpeg_cmd()
                     )
                     # Prepare ffmpeg command for m4b output
@@ -1017,13 +1017,32 @@ class ConversionThread(QThread):
                         "1",
                         "-i",
                         "pipe:0",
-                        "-c:a",
-                        "aac",
-                        "-q:a",
-                        "2",
-                        "-movflags",
-                        "+faststart+use_metadata_tags",
                     ]
+                    if cover_path and os.path.exists(cover_path):
+                        cmd.extend(
+                            [
+                                "-i",
+                                cover_path,
+                                "-map",
+                                "0:a",
+                                "-map",
+                                "1",
+                                "-c:v",
+                                "copy",
+                                "-disposition:v",
+                                "attached_pic",
+                            ]
+                        )
+                    cmd.extend(
+                        [
+                            "-c:a",
+                            "aac",
+                            "-q:a",
+                            "2",
+                            "-movflags",
+                            "+faststart+use_metadata_tags",
+                        ]
+                    )
                     cmd += metadata_options
                     cmd.append(merged_out_path)
                     ffmpeg_proc = create_process(cmd, stdin=subprocess.PIPE, text=False)
@@ -1529,7 +1548,7 @@ class ConversionThread(QThread):
                         orig_path = merged_out_path
                         root, ext = os.path.splitext(orig_path)
                         tmp_path = root + ".tmp" + ext
-                        metadata_options = (
+                        metadata_options, cover_path = (
                             self._extract_and_add_metadata_tags_to_ffmpeg_cmd()
                         )
                         cmd = [
@@ -1539,15 +1558,35 @@ class ConversionThread(QThread):
                             orig_path,
                             "-i",
                             chapters_info_path,
-                            "-map",
-                            "0:a",
-                            "-map_metadata",
-                            "1",
-                            "-map_chapters",
-                            "1",
-                            "-c:a",
-                            "copy",
                         ]
+                        if cover_path and os.path.exists(cover_path):
+                            cmd.extend(
+                                [
+                                    "-i",
+                                    cover_path,
+                                    "-map",
+                                    "0:a",
+                                    "-map",
+                                    "2",
+                                    "-c:v",
+                                    "copy",
+                                    "-disposition:v",
+                                    "attached_pic",
+                                ]
+                            )
+                        else:
+                            cmd.extend(["-map", "0:a"])
+
+                        cmd.extend(
+                            [
+                                "-map_metadata",
+                                "1",
+                                "-map_chapters",
+                                "1",
+                                "-c:a",
+                                "copy",
+                            ]
+                        )
                         cmd += metadata_options
                         cmd.append(tmp_path)
                         proc = create_process(cmd)
@@ -1659,8 +1698,35 @@ class ConversionThread(QThread):
                 static_ffmpeg.add_paths()
                 cmd = ["ffmpeg", "-y", "-thread_queue_size", "32768", "-f", "f32le", "-ar", str(rate), "-ac", "1", "-i", "pipe:0"]
                 if self.output_format == "m4b":
-                    cmd.extend(["-c:a", "aac", "-q:a", "2", "-movflags", "+faststart+use_metadata_tags"])
-                    cmd.extend(self._extract_and_add_metadata_tags_to_ffmpeg_cmd())
+                    metadata_options, cover_path = (
+                        self._extract_and_add_metadata_tags_to_ffmpeg_cmd()
+                    )
+                    if cover_path and os.path.exists(cover_path):
+                        cmd.extend(
+                            [
+                                "-i",
+                                cover_path,
+                                "-map",
+                                "0:a",
+                                "-map",
+                                "1",
+                                "-c:v",
+                                "copy",
+                                "-disposition:v",
+                                "attached_pic",
+                            ]
+                        )
+                    cmd.extend(
+                        [
+                            "-c:a",
+                            "aac",
+                            "-q:a",
+                            "2",
+                            "-movflags",
+                            "+faststart+use_metadata_tags",
+                        ]
+                    )
+                    cmd.extend(metadata_options)
                 elif self.output_format == "opus":
                     cmd.extend(["-c:a", "libopus", "-b:a", "24000"])
                 else:
@@ -1901,6 +1967,8 @@ class ConversionThread(QThread):
         album_artist_match = re.search(r"<<METADATA_ALBUM_ARTIST:([^>]*)>>", text)
         composer_match = re.search(r"<<METADATA_COMPOSER:([^>]*)>>", text)
         genre_match = re.search(r"<<METADATA_GENRE:([^>]*)>>", text)
+        cover_match = re.search(r"<<METADATA_COVER_PATH:([^>]*)>>", text)
+        cover_path = cover_match.group(1) if cover_match else None
 
         # Use display path or filename as fallback for title
 
@@ -1964,7 +2032,7 @@ class ConversionThread(QThread):
             metadata_options.extend(["-metadata", f"genre=Audiobook"])
 
         # Add these to ffmpeg command
-        return metadata_options
+        return metadata_options, cover_path
 
     def _srt_time(self, t):
         """Helper function to format time for SRT files"""

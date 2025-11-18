@@ -3635,9 +3635,9 @@ Categories=AudioVideo;Audio;Utility;
             # Get the abogen cache directory
             cache_dir = get_user_cache_path()
 
-            # Find all .txt files in the abogen cache directory
-            pattern = os.path.join(cache_dir, "*.txt")
-            cache_files = glob.glob(pattern)
+            # Find all .txt files and cover images in the abogen cache directory
+            cache_files = glob.glob(os.path.join(cache_dir, "*.txt"))
+            cache_files.extend(glob.glob(os.path.join(cache_dir, "cover_*.jpg")))
 
             # Count the files
             file_count = len(cache_files)
@@ -3669,7 +3669,7 @@ Categories=AudioVideo;Audio;Utility;
             msg_box.setText(msg_text + "\nDo you want to delete them?")
 
             # Add checkbox for preview cache
-            preview_cache_checkbox = QCheckBox("Clean preview cache", msg_box)
+            preview_cache_checkbox = QCheckBox("Also clean preview cache", msg_box)
             preview_cache_checkbox.setChecked(False)
             # Only enable checkbox if preview files exist
             preview_cache_checkbox.setEnabled(preview_count > 0)

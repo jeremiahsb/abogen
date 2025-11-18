@@ -89,6 +89,9 @@ class HandlerDialog(QDialog):
     def __init__(self, book_path, file_type=None, checked_chapters=None, parent=None):
         super().__init__(parent)
 
+        # Normalize path
+        book_path = os.path.normpath(os.path.abspath(book_path))
+
         # Determine file type if not explicitly provided
         if file_type:
             self.file_type = file_type
@@ -2211,6 +2214,7 @@ class HandlerDialog(QDialog):
     def _format_metadata_tags(self):
         """Format metadata tags for insertion at the beginning of the text"""
         import datetime
+        from abogen.utils import get_user_cache_path
 
         metadata = self.book_metadata
         filename = os.path.splitext(os.path.basename(self.book_path))[0]
@@ -2231,6 +2235,20 @@ class HandlerDialog(QDialog):
             f"{total_chapters} {'Chapters' if self.file_type == 'epub' else 'Pages'}"
         )
 
+        # Handle cover image
+        cover_tag = ""
+        if metadata.get("cover_image"):
+            try:
+                import uuid
+                cache_dir = get_user_cache_path()
+                cover_path = os.path.join(cache_dir, f"cover_{uuid.uuid4()}.jpg")
+                cover_path = os.path.normpath(cover_path)
+                with open(cover_path, "wb") as f:
+                    f.write(metadata["cover_image"])
+                cover_tag = f"<<METADATA_COVER_PATH:{cover_path}>>"
+            except Exception as e:
+                logging.warning(f"Failed to save cover image: {e}")
+
         # Format metadata tags
         metadata_tags = [
             f"<<METADATA_TITLE:{title}>>",
@@ -2241,6 +2259,9 @@ class HandlerDialog(QDialog):
             f"<<METADATA_COMPOSER:Narrator>>",
             f"<<METADATA_GENRE:Audiobook>>",
         ]
+
+        if cover_tag:
+            metadata_tags.append(cover_tag)
 
         return "\n".join(metadata_tags)
 

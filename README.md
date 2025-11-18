@@ -230,7 +230,9 @@ Similar to chapter markers, it is possible to add metadata tags for `M4B` files.
 <<METADATA_ALBUM_ARTIST:Album Artist>>
 <<METADATA_COMPOSER:Narrator>>
 <<METADATA_GENRE:Audiobook>>
+<<METADATA_COVER_PATH:path/to/cover.jpg>>
 ```
+> Note: `METADATA_COVER_PATH` is used to embed a cover image into the generated M4B file. Abogen automatically extracts the cover from EPUB and PDF files and adds this tag for you.
 
 ## `About Timestamp-based Text Files`
 Similar to converting subtitle files to audio, Abogen can automatically detect text files that contain timestamps in `HH:MM:SS` or `HH:MM:SS,ms` format. When timestamps are found inside your text file, Abogen will ask if you want to use them for audio timing. This is useful for creating timed narrations, scripts, or transcripts where you need exact control over when each segment is spoken.
@@ -274,6 +276,7 @@ I highly recommend using [MPV](https://mpv.io/installation/) to play your audio 
 # --- MPV Settings ---
 save-position-on-quit
 keep-open=yes
+audio-display=no
 # --- Subtitle ---
 sub-ass-override=no
 sub-margin-y=50
