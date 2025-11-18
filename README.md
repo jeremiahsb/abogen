@@ -9,7 +9,7 @@
 
 <a href="https://trendshift.io/repositories/14433" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14433" alt="denizsafak%2Fabogen | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
-Abogen is a powerful text-to-speech conversion tool that makes it easy to turn ePub, PDF, text, markdown, or subtitle files (`.srt`, `.ass`, `.vtt`) into high-quality audio with matching subtitles in seconds. Use it for audiobooks, voiceovers for Instagram, YouTube, TikTok, or any project that needs natural-sounding text-to-speech, using [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M).
+Abogen is a powerful text-to-speech conversion tool that makes it easy to turn ePub, PDF, text, markdown, or subtitle files into high-quality audio with matching subtitles in seconds. Use it for audiobooks, voiceovers for Instagram, YouTube, TikTok, or any project that needs natural-sounding text-to-speech, using [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M).
 
 <img title="Abogen Main" src='https://raw.githubusercontent.com/denizsafak/abogen/refs/heads/main/demo/abogen.png' width="380"> <img title="Abogen Processing" src='https://raw.githubusercontent.com/denizsafak/abogen/refs/heads/main/demo/abogen2.png' width="380">
 
@@ -115,7 +115,7 @@ abogen
 > If you installed Abogen using the Windows installer `(WINDOWS_INSTALL.bat)`, It should have created a shortcut in the same folder, or your desktop. You can run it from there. If you lost the shortcut, Abogen is located in `python_embedded/Scripts/abogen.exe`. You can run it from there directly.
 
 ## `How to use?`
-1) Drag and drop any ePub, PDF, text, markdown, or subtitle file (`.srt`, `.ass`, `.vtt`) (or use the built-in text editor)
+1) Drag and drop any ePub, PDF, text, markdown, or subtitle file (or use the built-in text editor)
 2) Configure the settings:
     - Set speech speed
     - Select a voice (or create a custom voice using voice mixer)
@@ -169,8 +169,8 @@ Here’s Abogen in action: in this demo, it processes ∼3,000 characters of tex
 | **Open config directory** | Opens the directory where the configuration file is stored. |
 | **Open cache directory** | Opens the cache directory where converted text files are stored. |
 | **Clear cache files** | Deletes cache files created during the conversion or preview. |
-| **Use silent gaps between subtitles** | Prevents unnecessary audio speed-up by letting speech continue naturally into the silent gaps between subtitles. (for subtitle files). |
-| **Subtitle speed adjustment method** | Choose how to speed up audio when needed: `TTS Regeneration (better quality)` re-creates the audio at a faster speed, while `FFmpeg Time-stretch (better speed)` quickly speeds up the existing audio (for subtitle files). |
+| **Use silent gaps between subtitles** | Prevents unnecessary audio speed-up by letting speech continue into the silent gaps between subtitle etries. In short, it ignores the end times in subtitle entries and uses the silent space until the beginning of the next subtitle entry. (for subtitle files). |
+| **Subtitle speed adjustment method** | Choose how to speed up audio when needed: `TTS Regeneration (better quality)` re-generates the audio at a faster speed, while `FFmpeg Time-stretch (better speed)` quickly speeds up the generated audio (for subtitle files). |
 | **Check for updates at startup** | Automatically checks for updates when the program starts. |
 | **Disable Kokoro's internet access** | Prevents Kokoro from downloading models or voices from HuggingFace Hub, useful for offline use. |
 | **Reset to default settings** | Resets all settings to their default values. |
@@ -233,7 +233,7 @@ Similar to chapter markers, it is possible to add metadata tags for `M4B` files.
 ```
 
 ## `About Timestamp-based Text Files`
-Abogen can automatically detect text files that contain timestamps in `HH:MM:SS` or `HH:MM:SS,ms` format. When timestamps are found inside your text file, Abogen will ask if you want to use them for audio timing. This is useful for creating timed narrations, scripts, or transcripts where you need exact control over when each segment is spoken.
+Similar to converting subtitle files to audio, Abogen can automatically detect text files that contain timestamps in `HH:MM:SS` or `HH:MM:SS,ms` format. When timestamps are found inside your text file, Abogen will ask if you want to use them for audio timing. This is useful for creating timed narrations, scripts, or transcripts where you need exact control over when each segment is spoken.
 
 Format your text file like this:
 ```
