@@ -1,5 +1,5 @@
 # 1.2.2 (pre-release)
-- **You can now voice your subtitle files!** Simply add `.srt`, `.ass` or `.vtt` files to generate timed audio. Alternatively, add a text file with timestamps in `HH:MM:SS` or `HH:MM:SS,ms` format to generate audio that matches the timestamps.
+- **You can now voice your subtitle files!** Simply add `.srt`, `.ass` or `.vtt` files to generate timed audio. Alternatively, add a text file with timestamps in `HH:MM:SS` or `HH:MM:SS,ms` format to generate audio that matches the timestamps. See [here](https://github.com/denizsafak/abogen?tab=readme-ov-file#about-timestamp-based-text-files) for detailed instructions.
     - New option: **"Use silent gaps between subtitles"**: Prevents unnecessary audio speed-up by letting speech continue naturally into the silent gaps between subtitles.
     - New option: **"Subtitle speed adjustment method"**: Choose how to speed up audio when needed:
         - **TTS Regeneration (better quality):** Re-creates the audio at a faster speed for the most natural sound.
