@@ -169,8 +169,8 @@ Here’s Abogen in action: in this demo, it processes ∼3,000 characters of tex
 | **Open config directory** | Opens the directory where the configuration file is stored. |
 | **Open cache directory** | Opens the cache directory where converted text files are stored. |
 | **Clear cache files** | Deletes cache files created during the conversion or preview. |
-| **Use silent gaps between subtitles** | Prevents unnecessary audio speed-up by letting speech continue into the silent gaps between subtitle etries. In short, it ignores the end times in subtitle entries and uses the silent space until the beginning of the next subtitle entry. (for subtitle files). |
-| **Subtitle speed adjustment method** | Choose how to speed up audio when needed: `TTS Regeneration (better quality)` re-generates the audio at a faster speed, while `FFmpeg Time-stretch (better speed)` quickly speeds up the generated audio (for subtitle files). |
+| **Use silent gaps between subtitles** | Prevents unnecessary audio speed-up by letting speech continue into the silent gaps between subtitle etries. In short, it ignores the end times in subtitle entries and uses the silent space until the beginning of the next subtitle entry. When disabled, it speeds up the audio to fit the exact time interval specified in the subtitle. (for subtitle files). |
+| **Subtitle speed adjustment method** | Choose how to speed up audio when needed: `TTS Regeneration (better quality)` re-generates the audio at a faster speed, while `FFmpeg Time-stretch (better speed)` quickly speeds up the generated audio. (for subtitle files). |
 | **Check for updates at startup** | Automatically checks for updates when the program starts. |
 | **Disable Kokoro's internet access** | Prevents Kokoro from downloading models or voices from HuggingFace Hub, useful for offline use. |
 | **Reset to default settings** | Resets all settings to their default values. |
