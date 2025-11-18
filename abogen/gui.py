@@ -825,7 +825,7 @@ class abogen(QWidget):
             "use_gpu", True  # Load GPU setting with default True
         )
         self.replace_single_newlines = self.config.get("replace_single_newlines", False)
-        self.use_silent_gaps = self.config.get("use_silent_gaps", False)
+        self.use_silent_gaps = self.config.get("use_silent_gaps", True)
         self.subtitle_speed_method = self.config.get("subtitle_speed_method", "tts")
         self._pending_close_event = None
         self.gpu_ok = False  # Initialize GPU availability status

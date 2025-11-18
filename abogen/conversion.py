@@ -1881,7 +1881,7 @@ class ConversionThread(QThread):
                     int(start_time % 60),
                 )
                 ms1 = int((start_time - int(start_time)) * 1000)
-                is_last = use_gaps and idx == len(subtitles)
+                is_last = is_timestamp_text or (use_gaps and idx == len(subtitles)) or end_time is None
                 if is_last:
                     time_str = (
                         f"{h1:02d}:{m1:02d}:{s1:02d}"
@@ -1938,7 +1938,10 @@ class ConversionThread(QThread):
                 audio_duration = len(full_audio) / rate
 
                 # Use actual audio length for timing
-                if use_gaps:
+                if is_timestamp_text:
+                    end_time = start_time + audio_duration
+                    subtitle_duration = audio_duration
+                elif use_gaps:
                     end_time = min(start_time + audio_duration, next_start)
                     subtitle_duration = end_time - start_time
                 elif subtitle_duration is None:
