@@ -9,6 +9,7 @@ are working correctly and don't introduce regressions.
 import re
 import time
 import sys
+import traceback
 
 
 def test_regex_precompilation_performance():
@@ -213,7 +214,6 @@ def main():
         return 1
     except Exception as e:
         print(f"\n❌ Unexpected error: {e}")
-        import traceback
         traceback.print_exc()
         return 1
 

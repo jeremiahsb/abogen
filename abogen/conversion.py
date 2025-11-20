@@ -28,6 +28,9 @@ import threading  # for efficient waiting
 import subprocess
 import platform
 
+# Configuration constants
+_USER_RESPONSE_TIMEOUT = 0.1  # Timeout in seconds for checking user response/cancellation
+
 # Pre-compile frequently used regex patterns for better performance
 _METADATA_TAG_PATTERN = re.compile(r"<<METADATA_[^:]+:[^>]*>>")
 _CHAPTER_MARKER_PATTERN = re.compile(r"<<CHAPTER_MARKER:[^>]*>>")
@@ -875,10 +878,11 @@ class ConversionThread(QThread):
                     # Signal to ask user (-1 indicates timestamp detection)
                     self.chapters_detected.emit(-1)
                     # Wait for user response using event with timeout for responsive cancellation
-                    while not self._timestamp_response_event.wait(timeout=0.1):
+                    while not self._timestamp_response_event.wait(timeout=_USER_RESPONSE_TIMEOUT):
                         if self.cancel_requested:
                             self.conversion_finished.emit("Cancelled", None)
                             return
+                    # Check cancellation one more time after event is set
                     if self.cancel_requested:
                         self.conversion_finished.emit("Cancelled", None)
                         return
