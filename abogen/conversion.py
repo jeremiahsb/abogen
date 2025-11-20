@@ -653,6 +653,7 @@ class ConversionThread(QThread):
     ):  # Add use_gpu parameter
         super().__init__()
         self._chapter_options_event = threading.Event()
+        self._timestamp_response_event = threading.Event()
         self.np = np_module
         self.KPipeline = kpipeline_class
         self.file_name = file_name
@@ -872,15 +873,15 @@ class ConversionThread(QThread):
                     self.log_updated.emit("\nDetected timestamps in text file")
                     # Signal to ask user (-1 indicates timestamp detection)
                     self.chapters_detected.emit(-1)
-                    # Wait for user response
-                    while not hasattr(self, "_timestamp_response"):
-                        if self.cancel_requested:
-                            self.conversion_finished.emit("Cancelled", None)
-                            return
-                        time.sleep(0.1)
+                    # Wait for user response using event instead of busy-wait loop
+                    self._timestamp_response_event.wait()
+                    if self.cancel_requested:
+                        self.conversion_finished.emit("Cancelled", None)
+                        return
                     if not self._timestamp_response:
                         is_timestamp_text = False
                     delattr(self, "_timestamp_response")
+                    self._timestamp_response_event.clear()
 
             # Process subtitle files separately
             if is_subtitle_file or is_timestamp_text:
@@ -2183,6 +2184,7 @@ class ConversionThread(QThread):
     def set_timestamp_response(self, treat_as_subtitle):
         """Set whether to treat timestamp text file as subtitle."""
         self._timestamp_response = treat_as_subtitle
+        self._timestamp_response_event.set()
 
     def _extract_and_add_metadata_tags_to_ffmpeg_cmd(self):
         """Extract metadata tags from text content and add them to ffmpeg command"""
