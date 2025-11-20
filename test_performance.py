@@ -52,6 +52,10 @@ def test_regex_precompilation_performance():
     # Verify results are the same
     assert old_way(test_text) == new_way(test_text), "Results should be identical"
     
+    # Guard against division by zero (though very unlikely with 1000 iterations)
+    elapsed_old = max(elapsed_old, 0.000001)
+    elapsed_new = max(elapsed_new, 0.000001)
+    
     improvement = ((elapsed_old - elapsed_new) / elapsed_old) * 100
     
     print(f"  Old way (non-compiled): {elapsed_old:.4f} seconds")
@@ -104,6 +108,10 @@ def test_clean_text_performance():
     
     # Verify results are the same
     assert old_clean_text(test_text) == new_clean_text(test_text), "Results should be identical"
+    
+    # Guard against division by zero
+    elapsed_old = max(elapsed_old, 0.000001)
+    elapsed_new = max(elapsed_new, 0.000001)
     
     improvement = ((elapsed_old - elapsed_new) / elapsed_old) * 100
     
@@ -165,6 +173,10 @@ def test_pdf_text_cleaning_performance():
     
     # Verify results are the same
     assert old_way(test_text) == new_way(test_text), "Results should be identical"
+    
+    # Guard against division by zero
+    elapsed_old = max(elapsed_old, 0.000001)
+    elapsed_new = max(elapsed_new, 0.000001)
     
     improvement = ((elapsed_old - elapsed_new) / elapsed_old) * 100
     
