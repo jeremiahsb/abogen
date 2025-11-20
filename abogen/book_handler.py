@@ -44,6 +44,16 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
+# Pre-compile frequently used regex patterns for better performance
+_BRACKETED_NUMBERS_PATTERN = re.compile(r"\[\s*\d+\s*\]")
+_STANDALONE_PAGE_NUMBERS_PATTERN = re.compile(r"^\s*\d+\s*$", re.MULTILINE)
+_PAGE_NUMBERS_AT_END_PATTERN = re.compile(r"\s+\d+\s*$", re.MULTILINE)
+_PAGE_NUMBERS_WITH_DASH_PATTERN = re.compile(r"\s+[-–—]\s*\d+\s*[-–—]?\s*$", re.MULTILINE)
+_HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
+_LEADING_DASH_PATTERN = re.compile(r"^\s*[-–—]\s*")
+_LEADING_SIMPLE_DASH_PATTERN = re.compile(r"^\s*-\s*")
+
+
 
 class HandlerDialog(QDialog):
     # Class variables to remember checkbox states between dialog instances
@@ -428,19 +438,12 @@ class HandlerDialog(QDialog):
         """Pre-process all page contents from PDF document"""
         for page_num in range(len(self.pdf_doc)):
             text = clean_text(self.pdf_doc[page_num].get_text())
-            # Remove bracketed numbers (citations, footnotes)
-            text = re.sub(r"\[\s*\d+\s*\]", "", text)
-
-            # Remove standalone page numbers (numbers alone on a line)
-            text = re.sub(r"^\s*\d+\s*$", "", text, flags=re.MULTILINE)
-
-            # Remove page numbers at the end of paragraphs
-            # This pattern looks for digits surrounded by whitespace at the end of paragraphs
-            text = re.sub(r"\s+\d+\s*$", "", text, flags=re.MULTILINE)
-
-            # Also remove page numbers followed by a hyphen or dash at paragraph end
-            # (common in headers/footers like "- 42 -")
-            text = re.sub(r"\s+[-–—]\s*\d+\s*[-–—]?\s*$", "", text, flags=re.MULTILINE)
+            # Remove bracketed numbers, page numbers, etc. using pre-compiled patterns
+            # Combine all regex operations for better performance
+            text = _BRACKETED_NUMBERS_PATTERN.sub("", text)
+            text = _STANDALONE_PAGE_NUMBERS_PATTERN.sub("", text)
+            text = _PAGE_NUMBERS_AT_END_PATTERN.sub("", text)
+            text = _PAGE_NUMBERS_WITH_DASH_PATTERN.sub("", text)
 
             page_id = f"page_{page_num + 1}"
             self.content_texts[page_id] = text
@@ -569,7 +572,7 @@ class HandlerDialog(QDialog):
                 text = clean_text(soup.get_text()).strip()
                 if text:
                     self.content_texts[doc_href] = text
-                    self.content_lengths[doc_href] = len(text)
+                    self.content_lengths[doc_href] = calculate_text_length(text)
 
                     title = None
                     if soup.title and soup.title.string:
@@ -892,7 +895,7 @@ class HandlerDialog(QDialog):
                 text = clean_text(slice_soup.get_text()).strip()
                 if text:
                     self.content_texts[current_src] = text
-                    self.content_lengths[current_src] = len(text)
+                    self.content_lengths[current_src] = calculate_text_length(text)
                 else:
                     self.content_texts[current_src] = ""
                     self.content_lengths[current_src] = 0
@@ -2015,7 +2018,8 @@ class HandlerDialog(QDialog):
         html_content += "<hr/>"
 
         if self.book_metadata["description"]:
-            desc = re.sub(r"<[^>]+>", "", self.book_metadata["description"])
+            # Use pre-compiled pattern for better performance
+            desc = _HTML_TAG_PATTERN.sub("", self.book_metadata["description"])
             html_content += f"<h3>Description:</h3><p>{desc}</p>"
 
         if self.file_type == "pdf":
@@ -2296,8 +2300,8 @@ class HandlerDialog(QDialog):
             text = self.content_texts.get(identifier)
             if text and text.strip():
                 title = item.text(0)
-                # Remove leading dashes from title
-                title = re.sub(r"^\s*[-–—]\s*", "", title).strip()
+                # Remove leading dashes from title using pre-compiled pattern
+                title = _LEADING_DASH_PATTERN.sub("", title).strip()
                 marker = f"<<CHAPTER_MARKER:{title}>>"
                 chapter_texts.append(marker + "\n" + text)
 
@@ -2331,7 +2335,8 @@ class HandlerDialog(QDialog):
             text = self.content_texts.get(identifier)
             if text and text.strip():
                 title = item.text(0)
-                title = re.sub(r"^\s*[-–—]\s*", "", title).strip()
+                # Use pre-compiled pattern for better performance
+                title = _LEADING_DASH_PATTERN.sub("", title).strip()
                 marker = f"<<CHAPTER_MARKER:{title}>>"
                 chapter_texts.append(marker + "\n" + text)
 
@@ -2401,12 +2406,14 @@ class HandlerDialog(QDialog):
                             combined_text += "\n\n" + child_text
                         included_text_ids.add(child_id)
                     if combined_text.strip():
-                        title = re.sub(r"^\s*-\s*", "", parent_title).strip()
+                        # Use pre-compiled pattern for better performance
+                        title = _LEADING_SIMPLE_DASH_PATTERN.sub("", parent_title).strip()
                         marker = f"<<CHAPTER_MARKER:{title}>>"
                         section_titles.append((title, marker + "\n" + combined_text))
                         included_text_ids.add(parent_id)
                 elif not parent_checked and checked_children:
-                    title = re.sub(r"^\s*-\s*", "", parent_title).strip()
+                    # Use pre-compiled pattern for better performance
+                    title = _LEADING_SIMPLE_DASH_PATTERN.sub("", parent_title).strip()
                     marker = f"<<CHAPTER_MARKER:{title}>>"
                     for idx, (child, child_id) in enumerate(checked_children):
                         text = self.content_texts.get(child_id, "")
@@ -2426,7 +2433,8 @@ class HandlerDialog(QDialog):
                     text = self.content_texts.get(identifier, "")
                     if text:
                         title = item.text(0)
-                        title = re.sub(r"^\s*-\s*", "", title).strip()
+                        # Use pre-compiled pattern for better performance
+                        title = _LEADING_SIMPLE_DASH_PATTERN.sub("", title).strip()
                         marker = f"<<CHAPTER_MARKER:{title}>>"
                         section_titles.append((title, marker + "\n" + text))
                         included_text_ids.add(identifier)
