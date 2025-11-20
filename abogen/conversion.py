@@ -47,6 +47,7 @@ _VTT_TIMESTAMP_PATTERN = re.compile(r"([\d:.]+)\s*-->\s*([\d:.]+)")
 _TIMESTAMP_ONLY_PATTERN = re.compile(r"^(\d{1,2}:\d{2}:\d{2}(?:,\d{1,3})?)$")
 _WINDOWS_ILLEGAL_CHARS_PATTERN = re.compile(r'[<>:"/\\|?*]')
 _CONTROL_CHARS_PATTERN = re.compile(r"[\x00-\x1f]")
+_LINUX_CONTROL_CHARS_PATTERN = re.compile(r"[\x01-\x1f]")  # Linux: exclude \x00 for separate handling
 _MACOS_ILLEGAL_CHARS_PATTERN = re.compile(r"[:]")
 _LINUX_ILLEGAL_CHARS_PATTERN = re.compile(r"[/\x00]")
 
@@ -435,8 +436,8 @@ def sanitize_name_for_os(name, is_folder=True):
         # Though / is illegal, most other chars are technically allowed
         # Use pre-compiled pattern for better performance
         sanitized = _LINUX_ILLEGAL_CHARS_PATTERN.sub("_", name)
-        # Remove other control characters for safety
-        sanitized = _CONTROL_CHARS_PATTERN.sub("_", sanitized)
+        # Remove other control characters for safety (excluding \x00 which is already handled)
+        sanitized = _LINUX_CONTROL_CHARS_PATTERN.sub("_", sanitized)
         # Avoid leading dot for folders (creates hidden folders)
         if is_folder and sanitized.startswith("."):
             sanitized = "_" + sanitized[1:]
@@ -1010,11 +1011,12 @@ class ConversionThread(QThread):
                     parent_dir, f"{sanitized_base_name}{suffix}_chapters"
                 )
                 # Only check for files with allowed extensions (extension without dot, case-insensitive)
-                # Optimize by splitting path only once per filename
+                # Optimize by pre-splitting paths to avoid repeated splitext calls
+                file_parts = [os.path.splitext(fname) for fname in os.listdir(parent_dir)]
                 clash = any(
-                    (name_parts := os.path.splitext(fname))[0] == f"{sanitized_base_name}{suffix}"
-                    and name_parts[1][1:].lower() in allowed_exts
-                    for fname in os.listdir(parent_dir)
+                    name == f"{sanitized_base_name}{suffix}"
+                    and ext[1:].lower() in allowed_exts
+                    for name, ext in file_parts
                 )
                 if not os.path.exists(chapters_out_dir_candidate) and not clash:
                     break
@@ -1754,11 +1756,12 @@ class ConversionThread(QThread):
             allowed_exts = set(SUPPORTED_SOUND_FORMATS + SUPPORTED_SUBTITLE_FORMATS)
             while True:
                 suffix = f"_{counter}" if counter > 1 else ""
-                # Optimize by splitting path only once per filename
+                # Optimize by pre-splitting paths to avoid repeated splitext calls
+                file_parts = [os.path.splitext(f) for f in os.listdir(parent_dir)]
                 if not any(
-                    (name_parts := os.path.splitext(f))[0] == f"{sanitized_base_name}{suffix}"
-                    and name_parts[1][1:].lower() in allowed_exts
-                    for f in os.listdir(parent_dir)
+                    name == f"{sanitized_base_name}{suffix}"
+                    and ext[1:].lower() in allowed_exts
+                    for name, ext in file_parts
                 ):
                     break
                 counter += 1
