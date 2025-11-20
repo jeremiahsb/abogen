@@ -874,8 +874,11 @@ class ConversionThread(QThread):
                     self.log_updated.emit("\nDetected timestamps in text file")
                     # Signal to ask user (-1 indicates timestamp detection)
                     self.chapters_detected.emit(-1)
-                    # Wait for user response using event instead of busy-wait loop
-                    self._timestamp_response_event.wait()
+                    # Wait for user response using event with timeout for responsive cancellation
+                    while not self._timestamp_response_event.wait(timeout=0.1):
+                        if self.cancel_requested:
+                            self.conversion_finished.emit("Cancelled", None)
+                            return
                     if self.cancel_requested:
                         self.conversion_finished.emit("Cancelled", None)
                         return
@@ -1011,8 +1014,8 @@ class ConversionThread(QThread):
                     parent_dir, f"{sanitized_base_name}{suffix}_chapters"
                 )
                 # Only check for files with allowed extensions (extension without dot, case-insensitive)
-                # Optimize by pre-splitting paths to avoid repeated splitext calls
-                file_parts = [os.path.splitext(fname) for fname in os.listdir(parent_dir)]
+                # Use generator expression to avoid processing all files upfront
+                file_parts = (os.path.splitext(fname) for fname in os.listdir(parent_dir))
                 clash = any(
                     name == f"{sanitized_base_name}{suffix}"
                     and ext[1:].lower() in allowed_exts
@@ -1756,8 +1759,8 @@ class ConversionThread(QThread):
             allowed_exts = set(SUPPORTED_SOUND_FORMATS + SUPPORTED_SUBTITLE_FORMATS)
             while True:
                 suffix = f"_{counter}" if counter > 1 else ""
-                # Optimize by pre-splitting paths to avoid repeated splitext calls
-                file_parts = [os.path.splitext(f) for f in os.listdir(parent_dir)]
+                # Use generator expression to avoid processing all files upfront
+                file_parts = (os.path.splitext(f) for f in os.listdir(parent_dir))
                 if not any(
                     name == f"{sanitized_base_name}{suffix}"
                     and ext[1:].lower() in allowed_exts
