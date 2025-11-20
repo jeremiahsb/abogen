@@ -1010,9 +1010,10 @@ class ConversionThread(QThread):
                     parent_dir, f"{sanitized_base_name}{suffix}_chapters"
                 )
                 # Only check for files with allowed extensions (extension without dot, case-insensitive)
+                # Optimize by splitting path only once per filename
                 clash = any(
-                    os.path.splitext(fname)[0] == f"{sanitized_base_name}{suffix}"
-                    and os.path.splitext(fname)[1][1:].lower() in allowed_exts
+                    (name_parts := os.path.splitext(fname))[0] == f"{sanitized_base_name}{suffix}"
+                    and name_parts[1][1:].lower() in allowed_exts
                     for fname in os.listdir(parent_dir)
                 )
                 if not os.path.exists(chapters_out_dir_candidate) and not clash:
@@ -1753,9 +1754,10 @@ class ConversionThread(QThread):
             allowed_exts = set(SUPPORTED_SOUND_FORMATS + SUPPORTED_SUBTITLE_FORMATS)
             while True:
                 suffix = f"_{counter}" if counter > 1 else ""
+                # Optimize by splitting path only once per filename
                 if not any(
-                    os.path.splitext(f)[0] == f"{sanitized_base_name}{suffix}"
-                    and os.path.splitext(f)[1][1:].lower() in allowed_exts
+                    (name_parts := os.path.splitext(f))[0] == f"{sanitized_base_name}{suffix}"
+                    and name_parts[1][1:].lower() in allowed_exts
                     for f in os.listdir(parent_dir)
                 ):
                     break
