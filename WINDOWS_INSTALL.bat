@@ -278,7 +278,7 @@ if /I "%IS_NVIDIA%"=="true" (
     for /f %%i in ('%PYTHON_CONSOLE_PATH% -c "from torch.cuda import is_available; print(is_available())"') do set cuda_available=%%i
 
     if "%cuda_available%"=="False" (
-        echo Installing PyTorch with CUDA (12.8) support...
+        echo "Installing PyTorch with CUDA (12.8) support..."
         :: We need to use an older version of PyTorch (2.8.0) until this issue is fixed: https://github.com/pytorch/pytorch/issues/166628
         :: Solution mentioned by @mazenemam19 in #99:
         %PYTHON_CONSOLE_PATH% -m pip install torch==2.8.0+cu128 torchvision==0.23.0+cu128 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128 --no-warn-script-location
@@ -304,7 +304,7 @@ if /I "%IS_NVIDIA%"=="true" (
     if errorlevel 2 (
         echo Skipping PyTorch installation.
     ) else (
-        echo Installing PyTorch with CUDA (12.8) support...
+        echo "Installing PyTorch with CUDA (12.8) support..."
         :: We need to use an older version of PyTorch (2.8.0) until this issue is fixed: https://github.com/pytorch/pytorch/issues/166628
         :: Solution mentioned by @mazenemam19 in #99:
         %PYTHON_CONSOLE_PATH% -m pip install torch==2.8.0+cu128 torchvision==0.23.0+cu128 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128 --no-warn-script-location
