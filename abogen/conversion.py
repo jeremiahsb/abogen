@@ -3,7 +3,7 @@ import re
 import time
 import hashlib  # For generating unique cache filenames
 from platformdirs import user_desktop_dir
-from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer, QEventLoop
+from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 from PyQt6.QtWidgets import QCheckBox, QVBoxLayout, QDialog, QLabel, QDialogButtonBox
 import soundfile as sf
 from abogen.utils import (
