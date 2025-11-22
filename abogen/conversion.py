@@ -28,13 +28,38 @@ import threading  # for efficient waiting
 import subprocess
 import platform
 
+# Configuration constants
+_USER_RESPONSE_TIMEOUT = 0.1  # Timeout in seconds for checking user response/cancellation
+
+# Pre-compile frequently used regex patterns for better performance
+_METADATA_TAG_PATTERN = re.compile(r"<<METADATA_[^:]+:[^>]*>>")
+_CHAPTER_MARKER_PATTERN = re.compile(r"<<CHAPTER_MARKER:[^>]*>>")
+_HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
+_VOICE_TAG_PATTERN = re.compile(r"{[^}]+}")
+_ASS_STYLING_PATTERN = re.compile(r"\{[^}]+\}")
+_ASS_NEWLINE_N_PATTERN = re.compile(r"\\N")
+_ASS_NEWLINE_n_PATTERN = re.compile(r"\\n")
+_BRACKETED_NUMBERS_PATTERN = re.compile(r"\[\s*\d+\s*\]")
+_CHAPTER_MARKER_SEARCH_PATTERN = re.compile(r"<<CHAPTER_MARKER:(.*?)>>")
+_WEBVTT_HEADER_PATTERN = re.compile(r"^WEBVTT.*?\n", re.MULTILINE)
+_VTT_STYLE_PATTERN = re.compile(r"STYLE\s*\n.*?(?=\n\n|$)", re.DOTALL)
+_VTT_NOTE_PATTERN = re.compile(r"NOTE\s*\n.*?(?=\n\n|$)", re.DOTALL)
+_DOUBLE_NEWLINE_SPLIT_PATTERN = re.compile(r"\n\s*\n")
+_SRT_TIMESTAMP_PATTERN = re.compile(r"(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})")
+_VTT_TIMESTAMP_PATTERN = re.compile(r"([\d:.]+)\s*-->\s*([\d:.]+)")
+_TIMESTAMP_ONLY_PATTERN = re.compile(r"^(\d{1,2}:\d{2}:\d{2}(?:,\d{1,3})?)$")
+_WINDOWS_ILLEGAL_CHARS_PATTERN = re.compile(r'[<>:"/\\|?*]')
+_CONTROL_CHARS_PATTERN = re.compile(r"[\x00-\x1f]")
+_LINUX_CONTROL_CHARS_PATTERN = re.compile(r"[\x01-\x1f]")  # Linux: exclude \x00 for separate handling
+_MACOS_ILLEGAL_CHARS_PATTERN = re.compile(r"[:]")
+_LINUX_ILLEGAL_CHARS_PATTERN = re.compile(r"[/\x00]")
+
 
 def clean_subtitle_text(text):
     """Remove chapter markers and metadata tags from subtitle text."""
-    # Remove metadata tags
-    text = re.sub(r"<<METADATA_[^:]+:[^>]*>>", "", text)
-    # Remove chapter markers
-    text = re.sub(r"<<CHAPTER_MARKER:[^>]*>>", "", text)
+    # Use pre-compiled patterns for better performance
+    text = _METADATA_TAG_PATTERN.sub("", text)
+    text = _CHAPTER_MARKER_PATTERN.sub("", text)
     return text.strip()
 
 
@@ -87,8 +112,8 @@ def parse_srt_file(file_path):
             start_sec = time_to_seconds(start_str)
             end_sec = time_to_seconds(end_str)
 
-            # Clean text of any styling tags
-            text = re.sub(r"<[^>]+>", "", text)
+            # Clean text of any styling tags using pre-compiled pattern
+            text = _HTML_TAG_PATTERN.sub("", text)
             # Remove chapter markers and metadata tags
             text = clean_subtitle_text(text)
 
@@ -114,13 +139,13 @@ def parse_vtt_file(file_path):
     with open(file_path, "r", encoding=encoding, errors="replace") as f:
         content = f.read()
 
-    # Remove WEBVTT header and any style/note blocks
-    content = re.sub(r"^WEBVTT.*?\n", "", content, flags=re.MULTILINE)
-    content = re.sub(r"STYLE\s*\n.*?(?=\n\n|$)", "", content, flags=re.DOTALL)
-    content = re.sub(r"NOTE\s*\n.*?(?=\n\n|$)", "", content, flags=re.DOTALL)
+    # Remove WEBVTT header and any style/note blocks using pre-compiled patterns
+    content = _WEBVTT_HEADER_PATTERN.sub("", content)
+    content = _VTT_STYLE_PATTERN.sub("", content)
+    content = _VTT_NOTE_PATTERN.sub("", content)
 
-    # Split by double newlines to get individual subtitle blocks
-    blocks = re.split(r"\n\s*\n", content.strip())
+    # Split by double newlines to get individual subtitle blocks using pre-compiled pattern
+    blocks = _DOUBLE_NEWLINE_SPLIT_PATTERN.split(content.strip())
 
     subtitles = []
     for block in blocks:
@@ -147,7 +172,8 @@ def parse_vtt_file(file_path):
 
         try:
             # VTT format: 00:00:00.000 --> 00:00:05.000 or 00:00.000 --> 00:05.000
-            match = re.match(r"([\d:.]+)\s*-->\s*([\d:.]+)", timestamp_line)
+            # Use pre-compiled pattern
+            match = _VTT_TIMESTAMP_PATTERN.match(timestamp_line)
             if not match:
                 continue
 
@@ -171,9 +197,9 @@ def parse_vtt_file(file_path):
             start_sec = time_to_seconds(start_str)
             end_sec = time_to_seconds(end_str)
 
-            # Clean text of any styling tags and cue settings
-            text = re.sub(r"<[^>]+>", "", text)
-            text = re.sub(r"{[^}]+}", "", text)  # Remove voice tags
+            # Clean text of any styling tags and cue settings using pre-compiled patterns
+            text = _HTML_TAG_PATTERN.sub("", text)
+            text = _VOICE_TAG_PATTERN.sub("", text)  # Remove voice tags
             # Remove chapter markers and metadata tags
             text = clean_subtitle_text(text)
 
@@ -196,8 +222,8 @@ def detect_timestamps_in_text(file_path):
 
         # Count lines that are ONLY timestamps (no other text)
         # Supports HH:MM:SS or HH:MM:SS,ms format
-        timestamp_pattern = r"^(\d{1,2}:\d{2}:\d{2}(?:,\d{1,3})?)$"
-        timestamp_lines = sum(1 for line in lines if re.match(timestamp_pattern, line))
+        # Use pre-compiled pattern for better performance
+        timestamp_lines = sum(1 for line in lines if _TIMESTAMP_ONLY_PATTERN.match(line))
 
         # Must have at least 2 timestamp-only lines and they should be >5% of total lines
         return timestamp_lines >= 2 and (timestamp_lines / max(len(lines), 1)) > 0.05
@@ -348,10 +374,10 @@ def parse_ass_file(file_path):
                 start_sec = ass_time_to_seconds(start_str)
                 end_sec = ass_time_to_seconds(end_str)
 
-                # Clean text of ASS styling tags
-                text = re.sub(r"\{[^}]+\}", "", text)  # Remove {tags}
-                text = re.sub(r"\\N", "\n", text)  # Convert \N to newline
-                text = re.sub(r"\\n", "\n", text)  # Convert \n to newline
+                # Clean text of ASS styling tags using pre-compiled patterns
+                text = _ASS_STYLING_PATTERN.sub("", text)  # Remove {tags}
+                text = _ASS_NEWLINE_N_PATTERN.sub("\n", text)  # Convert \N to newline
+                text = _ASS_NEWLINE_n_PATTERN.sub("\n", text)  # Convert \n to newline
                 # Remove chapter markers and metadata tags
                 text = clean_subtitle_text(text)
 
@@ -384,9 +410,10 @@ def sanitize_name_for_os(name, is_folder=True):
     if system == "Windows":
         # Windows illegal characters: < > : " / \ | ? *
         # Also can't end with space or dot
-        sanitized = re.sub(r'[<>:"/\\|?*]', "_", name)
+        # Use pre-compiled pattern for better performance
+        sanitized = _WINDOWS_ILLEGAL_CHARS_PATTERN.sub("_", name)
         # Remove control characters (0-31)
-        sanitized = re.sub(r"[\x00-\x1f]", "_", sanitized)
+        sanitized = _CONTROL_CHARS_PATTERN.sub("_", sanitized)
         # Remove trailing spaces and dots
         sanitized = sanitized.rstrip(". ")
         # Windows reserved names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
@@ -400,18 +427,20 @@ def sanitize_name_for_os(name, is_folder=True):
     elif system == "Darwin":  # macOS
         # macOS illegal characters: : (colon is converted to / by the system)
         # Also can't start with dot (hidden file) for folders typically
-        sanitized = re.sub(r"[:]", "_", name)
+        # Use pre-compiled pattern for better performance
+        sanitized = _MACOS_ILLEGAL_CHARS_PATTERN.sub("_", name)
         # Remove control characters
-        sanitized = re.sub(r"[\x00-\x1f]", "_", sanitized)
+        sanitized = _CONTROL_CHARS_PATTERN.sub("_", sanitized)
         # Avoid leading dot for folders (creates hidden folders)
         if is_folder and sanitized.startswith("."):
             sanitized = "_" + sanitized[1:]
     else:  # Linux and others
         # Linux illegal characters: / and null character
         # Though / is illegal, most other chars are technically allowed
-        sanitized = re.sub(r"[/\x00]", "_", name)
-        # Remove other control characters for safety
-        sanitized = re.sub(r"[\x01-\x1f]", "_", sanitized)
+        # Use pre-compiled pattern for better performance
+        sanitized = _LINUX_ILLEGAL_CHARS_PATTERN.sub("_", name)
+        # Remove other control characters for safety (excluding \x00 which is already handled)
+        sanitized = _LINUX_CONTROL_CHARS_PATTERN.sub("_", sanitized)
         # Avoid leading dot for folders (creates hidden folders)
         if is_folder and sanitized.startswith("."):
             sanitized = "_" + sanitized[1:]
@@ -628,6 +657,7 @@ class ConversionThread(QThread):
     ):  # Add use_gpu parameter
         super().__init__()
         self._chapter_options_event = threading.Event()
+        self._timestamp_response_event = threading.Event()
         self.np = np_module
         self.KPipeline = kpipeline_class
         self.file_name = file_name
@@ -847,15 +877,19 @@ class ConversionThread(QThread):
                     self.log_updated.emit("\nDetected timestamps in text file")
                     # Signal to ask user (-1 indicates timestamp detection)
                     self.chapters_detected.emit(-1)
-                    # Wait for user response
-                    while not hasattr(self, "_timestamp_response"):
+                    # Wait for user response using event with timeout for responsive cancellation
+                    while not self._timestamp_response_event.wait(timeout=_USER_RESPONSE_TIMEOUT):
                         if self.cancel_requested:
                             self.conversion_finished.emit("Cancelled", None)
                             return
-                        time.sleep(0.1)
+                    # Check cancellation one more time after event is set
+                    if self.cancel_requested:
+                        self.conversion_finished.emit("Cancelled", None)
+                        return
                     if not self._timestamp_response:
                         is_timestamp_text = False
                     delattr(self, "_timestamp_response")
+                    self._timestamp_response_event.clear()
 
             # Process subtitle files separately
             if is_subtitle_file or is_timestamp_text:
@@ -875,12 +909,12 @@ class ConversionThread(QThread):
             text = clean_text(text)
 
             # Remove metadata markers from the text to be processed
-            metadata_pattern = r"<<METADATA_[^:]+:[^>]*>>"
-            text = re.sub(metadata_pattern, "", text)
+            # Use pre-compiled pattern for better performance
+            text = _METADATA_TAG_PATTERN.sub("", text)
 
             # --- Chapter splitting logic ---
-            chapter_pattern = r"<<CHAPTER_MARKER:(.*?)>>"
-            chapter_splits = list(re.finditer(chapter_pattern, text))
+            # Use pre-compiled pattern for better performance
+            chapter_splits = list(_CHAPTER_MARKER_SEARCH_PATTERN.finditer(text))
             chapters = []
             if chapter_splits:
                 # prepend Introduction for content before first marker
@@ -984,10 +1018,12 @@ class ConversionThread(QThread):
                     parent_dir, f"{sanitized_base_name}{suffix}_chapters"
                 )
                 # Only check for files with allowed extensions (extension without dot, case-insensitive)
+                # Use generator expression to avoid processing all files upfront
+                file_parts = (os.path.splitext(fname) for fname in os.listdir(parent_dir))
                 clash = any(
-                    os.path.splitext(fname)[0] == f"{sanitized_base_name}{suffix}"
-                    and os.path.splitext(fname)[1][1:].lower() in allowed_exts
-                    for fname in os.listdir(parent_dir)
+                    name == f"{sanitized_base_name}{suffix}"
+                    and ext[1:].lower() in allowed_exts
+                    for name, ext in file_parts
                 )
                 if not os.path.exists(chapters_out_dir_candidate) and not clash:
                     break
@@ -1727,10 +1763,12 @@ class ConversionThread(QThread):
             allowed_exts = set(SUPPORTED_SOUND_FORMATS + SUPPORTED_SUBTITLE_FORMATS)
             while True:
                 suffix = f"_{counter}" if counter > 1 else ""
+                # Use generator expression to avoid processing all files upfront
+                file_parts = (os.path.splitext(f) for f in os.listdir(parent_dir))
                 if not any(
-                    os.path.splitext(f)[0] == f"{sanitized_base_name}{suffix}"
-                    and os.path.splitext(f)[1][1:].lower() in allowed_exts
-                    for f in os.listdir(parent_dir)
+                    name == f"{sanitized_base_name}{suffix}"
+                    and ext[1:].lower() in allowed_exts
+                    for name, ext in file_parts
                 ):
                     break
                 counter += 1
@@ -2158,6 +2196,7 @@ class ConversionThread(QThread):
     def set_timestamp_response(self, treat_as_subtitle):
         """Set whether to treat timestamp text file as subtitle."""
         self._timestamp_response = treat_as_subtitle
+        self._timestamp_response_event.set()
 
     def _extract_and_add_metadata_tags_to_ffmpeg_cmd(self):
         """Extract metadata tags from text content and add them to ffmpeg command"""

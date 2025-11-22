@@ -10,6 +10,13 @@ from threading import Thread
 
 warnings.filterwarnings("ignore")
 
+# Pre-compile frequently used regex patterns for better performance
+_WHITESPACE_PATTERN = re.compile(r"[^\S\n]+")
+_MULTIPLE_NEWLINES_PATTERN = re.compile(r"\n{3,}")
+_SINGLE_NEWLINE_PATTERN = re.compile(r"(?<!\n)\n(?!\n)")
+_CHAPTER_MARKER_PATTERN = re.compile(r"<<CHAPTER_MARKER:.*?>>")
+_METADATA_PATTERN = re.compile(r"<<METADATA_[^:]+:[^>]*>>")
+
 
 def detect_encoding(file_path):
     import chardet
@@ -128,13 +135,16 @@ def clean_text(text, *args, **kwargs):
     cfg = load_config()
     replace_single_newlines = cfg.get("replace_single_newlines", False)
     # Collapse all whitespace (excluding newlines) into single spaces per line and trim edges
-    lines = [re.sub(r"[^\S\n]+", " ", line).strip() for line in text.splitlines()]
+    # Use pre-compiled pattern for better performance
+    lines = [_WHITESPACE_PATTERN.sub(" ", line).strip() for line in text.splitlines()]
     text = "\n".join(lines)
     # Standardize paragraph breaks (multiple newlines become exactly two) and trim overall whitespace
-    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    # Use pre-compiled pattern for better performance
+    text = _MULTIPLE_NEWLINES_PATTERN.sub("\n\n", text).strip()
     # Optionally replace single newlines with spaces, but preserve double newlines
     if replace_single_newlines:
-        text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
+        # Use pre-compiled pattern for better performance
+        text = _SINGLE_NEWLINE_PATTERN.sub(" ", text)
     return text
 
 
@@ -243,14 +253,12 @@ def save_config(config):
 
 
 def calculate_text_length(text):
-    # Ignore chapter markers
-    text = re.sub(r"<<CHAPTER_MARKER:.*?>>", "", text)
-    # Ignore metadata patterns
-    text = re.sub(r"<<METADATA_[^:]+:[^>]*>>", "", text)
-    # Ignore newlines
-    text = text.replace("\n", "")
-    # Ignore leading/trailing spaces
-    text = text.strip()
+    # Use pre-compiled patterns for better performance
+    # Ignore chapter markers and metadata patterns in a single pass
+    text = _CHAPTER_MARKER_PATTERN.sub("", text)
+    text = _METADATA_PATTERN.sub("", text)
+    # Ignore newlines and leading/trailing spaces
+    text = text.replace("\n", "").strip()
     # Calculate character count
     char_count = len(text)
     return char_count

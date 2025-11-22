@@ -1,3 +1,6 @@
+# 1.2.4 (Pre-release)
+- Optimized regex compilation and eliminated busy-wait loops.
+
 # 1.2.3
 - Same as 1.2.2, re-released to fix an issue with subtitle timing when using timestamp-based text files.
 
