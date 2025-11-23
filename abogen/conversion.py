@@ -38,16 +38,14 @@ _HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
 _VOICE_TAG_PATTERN = re.compile(r"{[^}]+}")
 _ASS_STYLING_PATTERN = re.compile(r"\{[^}]+\}")
 _ASS_NEWLINE_N_PATTERN = re.compile(r"\\N")
-_ASS_NEWLINE_n_PATTERN = re.compile(r"\\n")
-_BRACKETED_NUMBERS_PATTERN = re.compile(r"\[\s*\d+\s*\]")
+_ASS_NEWLINE_LOWER_N_PATTERN = re.compile(r"\\n")
 _CHAPTER_MARKER_SEARCH_PATTERN = re.compile(r"<<CHAPTER_MARKER:(.*?)>>")
 _WEBVTT_HEADER_PATTERN = re.compile(r"^WEBVTT.*?\n", re.MULTILINE)
 _VTT_STYLE_PATTERN = re.compile(r"STYLE\s*\n.*?(?=\n\n|$)", re.DOTALL)
 _VTT_NOTE_PATTERN = re.compile(r"NOTE\s*\n.*?(?=\n\n|$)", re.DOTALL)
 _DOUBLE_NEWLINE_SPLIT_PATTERN = re.compile(r"\n\s*\n")
-_SRT_TIMESTAMP_PATTERN = re.compile(r"(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})")
 _VTT_TIMESTAMP_PATTERN = re.compile(r"([\d:.]+)\s*-->\s*([\d:.]+)")
-_TIMESTAMP_ONLY_PATTERN = re.compile(r"^(\d{1,2}:\d{2}:\d{2}(?:,\d{1,3})?)$")
+_TIMESTAMP_ONLY_PATTERN = re.compile(r"^(\d{1,2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)$")
 _WINDOWS_ILLEGAL_CHARS_PATTERN = re.compile(r'[<>:"/\\|?*]')
 _CONTROL_CHARS_PATTERN = re.compile(r"[\x00-\x1f]")
 _LINUX_CONTROL_CHARS_PATTERN = re.compile(r"[\x01-\x1f]")  # Linux: exclude \x00 for separate handling
@@ -239,20 +237,14 @@ def parse_timestamp_text_file(file_path):
         content = f.read()
 
     # Split by timestamp pattern (supports HH:MM:SS or HH:MM:SS,ms)
-    pattern = r"^(\d{1,2}:\d{2}:\d{2}(?:,\d{1,3})?)$"
+    pattern = r"^(\d{1,2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)$"
     lines = content.split("\n")
 
     def parse_time(time_str):
         """Convert HH:MM:SS or HH:MM:SS,ms to seconds as float."""
-        if "," in time_str:
-            time_part, ms_part = time_str.split(",")
-            parts = time_part.split(":")
-            seconds = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-            milliseconds = int(ms_part.ljust(3, "0"))  # Pad to 3 digits
-            return seconds + milliseconds / 1000.0
-        else:
-            parts = time_str.split(":")
-            return float(int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2]))
+        time_str = time_str.replace(",", ".")
+        parts = time_str.split(":")
+        return float(int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2]))
 
     entries = []
     current_time = None
@@ -377,7 +369,7 @@ def parse_ass_file(file_path):
                 # Clean text of ASS styling tags using pre-compiled patterns
                 text = _ASS_STYLING_PATTERN.sub("", text)  # Remove {tags}
                 text = _ASS_NEWLINE_N_PATTERN.sub("\n", text)  # Convert \N to newline
-                text = _ASS_NEWLINE_n_PATTERN.sub("\n", text)  # Convert \n to newline
+                text = _ASS_NEWLINE_LOWER_N_PATTERN.sub("\n", text)  # Convert \n to newline
                 # Remove chapter markers and metadata tags
                 text = clean_subtitle_text(text)
 

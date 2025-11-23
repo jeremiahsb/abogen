@@ -235,7 +235,7 @@ Similar to chapter markers, it is possible to add metadata tags for `M4B` files.
 > Note: `METADATA_COVER_PATH` is used to embed a cover image into the generated M4B file. Abogen automatically extracts the cover from EPUB and PDF files and adds this tag for you.
 
 ## `About Timestamp-based Text Files`
-Similar to converting subtitle files to audio, Abogen can automatically detect text files that contain timestamps in `HH:MM:SS` or `HH:MM:SS,ms` format. When timestamps are found inside your text file, Abogen will ask if you want to use them for audio timing. This is useful for creating timed narrations, scripts, or transcripts where you need exact control over when each segment is spoken.
+Similar to converting subtitle files to audio, Abogen can automatically detect text files that contain timestamps in `HH:MM:SS`, `HH:MM:SS,ms` or `HH:MM:SS.ms` format. When timestamps are found inside your text file, Abogen will ask if you want to use them for audio timing. This is useful for creating timed narrations, scripts, or transcripts where you need exact control over when each segment is spoken.
 
 Format your text file like this:
 ```
@@ -250,7 +250,7 @@ And this is the third segment, starting at 45 seconds.
 ```
 
 **Important notes:**
-- Timestamps must be in `HH:MM:SS` or `HH:MM:SS,ms` format (e.g., `00:05:30` for 5 minutes 30 seconds, or `00:05:30,500` for 5 minutes 30.5 seconds)
+- Timestamps must be in `HH:MM:SS`, `HH:MM:SS,ms` or `HH:MM:SS.ms` format (e.g., `00:05:30` for 5 minutes 30 seconds, or `00:05:30.500` for 5 minutes 30.5 seconds)
 - Milliseconds are optional and provide precision up to 1/1000th of a second
 - Text before the first timestamp (if any) will automatically start at `00:00:00`
 - When using timestamps, the subtitle generation mode setting is ignored
