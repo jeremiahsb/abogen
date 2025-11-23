@@ -1,5 +1,6 @@
 import os
 import time
+import sys
 import tempfile
 import platform
 import base64
@@ -2847,10 +2848,10 @@ class abogen(QWidget):
 
         # Cleanup pygame mixer if initialized
         try:
-            import pygame
-            if pygame.mixer.get_init():
+            pygame = sys.modules.get('pygame')
+            if pygame and pygame.mixer.get_init():
                 pygame.mixer.quit()
-        except ImportError:
+        except Exception:
             pass
 
     def closeEvent(self, event):
