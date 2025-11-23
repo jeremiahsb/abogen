@@ -61,10 +61,7 @@ SUPPORTED_INPUT_FORMATS = [
 # Please refer to: https://github.com/hexgrad/kokoro/blob/6d87f4ae7abc2d14dbc4b3ef2e5f19852e861ac2/kokoro/pipeline.py
 # 383 English processing (unchanged)
 # 384 if self.lang_code in 'ab':
-SUPPORTED_LANGUAGES_FOR_SUBTITLE_GENERATION = [
-    "a",
-    "b",
-]
+SUPPORTED_LANGUAGES_FOR_SUBTITLE_GENERATION = list(LANGUAGE_DESCRIPTIONS.keys())
 
 # Voice and sample text constants
 VOICES_INTERNAL = [

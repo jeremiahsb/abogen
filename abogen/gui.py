@@ -390,7 +390,7 @@ class InputBox(QLabel):
         window = self.window()
         if hasattr(window, "subtitle_combo"):
             # Only enable if language supports it
-            current_lang = getattr(window, "lang_code", "a")
+            current_lang = getattr(window, "selected_lang", "a")
             window.subtitle_combo.setEnabled(
                 current_lang in SUPPORTED_LANGUAGES_FOR_SUBTITLE_GENERATION
             )
@@ -824,7 +824,7 @@ class abogen(QWidget):
         self.use_gpu = self.config.get(
             "use_gpu", True  # Load GPU setting with default True
         )
-        self.replace_single_newlines = self.config.get("replace_single_newlines", False)
+        self.replace_single_newlines = self.config.get("replace_single_newlines", True)
         self.use_silent_gaps = self.config.get("use_silent_gaps", True)
         self.subtitle_speed_method = self.config.get("subtitle_speed_method", "tts")
         self._pending_close_event = None
@@ -1062,9 +1062,6 @@ class abogen(QWidget):
         )
         self.subtitle_combo.setCurrentText(self.subtitle_mode)
         self.subtitle_combo.currentTextChanged.connect(self.on_subtitle_mode_changed)
-        # Enable/disable subtitle options based on selected language (profile or voice)
-        enable = self.selected_lang in SUPPORTED_LANGUAGES_FOR_SUBTITLE_GENERATION
-        self.subtitle_combo.setEnabled(enable)
         subtitle_layout.addWidget(self.subtitle_combo)
         controls_layout.addLayout(subtitle_layout)
 
@@ -1146,10 +1143,10 @@ class abogen(QWidget):
         except Exception:
             # Fail-safe: don't crash UI if model manipulation isn't supported on some platforms
             pass
-        # Enable/disable subtitle format based on selected language
-        self.subtitle_format_combo.setEnabled(
-            self.selected_lang in SUPPORTED_LANGUAGES_FOR_SUBTITLE_GENERATION
-        )
+        
+        # Enable/disable subtitle options based on selected language (profile or voice)
+        self.update_subtitle_options_availability()
+        
         controls_layout.addLayout(subtitle_format_layout)
 
         # Replace single newlines dropdown (acts like checkbox)
@@ -1590,19 +1587,69 @@ class abogen(QWidget):
         self.config["speed"] = s
         save_config(self.config)
 
+    def update_subtitle_options_availability(self):
+        """
+        Update the enabled state of subtitle options based on the selected language.
+        For non-English languages, only sentence-based and line-based modes are supported.
+        """
+        # Check if current file is a subtitle file
+        is_subtitle_input = False
+        if self.selected_file and self.selected_file.lower().endswith(
+            (".srt", ".ass", ".vtt")
+        ):
+            is_subtitle_input = True
+
+        if self.selected_lang not in SUPPORTED_LANGUAGES_FOR_SUBTITLE_GENERATION:
+            self.subtitle_combo.setEnabled(False)
+            self.subtitle_format_combo.setEnabled(False)
+            return
+
+        # Only enable subtitle_combo if it's NOT a subtitle input
+        self.subtitle_combo.setEnabled(not is_subtitle_input)
+        self.subtitle_format_combo.setEnabled(True)
+
+        is_english = self.selected_lang in ["a", "b"]
+
+        # Items to keep enabled for non-English
+        allowed_modes = ["Disabled", "Line", "Sentence", "Sentence + Comma"]
+
+        model = self.subtitle_combo.model()
+        for i in range(self.subtitle_combo.count()):
+            text = self.subtitle_combo.itemText(i)
+            item = model.item(i)
+            if not item:
+                continue
+
+            if is_english:
+                item.setEnabled(True)
+            else:
+                if text in allowed_modes:
+                    item.setEnabled(True)
+                else:
+                    item.setEnabled(False)
+
+        # If current selection is disabled, switch to a valid one
+        current_text = self.subtitle_combo.currentText()
+        current_idx = self.subtitle_combo.currentIndex()
+        current_item = model.item(current_idx)
+
+        if current_item and not current_item.isEnabled():
+            # Switch to "Sentence" if available, else "Disabled"
+            sentence_idx = self.subtitle_combo.findText("Sentence")
+            if sentence_idx >= 0:
+                self.subtitle_combo.setCurrentIndex(sentence_idx)
+            else:
+                self.subtitle_combo.setCurrentIndex(0)  # Disabled
+
+        self.subtitle_mode = self.subtitle_combo.currentText()
+
     def on_voice_changed(self, index):
         voice = self.voice_combo.itemData(index)
         self.selected_voice, self.selected_lang = voice, voice[0]
         self.config["selected_voice"] = voice
         save_config(self.config)
         # Enable/disable subtitle options based on language
-        if self.selected_lang in SUPPORTED_LANGUAGES_FOR_SUBTITLE_GENERATION:
-            self.subtitle_combo.setEnabled(True)
-            self.subtitle_format_combo.setEnabled(True)
-            self.subtitle_mode = self.subtitle_combo.currentText()
-        else:
-            self.subtitle_combo.setEnabled(False)
-            self.subtitle_format_combo.setEnabled(False)
+        self.update_subtitle_options_availability()
 
     def on_voice_combo_changed(self, index):
         data = self.voice_combo.itemData(index)
@@ -1624,12 +1671,7 @@ class abogen(QWidget):
             self.config.pop("selected_voice", None)
             save_config(self.config)
             # enable subtitles based on profile language
-            self.subtitle_combo.setEnabled(
-                self.selected_lang in SUPPORTED_LANGUAGES_FOR_SUBTITLE_GENERATION
-            )
-            self.subtitle_format_combo.setEnabled(
-                self.selected_lang in SUPPORTED_LANGUAGES_FOR_SUBTITLE_GENERATION
-            )
+            self.update_subtitle_options_availability()
         else:
             self.mixed_voice_state = None
             self.selected_profile_name = None
@@ -1638,13 +1680,7 @@ class abogen(QWidget):
             if "selected_profile_name" in self.config:
                 del self.config["selected_profile_name"]
             save_config(self.config)
-            if self.selected_lang in SUPPORTED_LANGUAGES_FOR_SUBTITLE_GENERATION:
-                self.subtitle_combo.setEnabled(True)
-                self.subtitle_format_combo.setEnabled(True)
-                self.subtitle_mode = self.subtitle_combo.currentText()
-            else:
-                self.subtitle_combo.setEnabled(False)
-                self.subtitle_format_combo.setEnabled(False)
+            self.update_subtitle_options_availability()
 
     def update_subtitle_combo_for_profile(self, profile_name):
         from abogen.voice_profiles import load_profiles
@@ -2790,6 +2826,33 @@ class abogen(QWidget):
             self.conversion_thread.cancel()
             self.conversion_thread.wait()
 
+    def cleanup_preview_threads(self):
+        # Stop preview generation thread
+        if (
+            hasattr(self, "preview_thread")
+            and self.preview_thread is not None
+            and self.preview_thread.isRunning()
+        ):
+            self.preview_thread.terminate()
+            self.preview_thread.wait()
+
+        # Stop audio playback thread
+        if (
+            hasattr(self, "play_audio_thread")
+            and self.play_audio_thread is not None
+            and self.play_audio_thread.isRunning()
+        ):
+            self.play_audio_thread.stop()
+            self.play_audio_thread.wait()
+
+        # Cleanup pygame mixer if initialized
+        try:
+            import pygame
+            if pygame.mixer.get_init():
+                pygame.mixer.quit()
+        except ImportError:
+            pass
+
     def closeEvent(self, event):
         if self.is_converting:
             box = QMessageBox(self)
@@ -2804,11 +2867,13 @@ class abogen(QWidget):
             box.setDefaultButton(QMessageBox.StandardButton.No)
             if box.exec() == QMessageBox.StandardButton.Yes:
                 self.cleanup_conversion_thread()
+                self.cleanup_preview_threads()
                 event.accept()
             else:
                 event.ignore()
         else:
             self.cleanup_conversion_thread()
+            self.cleanup_preview_threads()
             event.accept()
 
     def show_chapter_options_dialog(self, chapter_count):

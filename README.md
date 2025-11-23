@@ -488,7 +488,7 @@ This project is available under the MIT License - see the [LICENSE](https://gith
 ## `Star History`
 [![Star History Chart](https://api.star-history.com/svg?repos=denizsafak/abogen&type=Date)](https://www.star-history.com/#denizsafak/abogen&Date)
 
-> [!IMPORTANT]
-> Subtitle generation currently works only for English. This is because Kokoro provides timestamp tokens only for English text. If you want subtitles in other languages, please request this feature in the [Kokoro project](https://github.com/hexgrad/kokoro). For more technical details, see [this line](https://github.com/hexgrad/kokoro/blob/6d87f4ae7abc2d14dbc4b3ef2e5f19852e861ac2/kokoro/pipeline.py#L383) in the Kokoro's code.
+> [!NOTE]
+> Abogen supports subtitle generation for all languages. However, word-level subtitle modes (e.g., "1 word", "2 words", "3 words", etc.) are only available for English because [Kokoro provides timestamp tokens only for English text](https://github.com/hexgrad/kokoro/blob/6d87f4ae7abc2d14dbc4b3ef2e5f19852e861ac2/kokoro/pipeline.py#L383). For non-English languages, Abogen uses a duration-based fallback that supports sentence-level and comma-based subtitle modes ("Line", "Sentence", "Sentence + Comma"). If you need word-level subtitles for other languages, please request that feature in the [Kokoro project](https://github.com/hexgrad/kokoro).
 
 > Tags: audiobook, kokoro, text-to-speech, TTS, audiobook generator, audiobooks, text to speech, audiobook maker, audiobook creator, audiobook generator, voice-synthesis, text to audio, text to audio converter, text to speech converter, text to speech generator, text to speech software, text to speech app, epub to audio, pdf to audio, markdown to audio, subtitle to audio, srt to audio, ass to audio, vtt to audio, webvtt to audio, content-creation, media-generation

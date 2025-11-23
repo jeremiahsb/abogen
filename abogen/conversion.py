@@ -690,6 +690,27 @@ class ConversionThread(QThread):
             None if lang_code in self.NO_SPLIT_LANGUAGES else self.DEFAULT_SPLIT_PATTERN
         )
 
+        # Override split pattern for non-English languages when sentence-based subtitles are requested
+        # This ensures we get sentence-level audio chunks since we don't have word-level timestamps
+        if (
+            self.subtitle_mode in ["Sentence", "Sentence + Comma"]
+            and lang_code not in ["a", "b"]
+        ):
+            if lang_code in self.NO_SPLIT_LANGUAGES:
+                # Split by CJK punctuation (keeping it)
+                if self.subtitle_mode == "Sentence + Comma":
+                    # Use comma pattern if available
+                    self.split_pattern = r"(?<=[。！？、，])"
+                else:
+                    self.split_pattern = r"(?<=[。！？])"
+            else:
+                # Split by sentence endings (keeping punctuation) or newlines
+                if self.subtitle_mode == "Sentence + Comma":
+                    # Include commas in split pattern
+                    self.split_pattern = r"(?<=[.!?,])\s+|\n+"
+                else:
+                    self.split_pattern = r"(?<=[.!?])\s+|\n+"
+
     def _stream_audio_in_chunks(
         self, segments, process_func, progress_prefix="Processing"
     ):
@@ -1419,6 +1440,20 @@ class ConversionThread(QThread):
                     # Subtitle logic
                     if self.subtitle_mode != "Disabled":
                         tokens_list = getattr(result, "tokens", [])
+
+                        # Fallback for languages without token support (non-English)
+                        # Create a single token representing the entire segment duration
+                        if not tokens_list and result.graphemes:
+
+                            class FakeToken:
+                                def __init__(self, text, start, end):
+                                    self.text = text
+                                    self.start_ts = start
+                                    self.end_ts = end
+                                    self.whitespace = ""
+
+                            tokens_list = [FakeToken(result.graphemes, 0, chunk_dur)]
+
                         tokens_with_timestamps = []
                         chapter_tokens_with_timestamps = []
 

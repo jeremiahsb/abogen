@@ -1,5 +1,7 @@
 # 1.2.4 (Pre-release)
+- **Subtitle generation is now available for all languages!** Abogen now supports subtitle generation for non-English languages using duration-based timing. Available modes include `Line`, `Sentence`, and `Sentence + Comma`. (Note: Word-level subtitle modes remain English-only due to Kokoro's timestamp token limitations.)
 - Optimized regex compilation and eliminated busy-wait loops.
+- Improvements in code and documentation.
 
 # 1.2.3
 - Same as 1.2.2, re-released to fix an issue with subtitle timing when using timestamp-based text files.
