@@ -1713,14 +1713,14 @@ class ConversionThread(QThread):
                 if self.subtitle_mode != "Disabled":
                     self.conversion_finished.emit(
                         (
-                            f"\nAudiobook saved to: {merged_out_path}\n\nSubtitle saved to: {merged_subtitle_path}",
+                            f"\nAudio saved to: {merged_out_path}\n\nSubtitle saved to: {merged_subtitle_path}",
                             "green",
                         ),
                         merged_out_path,
                     )
                 else:
                     self.conversion_finished.emit(
-                        (f"\nAudiobook saved to: {merged_out_path}", "green"),
+                        (f"\nAudio saved to: {merged_out_path}", "green"),
                         merged_out_path,
                     )
             else:
@@ -2203,7 +2203,7 @@ class ConversionThread(QThread):
                 subtitle_file.close()
 
             self.progress_updated.emit(100, "00:00:00")
-            result_msg = f"\nAudiobook saved to: {merged_out_path}" + (
+            result_msg = f"\nAudio saved to: {merged_out_path}" + (
                 f"\n\nSubtitle saved to: {subtitle_path}" if subtitle_path else ""
             )
             self.conversion_finished.emit((result_msg, "green"), merged_out_path)
