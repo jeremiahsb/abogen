@@ -1778,10 +1778,17 @@ def _apply_book_step_form(
         return default
 
     overrides_existing = getattr(pending, "normalization_overrides", None)
-    overrides: Dict[str, bool] = dict(overrides_existing or {})
-    for key in _APOSTROPHE_OVERRIDE_KEYS:
+    overrides: Dict[str, Any] = dict(overrides_existing or {})
+    for key in _NORMALIZATION_BOOLEAN_KEYS:
         default_toggle = overrides.get(key, bool(settings.get(key, True)))
         overrides[key] = _extract_checkbox(key, default_toggle)
+    for key in _NORMALIZATION_STRING_KEYS:
+        default_val = overrides.get(key, str(settings.get(key, "")))
+        val = form.get(key)
+        if val is not None:
+            overrides[key] = str(val)
+        else:
+            overrides[key] = default_val
     pending.normalization_overrides = overrides
 
     speed_value = form.get("speed")
@@ -2014,6 +2021,7 @@ def _template_options() -> Dict[str, Any]:
         "speaker_pronunciation_sentence": current_settings.get(
             "speaker_pronunciation_sentence", _settings_defaults()["speaker_pronunciation_sentence"]
         ),
+        "apostrophe_modes": _APOSTROPHE_MODE_OPTIONS,
     }
 
 
@@ -2112,7 +2120,12 @@ BOOLEAN_SETTINGS = {
 FLOAT_SETTINGS = {"silence_between_chapters", "chapter_intro_delay", "llm_timeout"}
 INT_SETTINGS = {"max_subtitle_words", "speaker_analysis_threshold"}
 
-_APOSTROPHE_OVERRIDE_KEYS = (
+_NORMALIZATION_BOOLEAN_KEYS = (
+    "normalization_numbers",
+    "normalization_titles",
+    "normalization_terminal",
+    "normalization_phoneme_hints",
+    "normalization_caps_quotes",
     "normalization_apostrophes_contractions",
     "normalization_apostrophes_plural_possessives",
     "normalization_apostrophes_sibilant_possessives",
@@ -2124,7 +2137,11 @@ _APOSTROPHE_OVERRIDE_KEYS = (
     "normalization_contraction_modal_would",
     "normalization_contraction_negation_not",
     "normalization_contraction_let_us",
-    "normalization_caps_quotes",
+)
+
+_NORMALIZATION_STRING_KEYS = (
+    "normalization_numbers_year_style",
+    "normalization_apostrophe_mode",
 )
 
 
@@ -4431,7 +4448,8 @@ def _build_pending_job_from_extraction(
         metadata_tags=metadata_tags,
         chapters=chapters_payload,
         normalization_overrides={
-            key: bool(settings.get(key, True)) for key in _APOSTROPHE_OVERRIDE_KEYS
+            **{key: bool(settings.get(key, True)) for key in _NORMALIZATION_BOOLEAN_KEYS},
+            **{key: str(settings.get(key, "")) for key in _NORMALIZATION_STRING_KEYS},
         },
         created_at=time.time(),
         cover_image_path=cover_path,

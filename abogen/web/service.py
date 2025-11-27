@@ -1095,10 +1095,13 @@ class ConversionService:
 
         if existing_items:
             job.add_log(
-                f"Audiobookshelf upload skipped: '{display_title}' already exists in the configured folder.",
-                level="warning",
+                f"Removing existing Audiobookshelf item(s) for '{display_title}' before upload.",
+                level="info",
             )
-            return
+            try:
+                client.delete_items(existing_items)
+            except Exception as exc:
+                job.add_log(f"Failed to remove existing item(s): {exc}", level="warning")
 
         client.upload_audiobook(
             audio_path,
