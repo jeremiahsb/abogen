@@ -828,6 +828,7 @@ class abogen(QWidget):
         self.replace_single_newlines = self.config.get("replace_single_newlines", True)
         self.use_silent_gaps = self.config.get("use_silent_gaps", True)
         self.subtitle_speed_method = self.config.get("subtitle_speed_method", "tts")
+        self.use_spacy_segmentation = self.config.get("use_spacy_segmentation", True)
         self._pending_close_event = None
         self.gpu_ok = False  # Initialize GPU availability status
 
@@ -2081,7 +2082,7 @@ class abogen(QWidget):
         # pipeline_loaded_callback remains unchanged
         def pipeline_loaded_callback(np_module, kpipeline_class, error):
             if error:
-                self.update_log((f"Error loading numpy or KPipeline: {error}", False))
+                self.update_log((f"Error loading numpy or KPipeline: {error}", "red"))
                 prevent_sleep_end()
                 return
 
@@ -2128,6 +2129,8 @@ class abogen(QWidget):
             self.conversion_thread.use_silent_gaps = self.use_silent_gaps
             # Pass subtitle_speed_method setting
             self.conversion_thread.subtitle_speed_method = self.subtitle_speed_method
+            # Pass use_spacy_segmentation setting
+            self.conversion_thread.use_spacy_segmentation = self.use_spacy_segmentation
             # Pass separate_chapters_format setting
             self.conversion_thread.separate_chapters_format = (
                 self.separate_chapters_format
@@ -2264,7 +2267,7 @@ class abogen(QWidget):
         self.is_converting = False
         elapsed = int(time.time() - self.start_time)
         h, m, s = elapsed // 3600, (elapsed % 3600) // 60, elapsed % 60
-        self.update_log(f"\nTime elapsed: {h:02d}:{m:02d}:{s:02d}")
+        self.update_log((f"\nTime elapsed: {h:02d}:{m:02d}:{s:02d}", "grey"))
 
         # Default to showing the button
         show_open_file_button = True
@@ -3206,6 +3209,18 @@ class abogen(QWidget):
         # Add separator
         menu.addSeparator()
 
+        # Add spaCy sentence segmentation option
+        spacy_action = QAction("Use spaCy for sentence segmentation", self)
+        spacy_action.setCheckable(True)
+        spacy_action.setChecked(self.use_spacy_segmentation)
+        spacy_action.triggered.connect(
+            lambda checked: self.toggle_spacy_segmentation(checked)
+        )
+        menu.addAction(spacy_action)
+
+        # Add separator
+        menu.addSeparator()
+
         # Add "Disable Kokoro's internet access" option
         disable_kokoro_action = QAction("Disable Kokoro's internet access", self)
         disable_kokoro_action.setCheckable(True)
@@ -3270,6 +3285,10 @@ class abogen(QWidget):
         self.config["subtitle_speed_method"] = method
         save_config(self.config)
 
+    def toggle_spacy_segmentation(self, enabled):
+        self.use_spacy_segmentation = enabled
+        self.config["use_spacy_segmentation"] = enabled
+        save_config(self.config)
     def restart_app(self):
 
         import sys

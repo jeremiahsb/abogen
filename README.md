@@ -140,6 +140,7 @@ Here’s Abogen in action: in this demo, it processes ∼3,000 characters of tex
 | **Voice mixer** | Create custom voices by mixing different voice models with a profile system. See [Voice Mixer](#voice-mixer) for more details. |
 | **Voice preview** | Listen to the selected voice before processing. |
 | **Generate subtitles** | `Disabled`, `Line`, `Sentence`, `Sentence + Comma`, `Sentence + Highlighting`, `1 word`, `2 words`, `3 words`, etc. (Represents the number of words in each subtitle entry) |
+| **Use spaCy for sentence segmentation** | When this option is enabled, Abogen uses [spaCy](https://spacy.io/) to detect sentence boundaries more accurately. Previously, it only used punctuation marks (like periods, question marks, etc.) to split sentences, which could incorrectly cut off phrases like "Mr." or "Dr.". With spaCy, sentences are divided more accurately. For non-English text, spaCy runs **before** audio generation to create sentence chunks. For English text, spaCy runs **during** subtitle generation to improve timing and readability. spaCy is only used when subtitle mode is `Sentence` or `Sentence + Comma`. If you prefer the old punctuation splitting method, you can turn this option off. |
 | **Output voice format** | `.WAV`, `.FLAC`, `.MP3`, `.OPUS (best compression)` and `M4B (with chapters)` |
 | **Output subtitle format** | Configures the subtitle format as `SRT (standard)`, `ASS (wide)`, `ASS (narrow)`, `ASS (centered wide)`, or `ASS (centered narrow)`. |
 | **Replace single newlines with spaces** | Replaces single newlines with spaces in the text. This is useful for texts that have imaginary line breaks. |
@@ -476,6 +477,7 @@ Feel free to explore the code and make any changes you like.
 
 ## `Credits`
 - Abogen uses [Kokoro](https://github.com/hexgrad/kokoro) for its high-quality, natural-sounding text-to-speech synthesis. Huge thanks to the Kokoro team for making this possible.
+- Thanks to the [spaCy](https://spacy.io/) project for its sentence-segmentation tools, which help Abogen produce cleaner, more natural sentence segmentation.
 - Thanks to [@wojiushixiaobai](https://github.com/wojiushixiaobai) for [Embedded Python](https://github.com/wojiushixiaobai/Python-Embed-Win64) packages. These modified packages include pip pre-installed, enabling Abogen to function as a standalone application without requiring users to separately install Python in Windows.
 - Thanks to creators of [EbookLib](https://github.com/aerkalov/ebooklib), a Python library for reading and writing ePub files, which is used for extracting text from ePub files.
 - Special thanks to the [PyQt](https://www.riverbankcomputing.com/software/pyqt/) team for providing the cross-platform GUI toolkit that powers Abogen's interface.

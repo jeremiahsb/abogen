@@ -1,7 +1,14 @@
 # 1.2.4 (Pre-release)
 - **Subtitle generation is now available for all languages!** Abogen now supports subtitle generation for non-English languages using audio duration-based timing. Available modes include `Line`, `Sentence`, and `Sentence + Comma`. (Note: Word-level subtitle modes remain English-only due to Kokoro's timestamp token limitations.)
+- New option: **"Use spaCy for sentence segmentation"** You can now use [spaCy](https://spacy.io/) to automatically detect sentence boundaries and produce cleaner, more readable subtitles. Quick summary:
+    - **What it does:** Splits text into natural sentences so subtitle entries read better and align more naturally with speech.
+    - **Why this helps:** The previous punctuation-based splitting could break sentences incorrectly at common abbreviations (e.g. "Mr.", "Dr.", "Prof.") or initials, producing wrong subtitle breaks. spaCy avoids those false splits by using linguistic rules to detect real sentence boundaries.
+    - **For Non-English:** spaCy runs **before** audio generation to create better sentence chunks for TTS.
+    - **For English:** spaCy runs **during** subtitle generation to find accurate sentence breaks after TTS.
+    - **Note:** spaCy segmentation is only applied when subtitle mode is `Sentence` or `Sentence + Comma`. When turned off, it falls back to simple punctuation-based splitting.
 - Added support for `.` separator in timestamps (e.g. `HH:MM:SS.ms`) for timestamp-based text files.
 - Optimized regex compilation and eliminated busy-wait loops.
+- Possibly fixed `Silent truncation of long paragraphs` issue mentioned in [#91](https://github.com/denizsafak/abogen/issues/91) by [@xklzlxr](https://github.com/xklzlxr)
 - Fixed unused regex patterns and variable naming conventions.
 - Improvements in code and documentation.
 
