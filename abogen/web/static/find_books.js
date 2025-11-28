@@ -5,6 +5,7 @@ if (modal && browser) {
   const statusEl = browser.querySelector('[data-role="opds-status"]');
   const resultsEl = browser.querySelector('[data-role="opds-results"]');
   const navEl = browser.querySelector('[data-role="opds-nav"]');
+  const navBottomEl = browser.querySelector('[data-role="opds-nav-bottom"]');
   const alphaPickerEl = browser.querySelector('[data-role="opds-alpha-picker"]');
   const tabsEl = modal.querySelector('[data-role="opds-tabs"]');
   const searchForm = modal.querySelector('[data-role="opds-search"]');
@@ -247,17 +248,10 @@ if (modal && browser) {
     if (!alphaPickerEl || state.query) {
       return false;
     }
-    if (!Array.isArray(entries) || entries.length < 6) {
+    if (!Array.isArray(entries) || entries.length === 0) {
       return false;
     }
-    const mode = deriveBrowseMode();
-    const counts = stats || computeEntryStats(entries);
-    const hasNavigation = counts[EntryTypes.NAVIGATION] > 0;
-    if (mode === 'generic' && !hasNavigation) {
-      return false;
-    }
-    const alphabetCounts = collectAlphabetCounts(entries);
-    return alphabetCounts.size > 1;
+    return true;
   };
 
   const refreshAlphabetActiveState = () => {
@@ -542,10 +536,14 @@ if (modal && browser) {
   };
 
   const renderNav = (links) => {
-    if (!navEl) {
+    const targets = [navEl, navBottomEl].filter(Boolean);
+    if (!targets.length) {
       return;
     }
-    navEl.innerHTML = '';
+    targets.forEach((el) => {
+      el.innerHTML = '';
+    });
+
     const descriptors = [
       { key: 'up', label: 'Up one level' },
       { key: 'previous', label: 'Previous page' },
@@ -556,26 +554,35 @@ if (modal && browser) {
         return;
       }
       const link = resolveRelLink(links, key) || resolveRelLink(links, `/${key}`);
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'button button--ghost';
-      button.textContent = label;
       const hasLink = Boolean(link && link.href);
-      if (hasLink) {
-        button.addEventListener('click', () => {
-          const targetQuery = key === 'up' ? '' : state.query;
-          const tabId = resolveTabIdForHref(link.href);
-          loadFeed({ href: link.href, query: targetQuery, activeTab: tabId || (targetQuery ? TabIds.SEARCH : TabIds.CUSTOM) });
-        });
-      } else if (key === 'previous') {
-        button.disabled = true;
-        button.setAttribute('aria-disabled', 'true');
-      } else {
+
+      if (!hasLink && key !== 'previous') {
         return;
       }
-      navEl.appendChild(button);
+
+      targets.forEach((targetEl) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'button button--ghost';
+        button.textContent = label;
+
+        if (hasLink) {
+          button.addEventListener('click', () => {
+            const targetQuery = key === 'up' ? '' : state.query;
+            const tabId = resolveTabIdForHref(link.href);
+            loadFeed({ href: link.href, query: targetQuery, activeTab: tabId || (targetQuery ? TabIds.SEARCH : TabIds.CUSTOM) });
+          });
+        } else if (key === 'previous') {
+          button.disabled = true;
+          button.setAttribute('aria-disabled', 'true');
+        }
+        targetEl.appendChild(button);
+      });
     });
-    navEl.hidden = !navEl.childElementCount;
+
+    targets.forEach((el) => {
+      el.hidden = !el.childElementCount;
+    });
   };
 
   const createEntry = (entry) => {

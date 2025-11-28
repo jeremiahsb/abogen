@@ -6,8 +6,8 @@ import re
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
-from typing import Any, Deque, Dict, Iterable, Iterator, List, Mapping, Optional, Set
-from urllib.parse import urljoin, urlparse
+from typing import Any, Deque, Dict, Iterable, Iterator, List, Mapping, Optional, Set, Tuple
+from urllib.parse import quote, urljoin, urlparse
 from xml.etree import ElementTree as ET
 
 import httpx
@@ -202,13 +202,26 @@ class CalibreOPDSClient:
         cleaned = (query or "").strip()
         if not cleaned:
             return self.fetch_feed()
-        candidates = [
+
+        base_feed: Optional[OPDSFeed] = None
+        try:
+            base_feed = self.fetch_feed()
+        except CalibreOPDSError:
+            pass
+
+        candidates: List[Tuple[Optional[str], Optional[Mapping[str, Any]]]] = []
+        if base_feed:
+            search_url = self._resolve_search_url(base_feed, cleaned)
+            if search_url:
+                candidates.append((search_url, None))
+
+        candidates.extend([
             ("search", {"query": cleaned}),
             ("search", {"q": cleaned}),
             (None, {"search": cleaned}),
-        ]
+        ])
+
         last_error: Optional[Exception] = None
-        base_feed: Optional[OPDSFeed] = None
         base_combined: Optional[OPDSFeed] = None
         for path, params in candidates:
             try:
@@ -1036,6 +1049,20 @@ class CalibreOPDSClient:
         if collected:
             return dataclasses.replace(template, entries=collected)
         return dataclasses.replace(template, entries=[])
+
+    def _resolve_search_url(self, feed: OPDSFeed, query: str) -> Optional[str]:
+        link = self._resolve_link(feed.links, "search")
+        if not link:
+            link = self._resolve_link(feed.links, "http://opds-spec.org/search")
+        
+        if not link or not link.href:
+            return None
+            
+        href = link.href.strip()
+        if "{searchTerms}" in href:
+            return href.replace("{searchTerms}", quote(query))
+            
+        return href
 
 
 def feed_to_dict(feed: OPDSFeed) -> Dict[str, Any]:
