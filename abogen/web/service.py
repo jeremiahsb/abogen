@@ -62,8 +62,12 @@ def _emit_job_log(job_id: str, level: str, message: str) -> None:
     try:
         _JOB_LOGGER.log(log_level, "[job %s] %s", job_id, message)
     except Exception:
-        # Logging failures should never disrupt job processing.
-        pass
+        # Logging failures should never disrupt job processing, but we should know about them.
+        try:
+            sys.stderr.write(f"Logging failed for job {job_id}: {message}\n")
+            traceback.print_exc(file=sys.stderr)
+        except Exception:
+            pass
 
 
 class JobStatus(str, Enum):

@@ -106,6 +106,45 @@ def test_job_add_log_emits_to_stream(tmp_path):
     assert job.logs[-1].message == "Test log line"
 
 
+def test_job_add_log_handles_exception(tmp_path, capsys):
+    sample = tmp_path / "sample.txt"
+    sample.write_text("payload", encoding="utf-8")
+
+    job = Job(
+        id="job-fail-test",
+        original_filename="sample.txt",
+        stored_path=sample,
+        language="a",
+        voice="af_alloy",
+        speed=1.0,
+        use_gpu=False,
+        subtitle_mode="Sentence",
+        output_format="wav",
+        save_mode="Save next to input file",
+        output_folder=tmp_path,
+        replace_single_newlines=False,
+        subtitle_format="srt",
+        created_at=time.time(),
+    )
+
+    # Mock the logger to raise an exception
+    original_log = _JOB_LOGGER.log
+
+    def side_effect(*args, **kwargs):
+        raise RuntimeError("Logger exploded")
+
+    _JOB_LOGGER.log = side_effect
+
+    try:
+        job.add_log("This should trigger fallback", level="info")
+    finally:
+        _JOB_LOGGER.log = original_log
+
+    captured = capsys.readouterr()
+    assert "Logging failed for job job-fail-test" in captured.err
+    assert "Logger exploded" in captured.err
+
+
 def test_retry_removes_failed_job(tmp_path):
     uploads = tmp_path / "uploads"
     outputs = tmp_path / "outputs"
