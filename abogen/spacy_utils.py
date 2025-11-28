@@ -16,7 +16,7 @@ SPACY_MODELS = {
     "p": "pt_core_news_sm",  # Brazilian Portuguese
     "z": "zh_core_web_sm",  # Mandarin Chinese
     "j": "ja_core_news_sm",  # Japanese
-    "h": "xx_sent_ud_sm",   # Hindi (multi-language model)
+    "h": "xx_sent_ud_sm",  # Hindi (multi-language model)
 }
 
 
@@ -26,6 +26,7 @@ def _load_spacy():
     if _spacy is None:
         try:
             import spacy
+
             _spacy = spacy
         except ImportError:
             return None
@@ -36,14 +37,15 @@ def get_spacy_model(lang_code, log_callback=None):
     """
     Get or load a spaCy model for the given language code.
     Downloads the model automatically if not available.
-    
+
     Args:
         lang_code: Language code (a, b, e, f, etc.)
         log_callback: Optional function to log messages
-        
+
     Returns:
         Loaded spaCy model or None if unavailable
     """
+
     def log(msg, is_error=False):
         # Prefer GUI log callback when provided to avoid spamming stdout.
         if log_callback:
@@ -55,27 +57,30 @@ def get_spacy_model(lang_code, log_callback=None):
                 print(msg)
         else:
             print(msg)
-    
+
     # Check if model is cached
     if lang_code in _nlp_cache:
         return _nlp_cache[lang_code]
-    
+
     # Check if language is supported
     model_name = SPACY_MODELS.get(lang_code)
     if not model_name:
         log(f"\nspaCy: No model mapping for language '{lang_code}'...")
         return None
-    
+
     # Lazy load spaCy
     spacy = _load_spacy()
     if spacy is None:
         log("\nspaCy: Module not installed, falling back to default segmentation...")
         return None
-    
+
     # Try to load the model
     try:
         log(f"\nLoading spaCy model '{model_name}'...")
-        nlp = spacy.load(model_name, disable=["ner", "parser", "tagger", "lemmatizer", "attribute_ruler"])
+        nlp = spacy.load(
+            model_name,
+            disable=["ner", "parser", "tagger", "lemmatizer", "attribute_ruler"],
+        )
         # Enable sentence segmentation only
         if "sentencizer" not in nlp.pipe_names:
             nlp.add_pipe("sentencizer")
@@ -86,16 +91,23 @@ def get_spacy_model(lang_code, log_callback=None):
         log(f"\nspaCy: Downloading model '{model_name}'...")
         try:
             from spacy.cli import download
+
             download(model_name)
             # Retry loading
-            nlp = spacy.load(model_name, disable=["ner", "parser", "tagger", "lemmatizer", "attribute_ruler"])
+            nlp = spacy.load(
+                model_name,
+                disable=["ner", "parser", "tagger", "lemmatizer", "attribute_ruler"],
+            )
             if "sentencizer" not in nlp.pipe_names:
                 nlp.add_pipe("sentencizer")
             _nlp_cache[lang_code] = nlp
             log(f"spaCy model '{model_name}' downloaded and loaded")
             return nlp
         except Exception as e:
-            log(f"\nspaCy: Failed to download model '{model_name}': {e}...", is_error=True)
+            log(
+                f"\nspaCy: Failed to download model '{model_name}': {e}...",
+                is_error=True,
+            )
             return None
     except Exception as e:
         log(f"\nspaCy: Error loading model '{model_name}': {e}...", is_error=True)
@@ -105,19 +117,19 @@ def get_spacy_model(lang_code, log_callback=None):
 def segment_sentences(text, lang_code, log_callback=None):
     """
     Segment text into sentences using spaCy.
-    
+
     Args:
         text: Text to segment
         lang_code: Language code
         log_callback: Optional function to log messages
-        
+
     Returns:
         List of sentence strings, or None if spaCy unavailable
     """
     nlp = get_spacy_model(lang_code, log_callback)
     if nlp is None:
         return None
-    
+
     # Ensure spaCy can handle large texts by adjusting max_length if necessary
     try:
         text_len = len(text or "")

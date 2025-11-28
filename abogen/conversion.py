@@ -29,7 +29,9 @@ import subprocess
 import platform
 
 # Configuration constants
-_USER_RESPONSE_TIMEOUT = 0.1  # Timeout in seconds for checking user response/cancellation
+_USER_RESPONSE_TIMEOUT = (
+    0.1  # Timeout in seconds for checking user response/cancellation
+)
 
 # Pre-compile frequently used regex patterns for better performance
 _METADATA_TAG_PATTERN = re.compile(r"<<METADATA_[^:]+:[^>]*>>")
@@ -48,7 +50,9 @@ _VTT_TIMESTAMP_PATTERN = re.compile(r"([\d:.]+)\s*-->\s*([\d:.]+)")
 _TIMESTAMP_ONLY_PATTERN = re.compile(r"^(\d{1,2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)$")
 _WINDOWS_ILLEGAL_CHARS_PATTERN = re.compile(r'[<>:"/\\|?*]')
 _CONTROL_CHARS_PATTERN = re.compile(r"[\x00-\x1f]")
-_LINUX_CONTROL_CHARS_PATTERN = re.compile(r"[\x01-\x1f]")  # Linux: exclude \x00 for separate handling
+_LINUX_CONTROL_CHARS_PATTERN = re.compile(
+    r"[\x01-\x1f]"
+)  # Linux: exclude \x00 for separate handling
 _MACOS_ILLEGAL_CHARS_PATTERN = re.compile(r"[:]")
 _LINUX_ILLEGAL_CHARS_PATTERN = re.compile(r"[/\x00]")
 
@@ -221,7 +225,9 @@ def detect_timestamps_in_text(file_path):
         # Count lines that are ONLY timestamps (no other text)
         # Supports HH:MM:SS or HH:MM:SS,ms format
         # Use pre-compiled pattern for better performance
-        timestamp_lines = sum(1 for line in lines if _TIMESTAMP_ONLY_PATTERN.match(line))
+        timestamp_lines = sum(
+            1 for line in lines if _TIMESTAMP_ONLY_PATTERN.match(line)
+        )
 
         # Must have at least 2 timestamp-only lines and they should be >5% of total lines
         return timestamp_lines >= 2 and (timestamp_lines / max(len(lines), 1)) > 0.05
@@ -369,7 +375,9 @@ def parse_ass_file(file_path):
                 # Clean text of ASS styling tags using pre-compiled patterns
                 text = _ASS_STYLING_PATTERN.sub("", text)  # Remove {tags}
                 text = _ASS_NEWLINE_N_PATTERN.sub("\n", text)  # Convert \N to newline
-                text = _ASS_NEWLINE_LOWER_N_PATTERN.sub("\n", text)  # Convert \n to newline
+                text = _ASS_NEWLINE_LOWER_N_PATTERN.sub(
+                    "\n", text
+                )  # Convert \n to newline
                 # Remove chapter markers and metadata tags
                 text = clean_subtitle_text(text)
 
@@ -643,7 +651,9 @@ class ConversionThread(QThread):
         elif subtitle_mode == "Sentence":
             return r"(?<=[{}]){}|\n+".format(self.PUNCTUATION_SENTENCE, spacing_pattern)
         elif subtitle_mode == "Sentence + Comma":
-            return r"(?<=[{}]){}|\n+".format(self.PUNCTUATION_SENTENCE_COMMA, spacing_pattern)
+            return r"(?<=[{}]){}|\n+".format(
+                self.PUNCTUATION_SENTENCE_COMMA, spacing_pattern
+            )
         else:
             return r"\n+"  # Default to line breaks
 
@@ -745,7 +755,9 @@ class ConversionThread(QThread):
                 # Clear segment bytes from memory
                 del segment_bytes
             except Exception as e:
-                self.log_updated.emit((f"Error processing segment {i}: {str(e)}", "red"))
+                self.log_updated.emit(
+                    (f"Error processing segment {i}: {str(e)}", "red")
+                )
                 raise
 
         return samples_processed
@@ -803,7 +815,9 @@ class ConversionThread(QThread):
             self.log_updated.emit(
                 f"- Subtitle format: {next((label for value, label in SUBTITLE_FORMATS if value == getattr(self, 'subtitle_format', 'srt')), getattr(self, 'subtitle_format', 'srt'))}"
             )
-            self.log_updated.emit(f"- Use spaCy for sentence segmentation: {'Yes' if getattr(self, 'use_spacy_segmentation', False) else 'No'}")
+            self.log_updated.emit(
+                f"- Use spaCy for sentence segmentation: {'Yes' if getattr(self, 'use_spacy_segmentation', False) else 'No'}"
+            )
             self.log_updated.emit(f"- Save option: {self.save_option}")
             if self.replace_single_newlines:
                 self.log_updated.emit(f"- Replace single newlines: Yes")
@@ -884,11 +898,15 @@ class ConversionThread(QThread):
                     )
                 elif file_ext == ".txt" and detect_timestamps_in_text(self.file_name):
                     is_timestamp_text = True
-                    self.log_updated.emit(("\nDetected timestamps in text file", "grey"))
+                    self.log_updated.emit(
+                        ("\nDetected timestamps in text file", "grey")
+                    )
                     # Signal to ask user (-1 indicates timestamp detection)
                     self.chapters_detected.emit(-1)
                     # Wait for user response using event with timeout for responsive cancellation
-                    while not self._timestamp_response_event.wait(timeout=_USER_RESPONSE_TIMEOUT):
+                    while not self._timestamp_response_event.wait(
+                        timeout=_USER_RESPONSE_TIMEOUT
+                    ):
                         if self.cancel_requested:
                             self.conversion_finished.emit("Cancelled", None)
                             return
@@ -1029,7 +1047,9 @@ class ConversionThread(QThread):
                 )
                 # Only check for files with allowed extensions (extension without dot, case-insensitive)
                 # Use generator expression to avoid processing all files upfront
-                file_parts = (os.path.splitext(fname) for fname in os.listdir(parent_dir))
+                file_parts = (
+                    os.path.splitext(fname) for fname in os.listdir(parent_dir)
+                )
                 clash = any(
                     name == f"{sanitized_base_name}{suffix}"
                     and ext[1:].lower() in allowed_exts
@@ -1380,7 +1400,7 @@ class ConversionThread(QThread):
                 else:
                     chapter_subtitle_path = None
                     chapter_subtitle_file = None
-                
+
                 # Determine if spaCy segmentation should be used for PRE-TTS segmentation
                 # Only non-English languages use spaCy for pre-segmentation
                 # English uses spaCy only for subtitle generation (post-TTS)
@@ -1389,7 +1409,8 @@ class ConversionThread(QThread):
                 is_subtitle_input = (
                     not self.is_direct_text
                     and self.file_name
-                    and os.path.splitext(self.file_name)[1].lower() in [".srt", ".ass", ".vtt"]
+                    and os.path.splitext(self.file_name)[1].lower()
+                    in [".srt", ".ass", ".vtt"]
                 )
                 use_spacy = (
                     getattr(self, "use_spacy_segmentation", False)
@@ -1399,33 +1420,60 @@ class ConversionThread(QThread):
                 spacy_sentences = None
                 active_split_pattern = self.split_pattern
                 spacing_pattern = r"\s*" if self.lang_code in ["z", "j"] else r"\s+"
-                
+
                 # Pre-load spaCy model for English if it will be needed for subtitle generation
-                if use_spacy and self.lang_code in ["a", "b"] and self.subtitle_mode in ["Sentence", "Sentence + Comma"]:
+                if (
+                    use_spacy
+                    and self.lang_code in ["a", "b"]
+                    and self.subtitle_mode in ["Sentence", "Sentence + Comma"]
+                ):
                     from abogen.spacy_utils import get_spacy_model
-                    nlp = get_spacy_model(self.lang_code, log_callback=lambda msg: self.log_updated.emit(msg))
+
+                    nlp = get_spacy_model(
+                        self.lang_code,
+                        log_callback=lambda msg: self.log_updated.emit(msg),
+                    )
                     if nlp:
-                        self.log_updated.emit(("\nUsing spaCy for sentence segmentation (only for subtitles)...", "grey"))
-                
+                        self.log_updated.emit(
+                            (
+                                "\nUsing spaCy for sentence segmentation (only for subtitles)...",
+                                "grey",
+                            )
+                        )
+
                 if use_spacy and self.lang_code not in ["a", "b"]:
                     # Non-English: use spaCy for pre-TTS segmentation
-                    self.log_updated.emit(("\nUsing spaCy for sentence segmentation (pre-TTS)...", "grey"))
+                    self.log_updated.emit(
+                        ("\nUsing spaCy for sentence segmentation (pre-TTS)...", "grey")
+                    )
                     from abogen.spacy_utils import segment_sentences
+
                     spacy_sentences = segment_sentences(
-                        chapter_text, 
-                        self.lang_code, 
-                        log_callback=lambda msg: self.log_updated.emit(msg)
+                        chapter_text,
+                        self.lang_code,
+                        log_callback=lambda msg: self.log_updated.emit(msg),
                     )
                     if spacy_sentences:
-                        self.log_updated.emit((f"\nspaCy: Text segmented into {len(spacy_sentences)} sentences...", "grey"))
+                        self.log_updated.emit(
+                            (
+                                f"\nspaCy: Text segmented into {len(spacy_sentences)} sentences...",
+                                "grey",
+                            )
+                        )
                         # For Sentence + Comma mode, still split on commas within spaCy sentences
                         if self.subtitle_mode == "Sentence + Comma":
-                            active_split_pattern = r"(?<=[{}]){}|\n+".format(self.PUNCTUATION_COMMAS, spacing_pattern)
+                            active_split_pattern = r"(?<=[{}]){}|\n+".format(
+                                self.PUNCTUATION_COMMAS, spacing_pattern
+                            )
                         else:
-                            active_split_pattern = "\n"  # Use newline splitting for Sentence mode
+                            active_split_pattern = (
+                                "\n"  # Use newline splitting for Sentence mode
+                            )
                     else:
-                        self.log_updated.emit(("\nspaCy: Fallback to default segmentation...", "grey"))
-                
+                        self.log_updated.emit(
+                            ("\nspaCy: Fallback to default segmentation...", "grey")
+                        )
+
                 # Process text - either as spaCy sentences or as single text
                 text_segments = spacy_sentences if spacy_sentences else [chapter_text]
 
@@ -1498,7 +1546,9 @@ class ConversionThread(QThread):
                                         self.end_ts = end
                                         self.whitespace = ""
 
-                                tokens_list = [FakeToken(result.graphemes, 0, chunk_dur)]
+                                tokens_list = [
+                                    FakeToken(result.graphemes, 0, chunk_dur)
+                                ]
 
                             tokens_with_timestamps = []
                             chapter_tokens_with_timestamps = []
@@ -1518,7 +1568,8 @@ class ConversionThread(QThread):
                                         {
                                             "start": chapter_current_time
                                             + (tok.start_ts or 0),
-                                            "end": chapter_current_time + (tok.end_ts or 0),
+                                            "end": chapter_current_time
+                                            + (tok.end_ts or 0),
                                             "text": tok.text,
                                             "whitespace": tok.whitespace,
                                         }
@@ -1602,7 +1653,10 @@ class ConversionThread(QThread):
                                 chapter_current_time += chunk_dur
                         # Calculate percentage based on characters processed
                         percent = min(
-                            int(self.processed_char_count / self.total_char_count * 100), 99
+                            int(
+                                self.processed_char_count / self.total_char_count * 100
+                            ),
+                            99,
                         )
 
                         # Calculate ETR based on characters processed
@@ -1615,7 +1669,9 @@ class ConversionThread(QThread):
                             chars_done > 0 and elapsed > 0.5
                         ):  # Check elapsed > 0.5 to avoid instability
                             avg_time_per_char = elapsed / chars_done
-                            remaining = self.total_char_count - self.processed_char_count
+                            remaining = (
+                                self.total_char_count - self.processed_char_count
+                            )
                             if remaining > 0:
                                 secs = avg_time_per_char * remaining
                                 h = int(secs // 3600)
@@ -1818,7 +1874,9 @@ class ConversionThread(QThread):
                 )
                 return
 
-            self.log_updated.emit((f"\nFound {len(subtitles)} subtitle entries", "grey"))
+            self.log_updated.emit(
+                (f"\nFound {len(subtitles)} subtitle entries", "grey")
+            )
 
             # Setup output paths
             base_name = os.path.splitext(os.path.basename(base_path))[0]
@@ -2000,7 +2058,11 @@ class ConversionThread(QThread):
                     int(start_time % 60),
                 )
                 ms1 = int((start_time - int(start_time)) * 1000)
-                is_last = is_timestamp_text or (use_gaps and idx == len(subtitles)) or end_time is None
+                is_last = (
+                    is_timestamp_text
+                    or (use_gaps and idx == len(subtitles))
+                    or end_time is None
+                )
                 if is_last:
                     time_str = (
                         f"{h1:02d}:{m1:02d}:{s1:02d}"
@@ -2403,7 +2465,7 @@ class ConversionThread(QThread):
             return
 
         processed_tokens = tokens_with_timestamps  # Use tokens directly
-        
+
         # For English with spaCy enabled and sentence-based modes, use spaCy for sentence boundaries
         # spaCy is disabled when subtitle mode is "Disabled" or "Line"
         use_spacy_for_english = (
@@ -2477,7 +2539,10 @@ class ConversionThread(QThread):
             if use_spacy_for_english and self.subtitle_mode != "Line":
                 # Use spaCy for English sentence boundary detection (model already loaded)
                 from abogen.spacy_utils import get_spacy_model
-                nlp = get_spacy_model(self.lang_code)  # No log_callback since model is already loaded
+
+                nlp = get_spacy_model(
+                    self.lang_code
+                )  # No log_callback since model is already loaded
                 if nlp:
                     # Build full text and track character positions to token indices
                     full_text = ""
@@ -2487,31 +2552,37 @@ class ConversionThread(QThread):
                         text_part = token["text"] + (token.get("whitespace", "") or "")
                         full_text += text_part
                         char_to_token.extend([idx] * len(text_part))
-                    
+
                     # Get sentence boundaries from spaCy
                     doc = nlp(full_text)
                     sentence_boundaries = [sent.end_char for sent in doc.sents]
-                    
+
                     # For "Sentence + Comma" mode, also split on commas
                     if self.subtitle_mode == "Sentence + Comma":
-                        comma_positions = [i + 1 for i, c in enumerate(full_text) if c == ',']
-                        sentence_boundaries = sorted(set(sentence_boundaries + comma_positions))
-                    
+                        comma_positions = [
+                            i + 1 for i, c in enumerate(full_text) if c == ","
+                        ]
+                        sentence_boundaries = sorted(
+                            set(sentence_boundaries + comma_positions)
+                        )
+
                     # Group tokens by sentence boundaries
                     current_sentence = []
                     word_count = 0
                     current_char_pos = 0
                     boundary_idx = 0
-                    
+
                     for idx, token in enumerate(processed_tokens):
                         current_sentence.append(token)
                         word_count += 1
-                        text_len = len(token["text"]) + len(token.get("whitespace", "") or "")
+                        text_len = len(token["text"]) + len(
+                            token.get("whitespace", "") or ""
+                        )
                         current_char_pos += text_len
-                        
+
                         # Check if we've hit a sentence boundary or max words
                         at_boundary = (
-                            boundary_idx < len(sentence_boundaries) 
+                            boundary_idx < len(sentence_boundaries)
                             and current_char_pos >= sentence_boundaries[boundary_idx]
                         )
                         if at_boundary or word_count >= max_subtitle_words:
@@ -2522,12 +2593,14 @@ class ConversionThread(QThread):
                                     t["text"] + (t.get("whitespace", "") or "")
                                     for t in current_sentence
                                 )
-                                subtitle_entries.append((start_time, end_time, sentence_text.strip()))
+                                subtitle_entries.append(
+                                    (start_time, end_time, sentence_text.strip())
+                                )
                                 current_sentence = []
                                 word_count = 0
                             if at_boundary:
                                 boundary_idx += 1
-                    
+
                     # Add remaining tokens
                     if current_sentence:
                         start_time = current_sentence[0]["start"]
@@ -2536,8 +2609,10 @@ class ConversionThread(QThread):
                             t["text"] + (t.get("whitespace", "") or "")
                             for t in current_sentence
                         )
-                        subtitle_entries.append((start_time, end_time, sentence_text.strip()))
-                    
+                        subtitle_entries.append(
+                            (start_time, end_time, sentence_text.strip())
+                        )
+
                     # Fallback for last entry
                     if subtitle_entries and fallback_end_time is not None:
                         last_entry = subtitle_entries[-1]
@@ -2545,7 +2620,7 @@ class ConversionThread(QThread):
                         if end is None or end <= start or end <= 0:
                             subtitle_entries[-1] = (start, fallback_end_time, text)
                     return  # Exit early, spaCy processing complete
-            
+
             # Default regex-based processing (non-English or spaCy unavailable)
             # Define separator pattern based on mode
             if self.subtitle_mode == "Line":

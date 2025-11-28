@@ -1145,10 +1145,10 @@ class abogen(QWidget):
         except Exception:
             # Fail-safe: don't crash UI if model manipulation isn't supported on some platforms
             pass
-        
+
         # Enable/disable subtitle options based on selected language (profile or voice)
         self.update_subtitle_options_availability()
-        
+
         controls_layout.addLayout(subtitle_format_layout)
 
         # Replace single newlines dropdown (acts like checkbox)
@@ -2851,7 +2851,7 @@ class abogen(QWidget):
 
         # Cleanup pygame mixer if initialized
         try:
-            pygame = sys.modules.get('pygame')
+            pygame = sys.modules.get("pygame")
             if pygame and pygame.mixer.get_init():
                 pygame.mixer.quit()
         except Exception:
@@ -3222,7 +3222,9 @@ class abogen(QWidget):
         menu.addSeparator()
 
         # Add "Pre-download models and voices for offline use" option
-        predownload_action = QAction("Pre-download models and voices for offline use", self)
+        predownload_action = QAction(
+            "Pre-download models and voices for offline use", self
+        )
         predownload_action.triggered.connect(self.show_predownload_dialog)
         menu.addAction(predownload_action)
 
@@ -3294,6 +3296,7 @@ class abogen(QWidget):
         self.use_spacy_segmentation = enabled
         self.config["use_spacy_segmentation"] = enabled
         save_config(self.config)
+
     def restart_app(self):
 
         import sys
@@ -3592,6 +3595,7 @@ Categories=AudioVideo;Audio;Utility;
     def show_predownload_dialog(self):
         """Show the pre-download models and voices dialog."""
         from abogen.predownload_gui import PreDownloadDialog
+
         dialog = PreDownloadDialog(self)
         dialog.exec()
 

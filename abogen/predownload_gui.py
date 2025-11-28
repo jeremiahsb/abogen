@@ -10,7 +10,15 @@ from typing import List, Optional, Tuple
 import importlib
 import importlib.util
 
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSpacerItem, QSizePolicy
+from PyQt6.QtWidgets import (
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSpacerItem,
+    QSizePolicy,
+)
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from abogen.constants import COLORS, VOICES_INTERNAL
@@ -100,7 +108,9 @@ class PreDownloadWorker(QThread):
         try:
             from huggingface_hub import hf_hub_download, try_to_load_from_cache
         except Exception:
-            self.progress.emit("voice", "warning", "huggingface_hub not installed, skipping voices...")
+            self.progress.emit(
+                "voice", "warning", "huggingface_hub not installed, skipping voices..."
+            )
             self._voices_success = False
             return
 
@@ -111,14 +121,22 @@ class PreDownloadWorker(QThread):
                 return
             filename = f"voices/{voice}.pt"
             if try_to_load_from_cache(repo_id=self._repo_id, filename=filename):
-                self.progress.emit("voice", "installed", f"{idx}/{len(voice_list)}: {voice} already present")
+                self.progress.emit(
+                    "voice",
+                    "installed",
+                    f"{idx}/{len(voice_list)}: {voice} already present",
+                )
                 continue
-            self.progress.emit("voice", "downloading", f"{idx}/{len(voice_list)}: {voice}...")
+            self.progress.emit(
+                "voice", "downloading", f"{idx}/{len(voice_list)}: {voice}..."
+            )
             try:
                 hf_hub_download(repo_id=self._repo_id, filename=filename)
                 self.progress.emit("voice", "downloaded", f"{voice} downloaded")
             except Exception as exc:
-                self.progress.emit("voice", "warning", f"could not download {voice}: {exc}")
+                self.progress.emit(
+                    "voice", "warning", f"could not download {voice}: {exc}"
+                )
                 self._voices_success = False
 
     # Kokoro model
@@ -127,7 +145,9 @@ class PreDownloadWorker(QThread):
         try:
             from huggingface_hub import hf_hub_download, try_to_load_from_cache
         except Exception:
-            self.progress.emit("model", "warning", "huggingface_hub not installed, skipping model...")
+            self.progress.emit(
+                "model", "warning", "huggingface_hub not installed, skipping model..."
+            )
             self._model_success = False
             return
         for fname in self._model_files:
@@ -136,14 +156,18 @@ class PreDownloadWorker(QThread):
                 return
             category = "config" if fname == "config.json" else "model"
             if try_to_load_from_cache(repo_id=self._repo_id, filename=fname):
-                self.progress.emit(category, "installed", f"file {fname} already present")
+                self.progress.emit(
+                    category, "installed", f"file {fname} already present"
+                )
                 continue
             self.progress.emit(category, "downloading", f"file {fname}...")
             try:
                 hf_hub_download(repo_id=self._repo_id, filename=fname)
                 self.progress.emit(category, "downloaded", f"file {fname} downloaded")
             except Exception as exc:
-                self.progress.emit(category, "warning", f"could not download file {fname}: {exc}")
+                self.progress.emit(
+                    category, "warning", f"could not download file {fname}: {exc}"
+                )
                 self._model_success = False
 
     # spaCy models
@@ -158,7 +182,11 @@ class PreDownloadWorker(QThread):
         parent = self.parent()
         models_to_process: List[str] = _unique_sorted_models()
         try:
-            if parent is not None and hasattr(parent, "_spacy_models_missing") and parent._spacy_models_missing:
+            if (
+                parent is not None
+                and hasattr(parent, "_spacy_models_missing")
+                and parent._spacy_models_missing
+            ):
                 models_to_process = list(dict.fromkeys(parent._spacy_models_missing))
         except Exception:
             pass
@@ -167,7 +195,9 @@ class PreDownloadWorker(QThread):
         try:
             import spacy.cli as _spacy_cli
         except Exception:
-            self.progress.emit("spacy", "warning", "spaCy not available, skipping spaCy models...")
+            self.progress.emit(
+                "spacy", "warning", "spaCy not available, skipping spaCy models..."
+            )
             self._spacy_success = False
             return
 
@@ -176,14 +206,24 @@ class PreDownloadWorker(QThread):
                 self._spacy_success = False
                 return
             if _is_package_installed(model_name):
-                self.progress.emit("spacy", "installed", f"{idx}/{len(models_to_process)}: {model_name} already installed")
+                self.progress.emit(
+                    "spacy",
+                    "installed",
+                    f"{idx}/{len(models_to_process)}: {model_name} already installed",
+                )
                 continue
-            self.progress.emit("spacy", "downloading", f"{idx}/{len(models_to_process)}: {model_name}...")
+            self.progress.emit(
+                "spacy",
+                "downloading",
+                f"{idx}/{len(models_to_process)}: {model_name}...",
+            )
             try:
                 _spacy_cli.download(model_name)
                 self.progress.emit("spacy", "downloaded", f"{model_name} downloaded")
             except Exception as exc:
-                self.progress.emit("spacy", "warning", f"could not download {model_name}: {exc}")
+                self.progress.emit(
+                    "spacy", "warning", f"could not download {model_name}: {exc}"
+                )
                 self._spacy_success = False
 
 
@@ -271,7 +311,9 @@ class PreDownloadDialog(QDialog):
 
         layout.addLayout(status_layout)
 
-        layout.addItem(QSpacerItem(0, 20, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed))
+        layout.addItem(
+            QSpacerItem(0, 20, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        )
 
         # Buttons
         button_row = QHBoxLayout()
@@ -339,7 +381,12 @@ class PreDownloadDialog(QDialog):
         # These are initialized in __init__ to keep consistent object state
 
         # Set checking visual state
-        for lbl in (self.voices_status, self.model_status, self.config_status, self.spacy_status):
+        for lbl in (
+            self.voices_status,
+            self.model_status,
+            self.config_status,
+            self.spacy_status,
+        ):
             lbl.setStyleSheet(f"color: {COLORS['ORANGE']};")
 
         self.spacy_status.setText(self.SPACY_PREFIX + "⏳ Checking...")
@@ -356,7 +403,9 @@ class PreDownloadDialog(QDialog):
         checked = len(self._spacy_models_checked)
         missing_count = len(self._spacy_models_missing)
         if missing_count:
-            self.spacy_status.setText(f"{self.SPACY_PREFIX}{checked} checked, {missing_count} missing...")
+            self.spacy_status.setText(
+                f"{self.SPACY_PREFIX}{checked} checked, {missing_count} missing..."
+            )
         else:
             self.spacy_status.setText(f"{self.SPACY_PREFIX}{checked} checked...")
 
@@ -366,7 +415,9 @@ class PreDownloadDialog(QDialog):
         else:
             self.has_missing = True
             if missing:
-                self._set_status("voice", f"✗ Missing {len(missing)} voices", COLORS["RED"])
+                self._set_status(
+                    "voice", f"✗ Missing {len(missing)} voices", COLORS["RED"]
+                )
             else:
                 self._set_status("voice", "✗ Not downloaded", COLORS["RED"])
 
@@ -390,7 +441,9 @@ class PreDownloadDialog(QDialog):
         else:
             self.has_missing = True
             if missing:
-                self._set_status("spacy", f"✗ Missing {len(missing)} model(s)", COLORS["RED"])
+                self._set_status(
+                    "spacy", f"✗ Missing {len(missing)} model(s)", COLORS["RED"]
+                )
             else:
                 self._set_status("spacy", "✗ Not downloaded", COLORS["RED"])
         self.download_btn.setEnabled(self.has_missing)
@@ -408,8 +461,11 @@ class PreDownloadDialog(QDialog):
         missing = []
         try:
             from huggingface_hub import try_to_load_from_cache
+
             for voice in VOICES_INTERNAL:
-                if not try_to_load_from_cache(repo_id="hexgrad/Kokoro-82M", filename=f"voices/{voice}.pt"):
+                if not try_to_load_from_cache(
+                    repo_id="hexgrad/Kokoro-82M", filename=f"voices/{voice}.pt"
+                ):
                     missing.append(voice)
         except Exception:
             # If HF missing, report all as missing
@@ -419,14 +475,26 @@ class PreDownloadDialog(QDialog):
     def _check_kokoro_model(self) -> bool:
         try:
             from huggingface_hub import try_to_load_from_cache
-            return try_to_load_from_cache(repo_id="hexgrad/Kokoro-82M", filename="kokoro-v1_0.pth") is not None
+
+            return (
+                try_to_load_from_cache(
+                    repo_id="hexgrad/Kokoro-82M", filename="kokoro-v1_0.pth"
+                )
+                is not None
+            )
         except Exception:
             return False
 
     def _check_kokoro_config(self) -> bool:
         try:
             from huggingface_hub import try_to_load_from_cache
-            return try_to_load_from_cache(repo_id="hexgrad/Kokoro-82M", filename="config.json") is not None
+
+            return (
+                try_to_load_from_cache(
+                    repo_id="hexgrad/Kokoro-82M", filename="config.json"
+                )
+                is not None
+            )
         except Exception:
             return False
 

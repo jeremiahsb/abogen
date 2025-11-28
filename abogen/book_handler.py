@@ -48,11 +48,12 @@ logging.basicConfig(
 _BRACKETED_NUMBERS_PATTERN = re.compile(r"\[\s*\d+\s*\]")
 _STANDALONE_PAGE_NUMBERS_PATTERN = re.compile(r"^\s*\d+\s*$", re.MULTILINE)
 _PAGE_NUMBERS_AT_END_PATTERN = re.compile(r"\s+\d+\s*$", re.MULTILINE)
-_PAGE_NUMBERS_WITH_DASH_PATTERN = re.compile(r"\s+[-–—]\s*\d+\s*[-–—]?\s*$", re.MULTILINE)
+_PAGE_NUMBERS_WITH_DASH_PATTERN = re.compile(
+    r"\s+[-–—]\s*\d+\s*[-–—]?\s*$", re.MULTILINE
+)
 _HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
 _LEADING_DASH_PATTERN = re.compile(r"^\s*[-–—]\s*")
 _LEADING_SIMPLE_DASH_PATTERN = re.compile(r"^\s*-\s*")
-
 
 
 class HandlerDialog(QDialog):
@@ -2407,7 +2408,9 @@ class HandlerDialog(QDialog):
                         included_text_ids.add(child_id)
                     if combined_text.strip():
                         # Use pre-compiled pattern for better performance
-                        title = _LEADING_SIMPLE_DASH_PATTERN.sub("", parent_title).strip()
+                        title = _LEADING_SIMPLE_DASH_PATTERN.sub(
+                            "", parent_title
+                        ).strip()
                         marker = f"<<CHAPTER_MARKER:{title}>>"
                         section_titles.append((title, marker + "\n" + combined_text))
                         included_text_ids.add(parent_id)
