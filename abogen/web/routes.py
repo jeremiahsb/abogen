@@ -2559,9 +2559,9 @@ def _build_audiobookshelf_config(settings: Mapping[str, Any]) -> Optional[Audiob
     if not (base_url and api_token and library_id):
         return None
     try:
-        timeout = float(settings.get("timeout", 30.0))
+        timeout = float(settings.get("timeout", 3600.0))
     except (TypeError, ValueError):
-        timeout = 30.0
+        timeout = 3600.0
     return AudiobookshelfConfig(
         base_url=base_url,
         api_token=api_token,

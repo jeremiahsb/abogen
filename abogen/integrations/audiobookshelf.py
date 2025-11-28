@@ -30,7 +30,7 @@ class AudiobookshelfConfig:
     send_cover: bool = True
     send_chapters: bool = True
     send_subtitles: bool = True
-    timeout: float = 30.0
+    timeout: float = 3600.0
 
     def normalized_base_url(self) -> str:
         base = (self.base_url or "").strip()

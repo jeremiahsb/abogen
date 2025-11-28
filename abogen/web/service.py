@@ -1054,11 +1054,11 @@ class ConversionService:
             job.add_log("Audiobookshelf upload skipped: audio output not found.", level="warning")
             return
 
-        timeout_raw = integration_cfg.get("timeout", 30.0)
+        timeout_raw = integration_cfg.get("timeout", 3600.0)
         try:
             timeout_value = float(timeout_raw)
         except (TypeError, ValueError):
-            timeout_value = 30.0
+            timeout_value = 3600.0
 
         config = AudiobookshelfConfig(
             base_url=base_url,
