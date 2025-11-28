@@ -274,3 +274,14 @@ def stream_logs(job_id: str) -> ResponseReturnValue:
             time.sleep(0.5)
             
     return Response(generate(), mimetype="text/event-stream")
+
+@jobs_bp.get("/queue")
+def queue_page() -> str:
+    return render_template(
+        "queue.html",
+        jobs_panel=render_jobs_panel(),
+    )
+
+@jobs_bp.get("/partial")
+def jobs_partial() -> str:
+    return render_jobs_panel()

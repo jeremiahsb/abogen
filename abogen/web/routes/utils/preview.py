@@ -25,14 +25,14 @@ def get_preview_pipeline(language: str, device: str) -> Any:
         _preview_pipelines[key] = pipeline
         return pipeline
 
-def synthesize_preview(
+def generate_preview_audio(
     text: str,
     voice_spec: str,
     language: str,
     speed: float,
     use_gpu: bool,
     max_seconds: float = 8.0,
-) -> ResponseReturnValue:
+) -> bytes:
     if not text.strip():
         raise ValueError("Preview text is required")
 
@@ -92,8 +92,29 @@ def synthesize_preview(
     audio_data = np.concatenate(audio_chunks)
     buffer = io.BytesIO()
     sf.write(buffer, audio_data, SAMPLE_RATE, format="WAV")
-    buffer.seek(0)
-    
+    return buffer.getvalue()
+
+def synthesize_preview(
+    text: str,
+    voice_spec: str,
+    language: str,
+    speed: float,
+    use_gpu: bool,
+    max_seconds: float = 8.0,
+) -> ResponseReturnValue:
+    try:
+        audio_bytes = generate_preview_audio(
+            text=text,
+            voice_spec=voice_spec,
+            language=language,
+            speed=speed,
+            use_gpu=use_gpu,
+            max_seconds=max_seconds,
+        )
+    except Exception as e:
+        raise e
+
+    buffer = io.BytesIO(audio_bytes)
     response = send_file(
         buffer,
         mimetype="audio/wav",

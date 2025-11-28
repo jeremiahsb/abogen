@@ -11,7 +11,7 @@
         <li class="job-card" data-status="{{ job.status.value }}">
           <div class="job-card__header">
             <div>
-              <a class="job-card__title" href="{{ url_for('web.job_detail', job_id=job.id) }}">{{ job.original_filename }}</a>
+              <a class="job-card__title" href="{{ url_for('jobs.job_detail', job_id=job.id) }}">{{ job.original_filename }}</a>
               <div class="job-card__meta">
                 {% if job.queue_position %}Position #{{ job.queue_position }} · {% endif %}
                 {% if job.voice_profile %}Profile: {{ job.voice_profile }}{% else %}Voice: {{ job.voice }}{% endif %} · {{ job.language }}
@@ -29,16 +29,16 @@
             <small>{{ progress_value }}% · {{ job.processed_characters }} / {{ job.total_characters or '—' }}</small>
           </div>
           <div class="job-card__footer">
-            <a class="button button--ghost" href="{{ url_for('web.job_detail', job_id=job.id) }}">Details</a>
+            <a class="button button--ghost" href="{{ url_for('jobs.job_detail', job_id=job.id) }}">Details</a>
             {% if job.status == JobStatus.RUNNING %}
-              <button type="button" class="button button--ghost" hx-post="{{ url_for('web.pause_job', job_id=job.id) }}" hx-target="#jobs-panel" hx-swap="innerHTML">Pause</button>
+              <button type="button" class="button button--ghost" hx-post="{{ url_for('jobs.pause_job', job_id=job.id) }}" hx-target="#jobs-panel" hx-swap="innerHTML">Pause</button>
             {% elif job.status == JobStatus.PAUSED %}
-              <button type="button" class="button button--ghost" hx-post="{{ url_for('web.resume_job', job_id=job.id) }}" hx-target="#jobs-panel" hx-swap="innerHTML">Resume</button>
+              <button type="button" class="button button--ghost" hx-post="{{ url_for('jobs.resume_job', job_id=job.id) }}" hx-target="#jobs-panel" hx-swap="innerHTML">Resume</button>
             {% elif job.status == JobStatus.PENDING %}
-              <button type="button" class="button button--ghost" hx-post="{{ url_for('web.pause_job', job_id=job.id) }}" hx-target="#jobs-panel" hx-swap="innerHTML">Pause</button>
+              <button type="button" class="button button--ghost" hx-post="{{ url_for('jobs.pause_job', job_id=job.id) }}" hx-target="#jobs-panel" hx-swap="innerHTML">Pause</button>
             {% endif %}
             {% if job.status in [JobStatus.PENDING, JobStatus.RUNNING, JobStatus.PAUSED] %}
-              <button type="button" class="button button--ghost" hx-post="{{ url_for('web.cancel_job', job_id=job.id) }}" hx-target="#jobs-panel" hx-swap="innerHTML" hx-confirm="Cancel this conversion?">Cancel</button>
+              <button type="button" class="button button--ghost" hx-post="{{ url_for('jobs.cancel_job', job_id=job.id) }}" hx-target="#jobs-panel" hx-swap="innerHTML" hx-confirm="Cancel this conversion?">Cancel</button>
             {% endif %}
           </div>
         </li>
@@ -53,7 +53,7 @@
   <header class="queue-section__header">
     <h3>Recent results</h3>
     {% if total_finished > 0 %}
-      <button type="button" class="button button--ghost" hx-post="{{ url_for('web.clear_finished_jobs') }}" hx-target="#jobs-panel" hx-swap="innerHTML" hx-confirm="Remove completed jobs from this list?">Clear finished</button>
+      <button type="button" class="button button--ghost" hx-post="{{ url_for('jobs.clear_finished_jobs') }}" hx-target="#jobs-panel" hx-swap="innerHTML" hx-confirm="Remove completed jobs from this list?">Clear finished</button>
     {% endif %}
   </header>
   {% if finished_jobs %}

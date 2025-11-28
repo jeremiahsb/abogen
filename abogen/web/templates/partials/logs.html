@@ -2,9 +2,9 @@
 <div class="card__title-row">
   <div class="card__title">Live log</div>
   {% if not is_static %}
-    <a class="button button--ghost button--small" href="{{ url_for('web.job_logs_static', job_id=job.id) }}" target="_blank" rel="noopener">Open static view</a>
+    <a class="button button--ghost button--small" href="{{ url_for('jobs.job_logs', job_id=job.id) }}" target="_blank" rel="noopener">Open static view</a>
   {% else %}
-    <a class="button button--ghost button--small" href="{{ url_for('web.job_detail', job_id=job.id) }}">Back to job</a>
+    <a class="button button--ghost button--small" href="{{ url_for('jobs.job_detail', job_id=job.id) }}">Back to job</a>
   {% endif %}
 </div>
 {% if job.logs %}

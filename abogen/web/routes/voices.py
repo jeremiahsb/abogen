@@ -22,11 +22,8 @@ from abogen.constants import VOICES_INTERNAL
 voices_bp = Blueprint("voices", __name__)
 
 @voices_bp.get("/")
-def voices_list() -> ResponseReturnValue:
-    # This might not be a standalone page in the original app, but useful to have.
-    # Or maybe it redirects to settings or something.
-    # For now, I'll just redirect to settings as voices are managed there usually.
-    return redirect(url_for("settings.settings_page"))
+def voice_profiles() -> ResponseReturnValue:
+    return render_template("voices.html")
 
 @voices_bp.post("/test")
 def test_voice() -> ResponseReturnValue:

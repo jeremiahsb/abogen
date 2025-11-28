@@ -1,4 +1,5 @@
 from typing import Any, Dict, Mapping, List, Optional
+import base64
 
 from flask import Blueprint, request, jsonify, send_file
 from flask.typing import ResponseReturnValue
@@ -6,13 +7,14 @@ from flask.typing import ResponseReturnValue
 from abogen.web.routes.utils.settings import (
     load_settings,
     coerce_float,
+    coerce_bool,
 )
 from abogen.voice_profiles import (
     load_profiles,
     save_profiles,
     delete_profile,
 )
-from abogen.web.routes.utils.preview import synthesize_preview
+from abogen.web.routes.utils.preview import synthesize_preview, generate_preview_audio
 from abogen.normalization_settings import (
     build_llm_configuration,
     build_apostrophe_config,
@@ -211,3 +213,37 @@ def api_normalization_preview() -> ResponseReturnValue:
         "text": sample_text,
         "normalized_text": normalized_text,
     })
+
+@api_bp.post("/entity-pronunciation/preview")
+def api_entity_pronunciation_preview() -> ResponseReturnValue:
+    payload = request.get_json(force=True, silent=True) or {}
+    token = payload.get("token", "").strip()
+    pronunciation = payload.get("pronunciation", "").strip()
+    voice = payload.get("voice", "").strip()
+    language = payload.get("language", "a").strip()
+    
+    if not token and not pronunciation:
+        return jsonify({"error": "Token or pronunciation required"}), 400
+        
+    text_to_speak = pronunciation if pronunciation else token
+    
+    if not voice:
+        settings = load_settings()
+        voice = settings.get("default_voice", "af_heart")
+        
+    try:
+        # Check GPU setting
+        settings = load_settings()
+        use_gpu = coerce_bool(settings.get("use_gpu"), False)
+        
+        audio_bytes = generate_preview_audio(
+            text=text_to_speak,
+            voice_spec=voice,
+            language=language,
+            speed=1.0,
+            use_gpu=use_gpu,
+        )
+        audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+        return jsonify({"audio_base64": audio_base64})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400

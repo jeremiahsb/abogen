@@ -1,12 +1,12 @@
 <form method="post"
-  action="{{ url_for('web.finalize_job', pending_id=pending.id) }}"
+  action="{{ url_for('main.wizard_finish', pending_id=pending.id) }}"
   class="prepare-form"
   id="prepare-form"
   data-role="prepare-form"
   data-wizard-form="true"
   data-step="chapters"
   data-pending-id="{{ pending.id }}"
-  data-analyze-url="{{ url_for('web.analyze_pending_job', pending_id=pending.id) }}">
+  data-analyze-url="{{ url_for('main.wizard_update', pending_id=pending.id) }}">
   <input type="hidden" name="active_step" value="chapters" data-role="active-step-input">
   <div class="wizard-hidden-inputs" aria-hidden="true">
     <input type="hidden" name="chunk_level" value="{{ pending.chunk_level }}">

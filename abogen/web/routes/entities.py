@@ -1,5 +1,5 @@
 from typing import Mapping
-from flask import Blueprint, request, jsonify, abort
+from flask import Blueprint, request, jsonify, abort, render_template
 from flask.typing import ResponseReturnValue
 
 from abogen.web.routes.utils.service import require_pending_job, get_service
@@ -10,7 +10,8 @@ from abogen.web.routes.utils.entity import (
     delete_manual_override,
     search_manual_override_candidates,
 )
-from abogen.web.routes.utils.settings import coerce_int
+from abogen.web.routes.utils.settings import coerce_int, load_settings
+from abogen.web.routes.utils.voice import template_options
 
 entities_bp = Blueprint("entities", __name__)
 
@@ -94,3 +95,14 @@ def search_candidates(pending_id: str) -> ResponseReturnValue:
     
     results = search_manual_override_candidates(pending, query, limit=limit_value)
     return jsonify({"query": query, "limit": limit_value, "results": results})
+
+@entities_bp.get("/")
+def entities_page() -> str:
+    settings = load_settings()
+    lang = request.args.get("lang") or settings.get("language", "en")
+    options = template_options()
+    return render_template(
+        "entities.html",
+        language=lang,
+        languages=options["languages"].items(),
+    )

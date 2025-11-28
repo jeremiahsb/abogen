@@ -21,13 +21,13 @@
             </button>
             <a class="step-indicator__item is-active"
                aria-current="step"
-               href="{{ url_for('web.prepare_job', pending_id=pending.id, step='chapters') }}">
+               href="{{ url_for('main.wizard_step', pending_id=pending.id, step='chapters') }}">
               <span class="step-indicator__index">2</span>
               <span class="step-indicator__label">Chapters</span>
             </a>
             {% if is_multi_speaker %}
             <a class="step-indicator__item"
-               href="{{ url_for('web.prepare_job', pending_id=pending.id, step='entities') }}">
+               href="{{ url_for('main.wizard_step', pending_id=pending.id, step='entities') }}">
               <span class="step-indicator__index">3</span>
               <span class="step-indicator__label">Entities</span>
             </a>
@@ -41,11 +41,11 @@
         </div>
       </header>
       <form method="post"
-            action="{{ url_for('web.finalize_job', pending_id=pending.id) }}"
+            action="{{ url_for('main.wizard_finish', pending_id=pending.id) }}"
             class="prepare-form"
             id="prepare-form"
             data-speaker-mode="{{ pending.speaker_mode }}"
-            data-analyze-url="{{ url_for('web.analyze_pending_job', pending_id=pending.id) }}">
+            data-analyze-url="{{ url_for('main.wizard_update', pending_id=pending.id) }}">
       <input type="hidden" name="active_step" value="chapters" data-role="active-step-input">
       <div class="wizard-hidden-inputs" aria-hidden="true">
         <input type="hidden" name="chunk_level" value="{{ pending.chunk_level }}">
@@ -159,7 +159,7 @@
                     class="button"
                     data-role="submit-speaker-analysis"
                     data-step-toggle="analysis"
-                    formaction="{{ url_for('web.analyze_pending_job', pending_id=pending.id) }}"
+                    formaction="{{ url_for('main.wizard_update', pending_id=pending.id) }}"
                     formmethod="post">
               Continue to entities
             </button>
@@ -170,7 +170,7 @@
           </div>
         </footer>
       </form>
-      <form method="post" action="{{ url_for('web.cancel_pending_job', pending_id=pending.id) }}" id="cancel-form"></form>
+      <form method="post" action="{{ url_for('main.wizard_cancel', pending_id=pending.id) }}" id="cancel-form"></form>
     </div>
   </div>
 </section>

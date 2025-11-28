@@ -249,7 +249,7 @@
 {% if notice %}
   <div class="alert alert--info">{{ notice }}</div>
 {% endif %}
-<form action="{{ url_for('web.enqueue_job') if not readonly else '#' }}"
+<form action="{{ url_for('main.wizard_upload') if not readonly else '#' }}"
       method="post"
       id="new-job-book-form"
       class="upload-form"
