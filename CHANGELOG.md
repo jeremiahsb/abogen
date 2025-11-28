@@ -1,4 +1,4 @@
-# 1.2.4 (Pre-release)
+# 1.2.4
 - **Subtitle generation is now available for all languages!** Abogen now supports subtitle generation for non-English languages using audio duration-based timing. Available modes include `Line`, `Sentence`, and `Sentence + Comma`. (Note: Word-level subtitle modes remain English-only due to Kokoro's timestamp token limitations.)
 - New option: **"Use spaCy for sentence segmentation"** You can now use [spaCy](https://spacy.io/) to automatically detect sentence boundaries and produce cleaner, more readable subtitles. Quick summary:
     - **What it does:** Splits text into natural sentences so subtitle entries read better and align more naturally with speech.
