@@ -23,7 +23,7 @@ class AudiobookshelfUploadError(RuntimeError):
 class AudiobookshelfConfig:
     base_url: str
     api_token: str
-    library_id: str
+    library_id: Optional[str] = None
     collection_id: Optional[str] = None
     folder_id: Optional[str] = None
     verify_ssl: bool = True
@@ -50,13 +50,25 @@ class AudiobookshelfClient:
     def __init__(self, config: AudiobookshelfConfig) -> None:
         if not config.api_token:
             raise ValueError("Audiobookshelf API token is required")
-        if not config.library_id:
-            raise ValueError("Audiobookshelf library ID is required")
+        # library_id is now optional for discovery
         self._config = config
         normalized = config.normalized_base_url() or ""
         self._base_url = normalized.rstrip("/") or normalized
         self._client_base_url = f"{self._base_url}/"
         self._folder_cache: Optional[Tuple[str, str, str]] = None
+
+    def get_libraries(self) -> List[Dict[str, Any]]:
+        """Fetch all libraries from the Audiobookshelf server."""
+        route = self._api_path("libraries")
+        try:
+            with self._open_client() as client:
+                response = client.get(route)
+                response.raise_for_status()
+                data = response.json()
+                # data['libraries'] is a list of library objects
+                return data.get("libraries", [])
+        except httpx.HTTPError as exc:
+            raise AudiobookshelfUploadError(f"Failed to fetch libraries: {exc}") from exc
 
     def _api_path(self, suffix: str = "") -> str:
         """Join the API prefix with the provided suffix without losing proxies."""

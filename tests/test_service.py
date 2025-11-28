@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import io
 import time
-from abogen.web.service import Job, JobStatus, build_service, _JOB_LOGGER, _build_audiobookshelf_metadata
+from abogen.web.service import Job, JobStatus, build_service, _JOB_LOGGER, build_audiobookshelf_metadata
 
 
 def test_service_processes_job(tmp_path):
@@ -223,7 +223,7 @@ def test_audiobookshelf_metadata_uses_book_number(tmp_path):
         },
     )
 
-    metadata = _build_audiobookshelf_metadata(job)
+    metadata = build_audiobookshelf_metadata(job)
 
     assert metadata["seriesName"] == "Example Saga"
     assert metadata["seriesSequence"] == "7"
@@ -254,7 +254,7 @@ def test_audiobookshelf_metadata_normalizes_sequence_value(tmp_path):
         },
     )
 
-    metadata = _build_audiobookshelf_metadata(job)
+    metadata = build_audiobookshelf_metadata(job)
 
     assert metadata["seriesName"] == "Example Saga"
     assert metadata["seriesSequence"] == "7"
@@ -285,7 +285,7 @@ def test_audiobookshelf_metadata_allows_decimal_sequence(tmp_path):
         },
     )
 
-    metadata = _build_audiobookshelf_metadata(job)
+    metadata = build_audiobookshelf_metadata(job)
 
     assert metadata["seriesSequence"] == "4.5"
 
@@ -316,7 +316,7 @@ def test_audiobookshelf_metadata_ignores_author_series_collision(tmp_path):
         },
     )
 
-    metadata = _build_audiobookshelf_metadata(job)
+    metadata = build_audiobookshelf_metadata(job)
 
     assert "seriesName" not in metadata
     assert "seriesSequence" not in metadata

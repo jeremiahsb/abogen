@@ -335,7 +335,7 @@ def _extract_year(raw: Optional[str]) -> Optional[int]:
     return None
 
 
-def _build_audiobookshelf_metadata(job: Job) -> Dict[str, Any]:
+def build_audiobookshelf_metadata(job: Job) -> Dict[str, Any]:
     tags = _normalize_metadata_casefold(job.metadata_tags)
     filename = Path(job.original_filename or "").stem or job.original_filename or "Audiobook"
     title = _first_nonempty(
@@ -474,7 +474,7 @@ def _normalize_series_sequence(raw: Any) -> Optional[str]:
         return cleaned or "0"
 
 
-def _load_audiobookshelf_chapters(job: Job) -> Optional[List[Dict[str, Any]]]:
+def load_audiobookshelf_chapters(job: Job) -> Optional[List[Dict[str, Any]]]:
     metadata_ref = job.result.artifacts.get("metadata")
     if not metadata_ref:
         return None
@@ -1085,8 +1085,8 @@ class ConversionService:
                 cover_path = cover_candidate
 
         subtitles = _existing_paths(job.result.subtitle_paths) if config.send_subtitles else None
-        chapters = _load_audiobookshelf_chapters(job) if config.send_chapters else None
-        metadata = _build_audiobookshelf_metadata(job)
+        chapters = load_audiobookshelf_chapters(job) if config.send_chapters else None
+        metadata = build_audiobookshelf_metadata(job)
 
         client = AudiobookshelfClient(config)
 

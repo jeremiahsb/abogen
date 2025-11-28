@@ -2,7 +2,8 @@ from pathlib import Path
 
 from werkzeug.datastructures import MultiDict
 
-from abogen.web.routes import _apply_prepare_form, _resolve_voice_setting
+from abogen.web.routes.utils.form import apply_prepare_form
+from abogen.web.routes.utils.voice import resolve_voice_setting
 from abogen.web.service import PendingJob
 
 
@@ -55,7 +56,7 @@ def test_apply_prepare_form_handles_custom_mix_for_speakers():
         }
     )
 
-    _, _, _, errors, *_ = _apply_prepare_form(pending, form)
+    _, _, _, errors, *_ = apply_prepare_form(pending, form)
 
     assert not errors
     hero = pending.speakers["hero"]
@@ -75,7 +76,7 @@ def test_resolve_voice_setting_handles_profile_reference():
         }
     }
 
-    voice, profile_name, language = _resolve_voice_setting("profile:Blend", profiles=profiles)
+    voice, profile_name, language = resolve_voice_setting("profile:Blend", profiles=profiles)
 
     assert voice == "af_nova*0.5+am_liam*0.5"
     assert profile_name == "Blend"
@@ -89,6 +90,6 @@ def test_apply_prepare_form_updates_closing_outro_flag():
         "read_closing_outro": "false",
     })
 
-    _apply_prepare_form(pending, form)
+    apply_prepare_form(pending, form)
 
     assert pending.read_closing_outro is False

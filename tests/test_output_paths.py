@@ -39,13 +39,13 @@ def test_prepare_project_layout_uses_timestamped_folder(monkeypatch: pytest.Monk
 
     project_root, audio_dir, subtitle_dir, metadata_dir = _prepare_project_layout(job, tmp_path)
 
-    assert project_root.name.startswith("20250101-120000_sample_title"), project_root.name
+    assert project_root.name.startswith("20250101-120000_Sample_Title"), project_root.name
     assert audio_dir == project_root
     assert subtitle_dir == project_root
     assert metadata_dir is None
 
     output_path = _build_output_path(audio_dir, job.original_filename, "mp3")
-    assert output_path == project_root / "Sample Title.mp3"
+    assert output_path == project_root / "Sample_Title.mp3"
 
 
 def test_prepare_project_layout_creates_project_subdirs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -66,4 +66,4 @@ def test_prepare_project_layout_creates_project_subdirs(monkeypatch: pytest.Monk
     assert metadata_dir is not None and metadata_dir.is_dir()
 
     output_path = _build_output_path(audio_dir, job.original_filename, "wav")
-    assert output_path == audio_dir / "Sample Title.wav"
+    assert output_path == audio_dir / "Sample_Title.wav"

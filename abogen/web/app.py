@@ -95,9 +95,22 @@ def create_app(config: Optional[dict[str, Any]] = None) -> Flask:
     )
     app.extensions["conversion_service"] = service
 
-    from .routes import web_bp, api_bp
+    from abogen.web.routes import (
+        main_bp,
+        jobs_bp,
+        settings_bp,
+        voices_bp,
+        entities_bp,
+        books_bp,
+        api_bp,
+    )
 
-    app.register_blueprint(web_bp)
+    app.register_blueprint(main_bp)
+    app.register_blueprint(jobs_bp, url_prefix="/jobs")
+    app.register_blueprint(settings_bp, url_prefix="/settings")
+    app.register_blueprint(voices_bp, url_prefix="/voices")
+    app.register_blueprint(entities_bp, url_prefix="/entities")
+    app.register_blueprint(books_bp, url_prefix="/find-books")
     app.register_blueprint(api_bp, url_prefix="/api")
 
     atexit.register(service.shutdown)
