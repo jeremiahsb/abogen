@@ -390,7 +390,7 @@ class HandlerDialog(QDialog):
         from abogen.utils import load_config
 
         cfg = load_config()
-        replace_single_newlines = cfg.get("replace_single_newlines", False)
+        replace_single_newlines = cfg.get("replace_single_newlines", True)
 
         cache_key = (self.book_path, mod_time, self.file_type, replace_single_newlines)
 

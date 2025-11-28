@@ -2042,7 +2042,7 @@ class ConversionThread(QThread):
                     return
 
                 # Process text and timing
-                replace_nl = getattr(self, "replace_single_newlines", False)
+                replace_nl = getattr(self, "replace_single_newlines", True)
                 processed_text = text.replace("\n", " ") if replace_nl else text
                 use_gaps = getattr(self, "use_silent_gaps", False)
                 next_start = (

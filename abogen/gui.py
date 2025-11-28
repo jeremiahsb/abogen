@@ -1912,7 +1912,7 @@ class abogen(QWidget):
                 and queued_item.output_folder == item_queue.output_folder
                 and queued_item.subtitle_mode == item_queue.subtitle_mode
                 and queued_item.output_format == item_queue.output_format
-                and getattr(queued_item, "replace_single_newlines", False)
+                and getattr(queued_item, "replace_single_newlines", True)
                 == item_queue.replace_single_newlines
                 and getattr(queued_item, "save_base_path", None)
                 == item_queue.save_base_path
@@ -1977,7 +1977,7 @@ class abogen(QWidget):
             self.selected_format = queued_item.output_format
             self.char_count = queued_item.total_char_count
             self.replace_single_newlines = getattr(
-                queued_item, "replace_single_newlines", False
+                queued_item, "replace_single_newlines", True
             )
             self.use_silent_gaps = getattr(queued_item, "use_silent_gaps", False)
             # Restore the original file path for save location

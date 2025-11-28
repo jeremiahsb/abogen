@@ -302,7 +302,7 @@ class QueueManager(QDialog):
                 f"<b>Subtitle Mode:</b> {getattr(item, 'subtitle_mode', '')}<br>"
                 f"<b>Output Format:</b> {getattr(item, 'output_format', '')}<br>"
                 f"<b>Characters:</b> {getattr(item, 'total_char_count', '')}<br>"
-                f"<b>Replace Single Newlines:</b> {getattr(item, 'replace_single_newlines', False)}<br>"
+                f"<b>Replace Single Newlines:</b> {getattr(item, 'replace_single_newlines', True)}<br>"
                 f"<b>Use Silent Gaps:</b> {getattr(item, 'use_silent_gaps', False)}<br>"
                 f"<b>Speed Method:</b> {getattr(item, 'subtitle_speed_method', 'tts')}"
             )
@@ -415,7 +415,7 @@ class QueueManager(QDialog):
             attrs["total_char_count"] = getattr(parent, "char_count", "")
             # replace_single_newlines
             attrs["replace_single_newlines"] = getattr(
-                parent, "replace_single_newlines", False
+                parent, "replace_single_newlines", True
             )
             # use_silent_gaps
             attrs["use_silent_gaps"] = getattr(parent, "use_silent_gaps", False)
@@ -501,8 +501,8 @@ class QueueManager(QDialog):
                     == getattr(item, "output_format", None)
                     and getattr(queued_item, "total_char_count", None)
                     == getattr(item, "total_char_count", None)
-                    and getattr(queued_item, "replace_single_newlines", False)
-                    == getattr(item, "replace_single_newlines", False)
+                    and getattr(queued_item, "replace_single_newlines", True)
+                    == getattr(item, "replace_single_newlines", True)
                     and getattr(queued_item, "use_silent_gaps", False)
                     == getattr(item, "use_silent_gaps", False)
                     and getattr(queued_item, "subtitle_speed_method", "tts")
