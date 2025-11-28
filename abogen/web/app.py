@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from flask import Flask
 
-from abogen.utils import get_user_cache_path, get_user_output_path
+from abogen.utils import get_user_cache_path, get_user_output_path, get_user_settings_dir
 
 from .conversion_runner import run_conversion_job
 from .service import build_service
@@ -50,6 +50,26 @@ def _default_dirs() -> tuple[Path, Path]:
     return uploads, outputs
 
 
+def _get_secret_key() -> str:
+    env_key = os.environ.get("ABOGEN_SECRET_KEY")
+    if env_key:
+        return env_key
+
+    try:
+        settings_dir = Path(get_user_settings_dir())
+        settings_dir.mkdir(parents=True, exist_ok=True)
+        secret_file = settings_dir / ".secret_key"
+        if secret_file.exists():
+            return secret_file.read_text(encoding="utf-8").strip()
+
+        key = os.urandom(24).hex()
+        secret_file.write_text(key, encoding="utf-8")
+        return key
+    except Exception:
+        # Fallback if we can't write to settings dir
+        return os.urandom(24).hex()
+
+
 def create_app(config: Optional[dict[str, Any]] = None) -> Flask:
     uploads_dir, outputs_dir = _default_dirs()
 
@@ -59,7 +79,7 @@ def create_app(config: Optional[dict[str, Any]] = None) -> Flask:
         template_folder="templates",
     )
     base_config = {
-        "SECRET_KEY": os.environ.get("ABOGEN_SECRET_KEY", os.urandom(16)),
+        "SECRET_KEY": _get_secret_key(),
         "UPLOAD_FOLDER": str(uploads_dir),
         "OUTPUT_FOLDER": str(outputs_dir),
         "MAX_CONTENT_LENGTH": 1024 * 1024 * 400,  # 400 MB uploads

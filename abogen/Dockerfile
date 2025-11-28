@@ -52,6 +52,11 @@ ENV ABOGEN_UPLOAD_ROOT=/data/uploads \
   HF_HOME=/data/huggingface \
   HUGGINGFACE_HUB_CACHE=/data/huggingface/hub
 
-RUN mkdir -p /data/uploads /data/outputs /data/cache /data/voice-cache /data/huggingface
+# Create non-root user and setup permissions
+RUN useradd -m -u 1000 abogen \
+    && mkdir -p /data/uploads /data/outputs /data/cache /data/voice-cache /data/huggingface \
+    && chown -R abogen:abogen /data /app
+
+USER abogen
 
 CMD ["abogen"]

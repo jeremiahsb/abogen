@@ -86,6 +86,7 @@ def load_overrides(language: str, tokens: Iterable[str]) -> Dict[str, Dict[str, 
     normalized_tokens = {normalize_token(token) for token in tokens if token}
     if not normalized_tokens:
         return {}
+    # Use parameterized queries to prevent SQL injection
     placeholders = ",".join("?" for _ in normalized_tokens)
     with _DB_LOCK:
         conn = _connect()

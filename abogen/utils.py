@@ -327,6 +327,9 @@ def create_process(cmd, stdin=None, text=True, capture_output=False):
 
     # Determine shell usage: use shell only for string commands
     use_shell = isinstance(cmd, str)
+    if use_shell:
+        logger.warning("Security Warning: create_process called with string command. Prefer using a list of arguments to avoid shell injection risks.")
+
     kwargs = {
         "shell": use_shell,
         "stdout": subprocess.PIPE,

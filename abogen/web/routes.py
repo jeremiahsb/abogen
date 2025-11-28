@@ -4511,6 +4511,7 @@ def enqueue_job() -> ResponseReturnValue:
     original_name: str
 
     if file and file.filename:
+        # secure_filename prevents path traversal attacks
         filename = secure_filename(file.filename)
         if not filename:
             return redirect(url_for("web.index"))
