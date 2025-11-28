@@ -1599,6 +1599,13 @@ def run_conversion_job(job: Job) -> None:
                     mutated_entry = False
                     if pending_heading_strip and heading_text:
                         chunk_text, removed_heading = _strip_duplicate_heading_line(chunk_text, heading_text)
+                        if not removed_heading and raw_title:
+                            match = _HEADING_NUMBER_PREFIX_RE.match(raw_title)
+                            if match:
+                                number = match.group("number")
+                                if number:
+                                    chunk_text, removed_heading = _strip_duplicate_heading_line(chunk_text, number)
+
                         if removed_heading:
                             pending_heading_strip = False
                             chunk_entry = dict(chunk_entry)
@@ -1677,6 +1684,13 @@ def run_conversion_job(job: Job) -> None:
                     chapter_text = str(chapter.text or "")
                     if pending_heading_strip and heading_text:
                         chapter_text, removed_heading = _strip_duplicate_heading_line(chapter_text, heading_text)
+                        if not removed_heading and raw_title:
+                            match = _HEADING_NUMBER_PREFIX_RE.match(raw_title)
+                            if match:
+                                number = match.group("number")
+                                if number:
+                                    chapter_text, removed_heading = _strip_duplicate_heading_line(chapter_text, number)
+
                         if removed_heading:
                             pending_heading_strip = False
                     if opening_caps_pending and chapter_text:
