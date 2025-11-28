@@ -58,9 +58,10 @@ def index():
 @main_bp.route("/wizard")
 def wizard_start():
     pending_id = request.args.get("pending_id")
+    step = request.args.get("step", "book")
     if pending_id:
-        return redirect(url_for("main.wizard_step", step="book", pending_id=pending_id))
-    return redirect(url_for("main.wizard_step", step="book"))
+        return redirect(url_for("main.wizard_step", step=step, pending_id=pending_id))
+    return redirect(url_for("main.wizard_step", step=step))
 
 @main_bp.route("/wizard/<step>")
 def wizard_step(step: str):
@@ -205,7 +206,7 @@ def wizard_text():
 
 @main_bp.route("/wizard/update", methods=["POST"])
 def wizard_update():
-    pending_id = request.form.get("pending_id")
+    pending_id = request.values.get("pending_id")
     if not pending_id:
         if wants_wizard_json():
             return wizard_json_response(None, "book", error="Missing job ID", status=400)
@@ -289,7 +290,7 @@ def wizard_update():
 
 @main_bp.route("/wizard/cancel", methods=["POST"])
 def wizard_cancel():
-    pending_id = request.form.get("pending_id")
+    pending_id = request.values.get("pending_id")
     if pending_id:
         remove_pending_job(pending_id)
     
@@ -300,7 +301,7 @@ def wizard_cancel():
 
 @main_bp.route("/wizard/finish", methods=["POST"])
 def wizard_finish():
-    pending_id = request.form.get("pending_id")
+    pending_id = request.values.get("pending_id")
     if not pending_id:
         if wants_wizard_json():
             return jsonify({"error": "Missing job ID"}), 400

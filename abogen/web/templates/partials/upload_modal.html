@@ -24,7 +24,7 @@
 {% set total_steps = 3 %}
 {% set current_index = step_number[current_step] %}
 {% set is_open = open if open is defined else False %}
-{% set prepare_url_template = url_for('main.wizard_step', pending_id='__pending__') %}
+{% set prepare_url_template = url_for('main.wizard_start', pending_id='__pending__') %}
 {% set cancel_url_template = url_for('main.wizard_cancel', pending_id='__pending__') %}
 {% set analyze_url_template = url_for('main.wizard_update', pending_id='__pending__') %}
 <div class="modal"
