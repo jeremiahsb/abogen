@@ -327,6 +327,17 @@ Known issues:
 
 > Special thanks to [@geo38](https://www.reddit.com/user/geo38/) from Reddit, who provided the Dockerfile and instructions in [this comment](https://www.reddit.com/r/selfhosted/comments/1k8x1yo/comment/mpe0bz8/).
 
+## `🌐 Web Application`
+
+A web-based version of Abogen has been developed by [@jeremiahsb](https://github.com/jeremiahsb).
+
+**Access the repository here:** [jeremiahsb/abogen](https://github.com/jeremiahsb/abogen)
+
+> [!NOTE]
+> I intend to merge this implementation into the main repository in the future once existing conflicts are resolved. Until then, please be aware that the web version is maintained independently and may not always be in sync with the latest updates in this repository.
+
+> Special thanks to [@jeremiahsb](https://github.com/jeremiahsb) for implementing the web app!
+
 ## `Similar Projects`
 Abogen is a standalone project, but it is inspired by and shares some similarities with other projects. Here are a few:
 - [audiblez](https://github.com/santinic/audiblez): Generate audiobooks from e-books. **(Has CLI and GUI support)**
