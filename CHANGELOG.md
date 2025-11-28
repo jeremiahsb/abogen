@@ -6,6 +6,7 @@
     - **For Non-English:** spaCy runs **before** audio generation to create better sentence chunks for TTS.
     - **For English:** spaCy runs **during** subtitle generation to find accurate sentence breaks after TTS.
     - **Note:** spaCy segmentation is only applied when subtitle mode is `Sentence` or `Sentence + Comma`. When turned off, it falls back to simple punctuation-based splitting.
+- New option: **Pre-download models and voices for offline use** You can now pre-download all required Kokoro models, voices, and spaCy language models using this option in the settings menu. Allowing you to use Abogen completely offline without any internet connection.
 - Added support for `.` separator in timestamps (e.g. `HH:MM:SS.ms`) for timestamp-based text files.
 - Optimized regex compilation and eliminated busy-wait loops.
 - Possibly fixed `Silent truncation of long paragraphs` issue mentioned in [#91](https://github.com/denizsafak/abogen/issues/91) by [@xklzlxr](https://github.com/xklzlxr)

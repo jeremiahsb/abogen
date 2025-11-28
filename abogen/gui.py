@@ -3221,6 +3221,11 @@ class abogen(QWidget):
         # Add separator
         menu.addSeparator()
 
+        # Add "Pre-download models and voices for offline use" option
+        predownload_action = QAction("Pre-download models and voices for offline use", self)
+        predownload_action.triggered.connect(self.show_predownload_dialog)
+        menu.addAction(predownload_action)
+
         # Add "Disable Kokoro's internet access" option
         disable_kokoro_action = QAction("Disable Kokoro's internet access", self)
         disable_kokoro_action.setCheckable(True)
@@ -3583,6 +3588,12 @@ Categories=AudioVideo;Audio;Utility;
                 if idx >= 0:
                     self.voice_combo.setCurrentIndex(idx)
             self.mixed_voice_state = dialog.get_selected_voices()
+
+    def show_predownload_dialog(self):
+        """Show the pre-download models and voices dialog."""
+        from abogen.predownload_gui import PreDownloadDialog
+        dialog = PreDownloadDialog(self)
+        dialog.exec()
 
     def show_about_dialog(self):
         """Show an About dialog with program information including GitHub link."""
