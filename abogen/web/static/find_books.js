@@ -295,10 +295,6 @@ if (modal && browser) {
       return;
     }
 
-    if (state.activeLetter !== LETTER_ALL && !state.availableLetters.has(state.activeLetter)) {
-      state.activeLetter = LETTER_ALL;
-    }
-
     alphaPickerEl.hidden = false;
     alphaPickerEl.innerHTML = '';
     const letters = [LETTER_ALL, ...ALPHABET, LETTER_NUMERIC];
@@ -309,9 +305,6 @@ if (modal && browser) {
       button.dataset.letter = letter;
       button.textContent = letter === LETTER_ALL ? 'All' : letter === LETTER_NUMERIC ? '# / 0-9' : letter;
       const enabledCount = letter === LETTER_ALL ? list.length : counts.get(letter) || 0;
-      if (letter !== LETTER_ALL && enabledCount === 0) {
-        button.dataset.empty = 'true';
-      }
       button.title = `Show entries for ${describeAlphabetLetter(letter)} (${enabledCount} in view)`;
       button.addEventListener('click', () => {
         handleAlphabetSelect(letter).catch((error) => {
