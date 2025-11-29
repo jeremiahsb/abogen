@@ -1,3 +1,7 @@
+# 1.2.5 (Pre-release)
+- Fixed the `No module named pip` error that occurred for users who installed Abogen via the [**uv**](https://github.com/astral-sh/uv) installer.
+- Fixed defaults for `replace_single_newlines` not being applied correctly in some cases.
+
 # 1.2.4
 - **Subtitle generation is now available for all languages!** Abogen now supports subtitle generation for non-English languages using audio duration-based timing. Available modes include `Line`, `Sentence`, and `Sentence + Comma`. (Note: Word-level subtitle modes remain English-only due to Kokoro's timestamp token limitations.)
 - New option: **"Use spaCy for sentence segmentation"** You can now use [spaCy](https://spacy.io/) to automatically detect sentence boundaries and produce cleaner, more readable subtitles. Quick summary:
