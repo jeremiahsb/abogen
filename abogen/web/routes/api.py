@@ -23,6 +23,7 @@ from abogen.normalization_settings import (
 from abogen.llm_client import list_models, LLMClientError
 from abogen.kokoro_text_normalization import normalize_for_pipeline
 from abogen.integrations.audiobookshelf import AudiobookshelfClient, AudiobookshelfConfig
+from abogen.integrations.calibre_opds import CalibreOPDSClient
 
 api_bp = Blueprint("api", __name__)
 
@@ -79,16 +80,20 @@ def api_speaker_preview() -> ResponseReturnValue:
 @api_bp.post("/integrations/audiobookshelf/folders")
 def api_abs_folders() -> ResponseReturnValue:
     payload = request.get_json(force=True, silent=True) or {}
-    host = payload.get("host")
-    token = payload.get("token")
+    host = payload.get("base_url") or payload.get("host")
+    token = payload.get("api_token") or payload.get("token")
+    library_id = payload.get("library_id")
     
     if not host or not token:
-        return jsonify({"error": "Host and token are required"}), 400
+        return jsonify({"error": "Base URL and API token are required"}), 400
+    
+    if not library_id:
+        return jsonify({"error": "Library ID is required to list folders"}), 400
         
     try:
-        config = AudiobookshelfConfig(base_url=host, api_token=token)
+        config = AudiobookshelfConfig(base_url=host, api_token=token, library_id=library_id)
         client = AudiobookshelfClient(config)
-        folders = client.get_libraries()
+        folders = client.list_folders()
         return jsonify({"folders": folders})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -96,18 +101,42 @@ def api_abs_folders() -> ResponseReturnValue:
 @api_bp.post("/integrations/audiobookshelf/test")
 def api_abs_test() -> ResponseReturnValue:
     payload = request.get_json(force=True, silent=True) or {}
-    host = payload.get("host")
-    token = payload.get("token")
+    host = payload.get("base_url") or payload.get("host")
+    token = payload.get("api_token") or payload.get("token")
     
     if not host or not token:
-        return jsonify({"error": "Host and token are required"}), 400
+        return jsonify({"error": "Base URL and API token are required"}), 400
         
     try:
         config = AudiobookshelfConfig(base_url=host, api_token=token)
         client = AudiobookshelfClient(config)
         # Just getting libraries is a good enough test
         client.get_libraries()
-        return jsonify({"success": True})
+        return jsonify({"success": True, "message": "Connection successful."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+@api_bp.post("/integrations/calibre-opds/test")
+def api_calibre_opds_test() -> ResponseReturnValue:
+    payload = request.get_json(force=True, silent=True) or {}
+    base_url = payload.get("base_url")
+    username = payload.get("username")
+    password = payload.get("password")
+    verify_ssl = coerce_bool(payload.get("verify_ssl"), False)
+    
+    if not base_url:
+        return jsonify({"error": "Base URL is required"}), 400
+        
+    try:
+        client = CalibreOPDSClient(
+            base_url=base_url,
+            username=username,
+            password=password,
+            verify=verify_ssl,
+            timeout=10.0
+        )
+        client.fetch_feed()
+        return jsonify({"success": True, "message": "Connection successful."})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
