@@ -198,10 +198,10 @@ class CalibreOPDSClient:
 
         return self._parse_feed(response.text, base_url=target)
 
-    def search(self, query: str) -> OPDSFeed:
+    def search(self, query: str, start_href: Optional[str] = None) -> OPDSFeed:
         cleaned = (query or "").strip()
         if not cleaned:
-            return self.fetch_feed()
+            return self.fetch_feed(start_href) if start_href else self.fetch_feed()
 
         base_feed: Optional[OPDSFeed] = None
         try:
@@ -223,51 +223,42 @@ class CalibreOPDSClient:
 
         last_error: Optional[Exception] = None
         base_combined: Optional[OPDSFeed] = None
+        
+        # Try server-side search first (global search)
         for path, params in candidates:
             try:
                 feed = self.fetch_feed(path, params=params)
             except CalibreOPDSError as exc:
                 last_error = exc
                 continue
-            combined = self._merge_feed_entries(
-                self._collect_search_results(feed, cleaned),
-                self._local_search(cleaned, seed_feed=feed),
-            )
-            if combined.entries:
-                return combined
-            if base_feed is None:
-                try:
-                    base_feed = self.fetch_feed()
-                except CalibreOPDSError:
-                    base_feed = None
-            if base_feed is not None and base_combined is None:
-                base_combined = self._merge_feed_entries(
-                    self._collect_search_results(base_feed, cleaned),
-                    self._local_search(cleaned, seed_feed=base_feed),
-                )
-            if base_combined is not None and base_combined.entries:
-                return base_combined
-        if base_feed is None:
+            
+            # If we got results from server search, use them
+            if feed.entries:
+                return feed
+                
+        # Fallback to local search (crawling)
+        # If start_href is provided, we search from there (contextual search)
+        # Otherwise we search from root (which might be empty if root has no books)
+        
+        seed_feed: Optional[OPDSFeed] = None
+        if start_href:
             try:
-                base_feed = self.fetch_feed()
-            except CalibreOPDSError as exc:
-                if last_error is not None:
-                    raise last_error
-                raise exc
-        if base_feed is None:
-            if last_error is not None:
-                raise last_error
-            raise CalibreOPDSError("Calibre OPDS base feed is unavailable")
-        if base_combined is None:
-            base_combined = self._merge_feed_entries(
-                self._collect_search_results(base_feed, cleaned),
-                self._local_search(cleaned, seed_feed=base_feed),
-            )
-        if base_combined.entries:
-            return base_combined
-        if last_error is not None:
-            raise last_error
-        return base_combined
+                seed_feed = self.fetch_feed(start_href)
+            except CalibreOPDSError:
+                pass
+        
+        if not seed_feed and base_feed:
+            seed_feed = base_feed
+            
+        if not seed_feed:
+             try:
+                seed_feed = self.fetch_feed()
+             except CalibreOPDSError as exc:
+                 if last_error:
+                     raise last_error
+                 raise exc
+
+        return self._local_search(cleaned, seed_feed=seed_feed)
 
     def _collect_search_results(
         self,
@@ -803,6 +794,16 @@ class CalibreOPDSClient:
             absolute_href = urljoin(base_for_join, href)
             entry = OPDSLink(href=absolute_href, rel=rel, type=link_type, title=title)
             key = rel or absolute_href
+            
+            # Prioritize search links with template parameters
+            if key == "search" and key in results:
+                existing = results[key]
+                if "{searchTerms}" in (existing.href or ""):
+                    continue
+                if "{searchTerms}" in absolute_href:
+                    results[key] = entry
+                    continue
+            
             results[key] = entry
         return results
 

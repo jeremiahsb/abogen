@@ -122,7 +122,7 @@ def api_calibre_opds_feed() -> ResponseReturnValue:
         if letter:
             feed = client.browse_letter(letter, start_href=href)
         elif query:
-            feed = client.search(query)
+            feed = client.search(query, start_href=href)
         else:
             feed = client.fetch_feed(href)
     except CalibreOPDSError as exc:
