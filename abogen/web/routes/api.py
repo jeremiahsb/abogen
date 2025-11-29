@@ -30,7 +30,6 @@ from abogen.integrations.audiobookshelf import AudiobookshelfClient, Audiobooksh
 from abogen.integrations.calibre_opds import (
     CalibreOPDSClient,
     CalibreOPDSError,
-    feed_to_dict,
 )
 from abogen.web.routes.utils.service import get_service
 from abogen.web.routes.utils.form import build_pending_job_from_extraction
@@ -131,7 +130,7 @@ def api_calibre_opds_feed() -> ResponseReturnValue:
         return jsonify({"error": f"Unexpected error: {str(exc)}"}), 500
 
     return jsonify({
-        "feed": feed_to_dict(feed),
+        "feed": feed.to_dict(),
         "href": href or "",
         "query": query or "",
     })
