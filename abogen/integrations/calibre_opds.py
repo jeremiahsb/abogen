@@ -1111,6 +1111,96 @@ class CalibreOPDSClient:
         filtered = [e for s, e in scored_entries]
         return dataclasses.replace(feed, entries=filtered)
 
+    def _estimate_letter_position(self, letter: str) -> float:
+        """Estimate the relative position (0.0-1.0) of a letter in an alphabetical list."""
+        if letter == "#":
+            return 0.0
+        if not letter or not letter.isalpha():
+            return 0.0
+        
+        # Approximate cumulative distribution of starting letters in English book titles
+        # This is a heuristic to jump closer to the target
+        weights = {
+            'A': 0.00, 'B': 0.08, 'C': 0.15, 'D': 0.22, 'E': 0.28,
+            'F': 0.33, 'G': 0.38, 'H': 0.43, 'I': 0.49, 'J': 0.53,
+            'K': 0.55, 'L': 0.58, 'M': 0.63, 'N': 0.68, 'O': 0.71,
+            'P': 0.75, 'Q': 0.80, 'R': 0.81, 'S': 0.85, 'T': 0.92,
+            'U': 0.97, 'V': 0.98, 'W': 0.99, 'X': 0.995, 'Y': 0.997, 'Z': 0.999
+        }
+        return weights.get(letter.upper(), 0.0)
+
+    def _attempt_smart_jump(self, feed: OPDSFeed, letter: str) -> Optional[OPDSFeed]:
+        """
+        Attempt to jump to a page closer to the target letter by analyzing pagination links.
+        Returns a new OPDSFeed if a jump was successful, or None.
+        """
+        first_link = self._resolve_link(feed.links, "first")
+        last_link = self._resolve_link(feed.links, "last")
+        next_link = self._resolve_link(feed.links, "next")
+        
+        if not (first_link and last_link and next_link):
+            return None
+            
+        # Try to extract offsets from URLs to determine page size and total items
+        # Common Calibre pattern: .../offset/0, .../offset/50
+        def extract_offset(href: str) -> Optional[int]:
+            match = re.search(r"/(\d+)/?$", href)
+            if match:
+                return int(match.group(1))
+            # Try query param
+            parsed = urlparse(href)
+            qs = dict(pair.split('=') for pair in parsed.query.split('&') if '=' in pair)
+            if 'offset' in qs:
+                try:
+                    return int(qs['offset'])
+                except ValueError:
+                    pass
+            return None
+
+        start_offset = extract_offset(first_link.href)
+        next_offset = extract_offset(next_link.href)
+        last_offset = extract_offset(last_link.href)
+        
+        if start_offset is None or next_offset is None or last_offset is None:
+            return None
+            
+        page_size = next_offset - start_offset
+        if page_size <= 0:
+            return None
+            
+        # Estimate total items (last_offset is the start of the last page)
+        # We assume the last page is roughly half full for estimation
+        total_items = last_offset + (page_size // 2)
+        
+        target_ratio = self._estimate_letter_position(letter)
+        # Aim slightly early (subtract 1-2 pages worth) to ensure we don't miss the start
+        target_offset = int(total_items * target_ratio)
+        target_offset = max(0, target_offset - (page_size * 2))
+        
+        # Round to nearest page boundary
+        target_offset = (target_offset // page_size) * page_size
+        
+        # If the jump is too small (e.g. we are already near the start), don't bother
+        if target_offset < (page_size * 3):
+            return None
+            
+        # Construct the new URL
+        # We assume the URL structure is consistent and we can just replace the offset
+        # This is risky but works for standard Calibre OPDS
+        base_href = first_link.href
+        if str(start_offset) in base_href:
+            # Path based replacement
+            # Replace the last occurrence of the offset
+            parts = base_href.rsplit(str(start_offset), 1)
+            if len(parts) == 2:
+                new_href = f"{parts[0]}{target_offset}{parts[1]}"
+                try:
+                    return self.fetch_feed(new_href)
+                except Exception:
+                    return None
+                    
+        return None
+
     def browse_letter(
         self,
         letter: str,
@@ -1163,6 +1253,29 @@ class CalibreOPDSClient:
                     return
                 seen_ids.add(entry_id)
             collected.append(entry)
+
+        # Check the first page for navigation links before attempting any jumps
+        # This handles the case where "By Title" has "A", "B", "C" folders
+        has_nav_links = False
+        for entry in base_feed.entries:
+            if self._has_navigation_link(entry):
+                has_nav_links = True
+                if letter_matches(entry, mode):
+                    for link in entry.links:
+                        if self._is_navigation_link(link):
+                            href = (link.href or "").strip()
+                            if href:
+                                letter_href = href
+                                break
+            if letter_href:
+                break
+        
+        # If we didn't find a direct link, and it looks like a flat list (no nav links matching criteria),
+        # try to jump closer to the target letter if we are in a sorted mode
+        if not letter_href and mode in {"title", "author", "series"}:
+            jump_feed = self._attempt_smart_jump(base_feed, key)
+            if jump_feed:
+                base_feed = jump_feed
 
         for page in self._iter_paginated_feeds(base_feed, max_pages=max_pages):
             for entry in page.entries:

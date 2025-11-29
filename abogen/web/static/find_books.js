@@ -799,6 +799,9 @@ if (modal && browser) {
         if (wizard?.requestStep) {
           try {
             const target = new URL(redirectUrl, window.location.origin);
+            if (payload.pending_id && !target.searchParams.has('pending_id')) {
+              target.searchParams.set('pending_id', payload.pending_id);
+            }
             target.searchParams.set('format', 'json');
             if (!target.searchParams.has('step')) {
               target.searchParams.set('step', 'book');
@@ -812,6 +815,7 @@ if (modal && browser) {
           window.location.assign(redirectUrl);
         }
       }
+
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Unable to queue this book.', 'error');
     } finally {

@@ -330,6 +330,12 @@ const submitWizardForm = async (form, submitter) => {
   if (submitter && submitter.name && !formData.has(submitter.name)) {
     formData.append(submitter.name, submitter.value ?? "");
   }
+  
+  // Ensure pending_id is included if available in modal state but missing from form
+  if (!formData.get("pending_id") && modal && modal.dataset.pendingId) {
+    formData.set("pending_id", modal.dataset.pendingId);
+  }
+
   const allowValidation = !submitter?.hasAttribute("formnovalidate") && !form.noValidate;
   if (allowValidation && typeof form.reportValidity === "function" && !form.reportValidity()) {
     return;
