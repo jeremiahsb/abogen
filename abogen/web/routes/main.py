@@ -87,7 +87,39 @@ def wizard_step(step: str):
 
 @main_bp.route("/wizard/upload", methods=["POST"])
 def wizard_upload():
-    file = request.files.get("file")
+    pending_id = request.form.get("pending_id")
+    pending = get_service().get_pending_job(pending_id) if pending_id else None
+    
+    file = request.files.get("file") or request.files.get("source_file")
+    
+    settings = load_settings()
+    profiles = serialize_profiles()
+
+    # Case 1: Updating existing job without new file
+    if pending and (not file or not file.filename):
+        try:
+            apply_book_step_form(pending, request.form, settings=settings, profiles=profiles)
+            get_service().store_pending_job(pending)
+            
+            if wants_wizard_json():
+                return wizard_json_response(pending, "chapters")
+            return redirect(url_for("main.wizard_step", step="chapters", pending_id=pending.id))
+        except Exception as e:
+            logger.exception("Error updating job settings")
+            error_msg = f"Failed to update settings: {str(e)}"
+            if wants_wizard_json():
+                return wizard_json_response(pending, "book", error=error_msg, status=500)
+            return render_template(
+                "index.html",
+                options=template_options(),
+                settings=settings,
+                jobs_panel=render_jobs_panel(),
+                wizard_mode=True,
+                wizard_step="book",
+                wizard_partial=render_wizard_partial(pending, "book", error=error_msg),
+            )
+
+    # Case 2: New file upload (or replacing file on existing job)
     if not file or not file.filename:
         if wants_wizard_json():
             return wizard_json_response(None, "book", error="No file selected", status=400)
@@ -98,9 +130,6 @@ def wizard_upload():
     temp_dir.mkdir(exist_ok=True)
     file_path = temp_dir / f"{uuid.uuid4().hex}_{filename}"
     file.save(file_path)
-
-    settings = load_settings()
-    profiles = serialize_profiles()
 
     try:
         extraction = extract_from_path(file_path)
@@ -113,6 +142,10 @@ def wizard_upload():
             settings=settings,
             profiles=profiles,
         )
+        
+        # If we had a pending job, we might want to preserve its ID or other properties,
+        # but for a new file it's safer to start fresh with the new extraction.
+        # The frontend will handle the ID change via the redirect.
         
         get_service().store_pending_job(result.pending)
         
