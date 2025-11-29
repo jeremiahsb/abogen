@@ -21,7 +21,7 @@
       <button type="button" class="settings-nav__item" data-section="normalization">Text Normalization</button>
       <button type="button" class="settings-nav__item" data-section="integrations">Integrations</button>
     </nav>
-    <form action="{{ url_for('settings.settings_page') }}" method="post" class="settings__form">
+    <form action="{{ url_for('settings.update_settings') }}" method="post" class="settings__form">
       <div class="settings-panels">
         <section class="settings-panel is-active" data-section="narration">
           <fieldset class="settings__section">
