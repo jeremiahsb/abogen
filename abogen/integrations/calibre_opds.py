@@ -4,12 +4,12 @@ import dataclasses
 import html
 import re
 import unicodedata
+import xml.etree.ElementTree as ET
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
-from typing import Any, Deque, Dict, Iterable, Iterator, List, Mapping, Optional, Set, Tuple
+from typing import Any, Deque, Dict, Iterable, Iterator, List, Mapping, Optional, Set, Tuple, Union
 from urllib.parse import quote, urljoin, urlparse
-from xml.etree import ElementTree as ET
 
 import httpx
 
@@ -43,6 +43,12 @@ _EPUB_MIME_TYPES = {
 }
 _SUPPORTED_DOWNLOAD_MIME_TYPES = set(_EPUB_MIME_TYPES) | {"application/pdf"}
 _SUPPORTED_DOWNLOAD_EXTENSIONS = {".epub", ".pdf"}
+_STOP_WORDS = {
+    "a", "an", "the", "and", "or", "but", "if", "then", "else", "when",
+    "at", "by", "for", "from", "in", "into", "of", "off", "on", "onto",
+    "to", "with", "is", "are", "was", "were", "be", "been", "being",
+    "that", "this", "these", "those", "it", "its"
+}
 
 
 class CalibreOPDSError(RuntimeError):
@@ -199,6 +205,59 @@ class CalibreOPDSClient:
 
         return self._parse_feed(response.text, base_url=target)
 
+    def _fetch_opensearch_template(self, href: str) -> Optional[str]:
+        target = self._make_url(href)
+        try:
+            with self._open_client() as client:
+                response = client.get(target, follow_redirects=True)
+                response.raise_for_status()
+            
+            # Simple XML parsing to find the Url template
+            # We avoid full namespace handling for robustness
+            root = ET.fromstring(response.text)
+            for node in root.iter():
+                if node.tag.endswith("Url"):
+                    template = node.attrib.get("template")
+                    if template and "{searchTerms}" in template:
+                        mime = node.attrib.get("type", "")
+                        # Prefer atom/xml feeds
+                        if "atom" in mime or "xml" in mime:
+                            return template
+            return None
+        except Exception:
+            return None
+
+    def _find_best_seed_feed(self, root_feed: OPDSFeed) -> OPDSFeed:
+        # If the root feed already has books, use it
+        for entry in root_feed.entries:
+            if any("acquisition" in (link.rel or "") for link in entry.links):
+                return root_feed
+        
+        # Otherwise, look for a "By Title" or "All" navigation entry
+        candidates = ["title", "all", "books", "catalog"]
+        best_href = None
+        
+        for entry in root_feed.entries:
+            title_lower = (entry.title or "").lower()
+            if any(c in title_lower for c in candidates):
+                # Check if it has a navigation link
+                for link in entry.links:
+                    if self._is_navigation_link(link):
+                        best_href = link.href
+                        # Prefer "By Title" explicitly
+                        if "title" in title_lower:
+                            break
+                if best_href and "title" in title_lower:
+                    break
+        
+        if best_href:
+            try:
+                return self.fetch_feed(best_href)
+            except CalibreOPDSError:
+                pass
+                
+        return root_feed
+
     def search(self, query: str, start_href: Optional[str] = None) -> OPDSFeed:
         cleaned = (query or "").strip()
         if not cleaned:
@@ -210,37 +269,62 @@ class CalibreOPDSClient:
         except CalibreOPDSError:
             pass
 
-        candidates: List[Tuple[Optional[str], Optional[Mapping[str, Any]]]] = []
+        # 1. Try explicit search link from feed
         if base_feed:
+            # Check for OpenSearch description first
+            search_link = self._resolve_link(base_feed.links, "search")
+            if search_link and search_link.type == "application/opensearchdescription+xml":
+                template = self._fetch_opensearch_template(search_link.href)
+                if template:
+                    search_url = template.replace("{searchTerms}", quote(cleaned))
+                    try:
+                        feed = self.fetch_feed(search_url)
+                        if feed.entries:
+                            filtered = self._filter_feed_entries(feed, cleaned)
+                            if filtered.entries:
+                                return filtered
+                    except CalibreOPDSError:
+                        pass
+
+            # Check for direct template
             search_url = self._resolve_search_url(base_feed, cleaned)
             if search_url:
-                candidates.append((search_url, None))
+                try:
+                    feed = self.fetch_feed(search_url)
+                    if feed.entries:
+                        filtered = self._filter_feed_entries(feed, cleaned)
+                        if filtered.entries:
+                            return filtered
+                except CalibreOPDSError:
+                    pass
 
-        candidates.extend([
+        # 2. Try common guesses if explicit link failed
+        candidates: List[Tuple[Optional[str], Optional[Mapping[str, Any]]]] = [
             ("search", {"query": cleaned}),
             ("search", {"q": cleaned}),
             (None, {"search": cleaned}),
-        ])
+        ]
 
         last_error: Optional[Exception] = None
-        base_combined: Optional[OPDSFeed] = None
         
-        # Try server-side search first (global search)
         for path, params in candidates:
             try:
                 feed = self.fetch_feed(path, params=params)
+                if feed.entries:
+                    # Check if the server ignored the query and returned the default feed
+                    if base_feed and feed.title == base_feed.title:
+                        # Compare first entry ID to see if it's the same feed
+                        if feed.entries[0].id == base_feed.entries[0].id:
+                            continue
+
+                    filtered = self._filter_feed_entries(feed, cleaned)
+                    if filtered.entries:
+                        return filtered
             except CalibreOPDSError as exc:
                 last_error = exc
                 continue
-            
-            # If we got results from server search, use them
-            if feed.entries:
-                return feed
                 
-        # Fallback to local search (crawling)
-        # If start_href is provided, we search from there (contextual search)
-        # Otherwise we search from root (which might be empty if root has no books)
-        
+        # 3. Fallback to local search (crawling)
         seed_feed: Optional[OPDSFeed] = None
         if start_href:
             try:
@@ -249,7 +333,8 @@ class CalibreOPDSClient:
                 pass
         
         if not seed_feed and base_feed:
-            seed_feed = base_feed
+            # If we are falling back to base_feed (Root), try to find a better seed
+            seed_feed = self._find_best_seed_feed(base_feed)
             
         if not seed_feed:
              try:
@@ -259,7 +344,22 @@ class CalibreOPDSClient:
                      raise last_error
                  raise exc
 
-        return self._local_search(cleaned, seed_feed=seed_feed)
+        # Heuristic: If the seed feed has acquisition links, use linear scan.
+        # Otherwise, use BFS to find content.
+        has_books = False
+        if seed_feed and seed_feed.entries:
+            for entry in seed_feed.entries[:5]:
+                for link in entry.links:
+                    if "acquisition" in (link.rel or ""):
+                        has_books = True
+                        break
+                if has_books:
+                    break
+        
+        if has_books:
+            return self._collect_search_results(seed_feed, cleaned)
+        else:
+            return self._local_search(cleaned, seed_feed=seed_feed)
 
     def _collect_search_results(
         self,
@@ -484,7 +584,8 @@ class CalibreOPDSClient:
 
         feed_id = root.findtext("atom:id", default=None, namespaces=NS)
         feed_title = root.findtext("atom:title", default=None, namespaces=NS)
-        links = self._parse_links(root.findall("atom:link", NS), base_url)
+        links_list = self._extract_links(root.findall("atom:link", NS), base_url)
+        links = self._links_to_dict(links_list)
         parsed_entries = [self._parse_entry(node, base_url) for node in root.findall("atom:entry", NS)]
         entries: List[OPDSEntry] = []
         for entry in parsed_entries:
@@ -531,10 +632,11 @@ class CalibreOPDSClient:
                     authors.append(value)
 
         links = node.findall("atom:link", NS)
-        parsed_links = self._parse_links(links, base_url)
-        download_link = self._select_download_link(parsed_links.values())
-        alternate_link = parsed_links.get("alternate")
-        thumb_link = parsed_links.get("http://opds-spec.org/image/thumbnail") or parsed_links.get(
+        all_links = self._extract_links(links, base_url)
+        link_dict = self._links_to_dict(all_links)
+        download_link = self._select_download_link(all_links)
+        alternate_link = link_dict.get("alternate")
+        thumb_link = link_dict.get("http://opds-spec.org/image/thumbnail") or link_dict.get(
             "thumbnail"
         )
 
@@ -595,7 +697,7 @@ class CalibreOPDSClient:
             download=download_link,
             alternate=alternate_link,
             thumbnail=thumb_link,
-            links=list(parsed_links.values()),
+            links=all_links,
             series=series_name,
             series_index=series_index,
             tags=tags,
@@ -782,8 +884,8 @@ class CalibreOPDSClient:
                 continue
         return None
 
-    def _parse_links(self, link_nodes: List[ET.Element], base_url: str) -> Dict[str, OPDSLink]:
-        results: Dict[str, OPDSLink] = {}
+    def _extract_links(self, link_nodes: List[ET.Element], base_url: str) -> List[OPDSLink]:
+        links: List[OPDSLink] = []
         for link in link_nodes:
             href = link.attrib.get("href")
             if not href:
@@ -793,15 +895,22 @@ class CalibreOPDSClient:
             title = link.attrib.get("title")
             base_for_join = base_url or self._base_url
             absolute_href = urljoin(base_for_join, href)
-            entry = OPDSLink(href=absolute_href, rel=rel, type=link_type, title=title)
-            key = rel or absolute_href
+            links.append(OPDSLink(href=absolute_href, rel=rel, type=link_type, title=title))
+        return links
+
+    def _links_to_dict(self, links: List[OPDSLink]) -> Dict[str, OPDSLink]:
+        results: Dict[str, OPDSLink] = {}
+        for entry in links:
+            key = entry.rel or entry.href
+            if not key:
+                continue
             
             # Prioritize search links with template parameters
             if key == "search" and key in results:
                 existing = results[key]
                 if "{searchTerms}" in (existing.href or ""):
                     continue
-                if "{searchTerms}" in absolute_href:
+                if "{searchTerms}" in (entry.href or ""):
                     results[key] = entry
                     continue
             
@@ -988,7 +1097,18 @@ class CalibreOPDSClient:
         tokens = [token for token in re.split(r"\s+", normalized_query) if token]
         if not tokens:
             return feed
-        filtered = [entry for entry in feed.entries if self._entry_matches_query(entry, tokens)]
+            
+        scored_entries = []
+        for entry in feed.entries:
+            score = self._calculate_match_score(entry, tokens)
+            # Require a minimum score to avoid weak matches (e.g. single word in summary)
+            if score >= 10:
+                scored_entries.append((score, entry))
+                
+        # Sort by score descending
+        scored_entries.sort(key=lambda x: x[0], reverse=True)
+        
+        filtered = [e for s, e in scored_entries]
         return dataclasses.replace(feed, entries=filtered)
 
     def browse_letter(
@@ -1094,8 +1214,89 @@ class CalibreOPDSClient:
             
         return href
 
+    def _calculate_match_score(self, entry: OPDSEntry, tokens: List[str]) -> int:
+        if not tokens:
+            return 0
+            
+        score = 0
+        
+        # Prepare normalized text
+        title = self._normalize_text(entry.title)
+        authors = [self._normalize_text(a) for a in entry.authors]
+        series = self._normalize_text(entry.series) if entry.series else ""
+        summary = self._normalize_text(entry.summary) if entry.summary else ""
+        tags = [self._normalize_text(t) for t in entry.tags]
+        
+        # 1. Exact/Phrase matches
+        query_phrase = " ".join(tokens)
+        if query_phrase == title:
+            score += 1000
+        elif query_phrase in title:
+            score += 500
+        
+        for author in authors:
+            if query_phrase in author:
+                score += 300
+                
+        if query_phrase in series:
+            score += 200
+            
+        for tag in tags:
+            if query_phrase == tag:
+                score += 100
+            elif query_phrase in tag:
+                score += 50
 
-def feed_to_dict(feed: OPDSFeed) -> Dict[str, Any]:
-    """Helper used by APIs to convert a feed into JSON-serialisable payloads."""
+        # 2. Token matches
+        # Filter out stop words unless the query is only stop words
+        significant_tokens = [t for t in tokens if t not in _STOP_WORDS]
+        if not significant_tokens:
+            significant_tokens = tokens
 
-    return feed.to_dict()
+        for token in significant_tokens:
+            token_score = 0
+            # Use regex for word boundary matching
+            # Escape token to handle special chars
+            token_regex = r"\b" + re.escape(token) + r"\b"
+            
+            # Title: High weight
+            if re.search(token_regex, title):
+                token_score = max(token_score, 50)
+            elif token in title:
+                token_score = max(token_score, 5)
+
+            # Author: Medium-High weight
+            for author in authors:
+                if re.search(token_regex, author):
+                    token_score = max(token_score, 40)
+                elif token in author:
+                    token_score = max(token_score, 5)
+            
+            # Series: Medium weight
+            if token in series:
+                if re.search(token_regex, series):
+                    token_score = max(token_score, 30)
+                else:
+                    token_score = max(token_score, 5)
+                
+            # Tags: Medium weight
+            for tag in tags:
+                if re.search(token_regex, tag):
+                    token_score = max(token_score, 30)
+                elif token in tag:
+                    token_score = max(token_score, 5)
+                
+            # Summary: Low weight
+            if token in summary:
+                if re.search(token_regex, summary):
+                    # Only add if not found elsewhere? Or just add small amount?
+                    if token_score == 0: 
+                        token_score = 15
+                    else:
+                        token_score += 5 # Small boost if also in description
+                elif token_score == 0:
+                    token_score = 2 # Very low for substring in summary
+            
+            score += token_score
+            
+        return score
