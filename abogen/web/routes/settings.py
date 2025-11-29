@@ -23,16 +23,6 @@ _NORMALIZATION_SAMPLES = {
     "abbreviations": "Dr. Smith lives on Elm St. near the U.S. border.",
 }
 
-@settings_bp.get("/")
-def settings_page() -> str:
-    return render_template(
-        "settings.html",
-        settings=load_settings(),
-        integrations=load_integration_settings(),
-        options=template_options(),
-        normalization_samples=_NORMALIZATION_SAMPLES,
-    )
-
 @settings_bp.post("/update")
 def update_settings() -> ResponseReturnValue:
     current = load_settings()
@@ -130,3 +120,16 @@ def update_settings() -> ResponseReturnValue:
     save_settings(current)
     flash("Settings updated successfully.", "success")
     return redirect(url_for("settings.settings_page"))
+
+@settings_bp.route("/", methods=["GET", "POST"])
+def settings_page() -> str | ResponseReturnValue:
+    if request.method == "POST":
+        return update_settings()
+
+    return render_template(
+        "settings.html",
+        settings=load_settings(),
+        integrations=load_integration_settings(),
+        options=template_options(),
+        normalization_samples=_NORMALIZATION_SAMPLES,
+    )
