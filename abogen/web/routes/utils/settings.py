@@ -331,10 +331,12 @@ def load_integration_settings() -> Dict[str, Dict[str, Any]]:
                     merged[field] = str(value or "")
         if key == "calibre_opds":
             merged["has_password"] = bool(isinstance(stored, Mapping) and stored.get("password"))
-            merged["password"] = ""
+            # Do not clear the password here, let the template decide whether to show it or not
+            # merged["password"] = "" 
         elif key == "audiobookshelf":
             merged["has_api_token"] = bool(isinstance(stored, Mapping) and stored.get("api_token"))
-            merged["api_token"] = ""
+            # Do not clear the token here
+            # merged["api_token"] = ""
         integrations[key] = merged
     return integrations
 
