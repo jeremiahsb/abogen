@@ -343,6 +343,25 @@ def load_integration_settings() -> Dict[str, Dict[str, Any]]:
             # Do not clear the token here
             # merged["api_token"] = ""
         integrations[key] = merged
+
+    # Environment variable fallbacks for Calibre OPDS
+    calibre = integrations["calibre_opds"]
+    if not calibre.get("base_url"):
+        calibre["base_url"] = os.environ.get("CALIBRE_SERVER_HOST", "")
+    if not calibre.get("username"):
+        calibre["username"] = os.environ.get("OPDS_USERNAME", "")
+    if not calibre.get("password"):
+        calibre["password"] = os.environ.get("OPDS_PASSWORD", "")
+    
+    # If we have a password (from storage or env), mark it as present for the UI
+    if calibre.get("password"):
+        calibre["has_password"] = True
+
+    # Auto-enable if configured via env but not explicitly disabled in config
+    stored_calibre = stored_integrations.get("calibre_opds")
+    if stored_calibre is None and calibre.get("base_url"):
+        calibre["enabled"] = True
+
     return integrations
 
 

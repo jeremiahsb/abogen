@@ -7,7 +7,7 @@ from flask.typing import ResponseReturnValue
 
 from abogen.web.routes.utils.settings import (
     load_settings,
-    stored_integration_config,
+    load_integration_settings,
 )
 from abogen.web.routes.utils.voice import template_options
 from abogen.web.routes.utils.form import build_pending_job_from_extraction
@@ -37,7 +37,7 @@ def _build_calibre_client(payload: Dict[str, Any]) -> CalibreOPDSClient:
 @books_bp.get("/")
 def find_books_page() -> ResponseReturnValue:
     settings = load_settings()
-    integrations = settings.get("integrations", {})
+    integrations = load_integration_settings()
     return render_template(
         "find_books.html",
         integrations=integrations,
@@ -54,8 +54,7 @@ def search_books() -> ResponseReturnValue:
 
 @books_bp.get("/calibre/feed")
 def calibre_opds_feed() -> ResponseReturnValue:
-    settings = load_settings()
-    integrations = settings.get("integrations", {})
+    integrations = load_integration_settings()
     calibre_settings = integrations.get("calibre_opds", {})
     
     payload = {
