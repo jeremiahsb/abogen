@@ -308,9 +308,14 @@ def load_settings() -> Dict[str, Any]:
 def load_integration_settings() -> Dict[str, Dict[str, Any]]:
     defaults = integration_defaults()
     cfg = load_config() or {}
+    # Integrations are stored under the "integrations" key in the config
+    stored_integrations = cfg.get("integrations", {})
+    if not isinstance(stored_integrations, Mapping):
+        stored_integrations = {}
+
     integrations: Dict[str, Dict[str, Any]] = {}
     for key, default in defaults.items():
-        stored = cfg.get(key)
+        stored = stored_integrations.get(key)
         merged: Dict[str, Any] = dict(default)
         if isinstance(stored, Mapping):
             for field, default_value in default.items():
