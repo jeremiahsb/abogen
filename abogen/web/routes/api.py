@@ -1,7 +1,7 @@
 from typing import Any, Dict, Mapping, List, Optional
 import base64
 
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, request, jsonify, send_file, url_for
 from flask.typing import ResponseReturnValue
 
 from abogen.web.routes.utils.settings import (
@@ -24,6 +24,8 @@ from abogen.llm_client import list_models, LLMClientError
 from abogen.kokoro_text_normalization import normalize_for_pipeline
 from abogen.integrations.audiobookshelf import AudiobookshelfClient, AudiobookshelfConfig
 from abogen.integrations.calibre_opds import CalibreOPDSClient
+from abogen.web.routes.utils.service import get_service
+from werkzeug.utils import secure_filename
 
 api_bp = Blueprint("api", __name__)
 
@@ -139,6 +141,78 @@ def api_calibre_opds_test() -> ResponseReturnValue:
         return jsonify({"success": True, "message": "Connection successful."})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
+
+@api_bp.post("/integrations/calibre-opds/import")
+def api_calibre_opds_import() -> ResponseReturnValue:
+    if not request.is_json:
+        return jsonify({"error": "Expected JSON payload."}), 400
+    
+    payload = request.get_json(force=True, silent=True) or {}
+    href = payload.get("href")
+    
+    if not href:
+        return jsonify({"error": "Download URL (href) is required."}), 400
+        
+    settings = load_settings()
+    integrations = settings.get("integrations", {})
+    calibre_settings = integrations.get("calibre_opds", {})
+    
+    # We need to download the file
+    # For now, let's just return a success message as a placeholder
+    # In a real implementation, this would trigger a download job
+    
+    # Re-using the logic from books.py if possible, or implementing it here
+    # It seems books.py had a placeholder for this too.
+    
+    # Let's try to actually download it using the service
+    try:
+        service = get_service()
+        
+        client = CalibreOPDSClient(
+            base_url=calibre_settings.get("base_url", ""),
+            username=calibre_settings.get("username"),
+            password=calibre_settings.get("password"),
+            verify=calibre_settings.get("verify_ssl", True),
+        )
+        
+        with client._open_client() as http_client:
+            response = http_client.get(href, follow_redirects=True)
+            response.raise_for_status()
+            
+            # Try to get filename from content-disposition
+            filename = "downloaded_book.epub"
+            if "content-disposition" in response.headers:
+                import re
+                fname = re.findall("filename=(.+)", response.headers["content-disposition"])
+                if fname:
+                    filename = fname[0].strip('"')
+                    
+            filename = secure_filename(filename)
+            
+            # Save to uploads folder
+            uploads_dir = service._uploads_root
+            target_path = uploads_dir / filename
+            
+            # Ensure unique filename
+            stem = target_path.stem
+            suffix = target_path.suffix
+            counter = 1
+            while target_path.exists():
+                target_path = uploads_dir / f"{stem}_{counter}{suffix}"
+                counter += 1
+                
+            with open(target_path, "wb") as f:
+                for chunk in response.iter_bytes(chunk_size=8192):
+                    f.write(chunk)
+                
+        return jsonify({
+            "success": True, 
+            "message": "Book downloaded successfully.",
+            "redirect": url_for("main.prepare_page", filename=target_path.name)
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # --- LLM Routes ---
 

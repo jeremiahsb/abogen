@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -20,6 +21,16 @@ def _store_path() -> Path:
         base_dir = Path(get_internal_cache_path("pronunciations"))
     target = base_dir / "pronunciations.db"
     target.parent.mkdir(parents=True, exist_ok=True)
+
+    if not target.exists():
+        try:
+            legacy_dir = Path(get_internal_cache_path("pronunciations"))
+            legacy_path = legacy_dir / "pronunciations.db"
+            if legacy_path.exists() and legacy_path != target:
+                shutil.move(str(legacy_path), target)
+        except Exception:
+            pass
+
     return target
 
 
