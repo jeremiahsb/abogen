@@ -14,7 +14,10 @@
       <p class="upload-card__filename" data-role="upload-dropzone-filename" hidden></p>
       <button type="button" class="button" data-role="open-upload-modal">Open upload &amp; settings</button>
       {% if opds_available %}
-      <a class="button button--ghost" href="{{ url_for('web.find_books_page') }}">Browse Calibre library</a>
+          <div class="wizard-card__body">
+      <p>Upload an EPUB or text file to begin.</p>
+      <a class="button button--ghost" href="{{ url_for('books.find_books_page') }}">Browse Calibre library</a>
+    </div>
       {% endif %}
     </div>
   </div>

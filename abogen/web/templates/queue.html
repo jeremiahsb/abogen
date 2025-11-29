@@ -5,7 +5,7 @@
 {% block content %}
 <section class="card">
   <div id="jobs-panel"
-       hx-get="{{ url_for('web.jobs_partial') }}"
+       hx-get="{{ url_for('jobs.jobs_partial') }}"
        hx-trigger="load, every 3s"
        hx-target="#jobs-panel"
        hx-swap="innerHTML">

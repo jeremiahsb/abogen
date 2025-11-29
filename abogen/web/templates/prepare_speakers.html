@@ -92,17 +92,17 @@
         {% endif %}
         </div>
 
-        <footer class="modal__footer wizard-card__footer">
+                <footer class="modal__footer wizard-card__footer">
           <div class="wizard-card__footer-actions">
-            <a class="button button--ghost" href="{{ url_for('web.prepare_job', pending_id=pending.id, step='chapters') }}">Previous</a>
+            <a class="button button--ghost" href="{{ url_for('main.wizard_step', pending_id=pending.id, step='chapters') }}">Previous</a>
             <button type="submit" class="button button--ghost" form="cancel-form">Cancel</button>
           </div>
           <div class="wizard-card__footer-actions">
-            <button type="submit" class="button">Queue conversion</button>
+            <button type="submit" class="button" form="prepare-form">Next: Review Entities</button>
           </div>
         </footer>
-      </form>
-      <form method="post" action="{{ url_for('web.cancel_pending_job', pending_id=pending.id) }}" id="cancel-form"></form>
+      </div>
+      <form method="post" action="{{ url_for('main.wizard_cancel', pending_id=pending.id) }}" id="cancel-form"></form>
 
       <div class="modal" data-role="voice-modal" hidden>
       <div class="modal__overlay" data-role="voice-modal-close" tabindex="-1"></div>

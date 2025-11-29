@@ -68,14 +68,14 @@
     <aside class="speaker-configs__sidebar">
       <div class="speaker-configs__sidebar-header">
         <h2>Saved presets</h2>
-        <a class="button button--ghost button--small" href="{{ url_for('web.speaker_configs_page') }}">New preset</a>
+        <a class="button button--ghost button--small" href="{{ url_for('voices.speaker_configs_page') }}">New preset</a>
       </div>
       <ul class="speaker-configs__list">
         {% for config in configs %}
         <li class="speaker-configs__entry {% if editing_name == config.name %}is-active{% endif %}">
-          <a href="{{ url_for('web.speaker_configs_page', config=config.name) }}">{{ config.name }}</a>
+          <a href="{{ url_for('voices.speaker_configs_page', config=config.name) }}">{{ config.name }}</a>
           <span class="speaker-configs__meta">{{ config.speakers|length }} speaker{% if config.speakers|length != 1 %}s{% endif %}</span>
-          <form method="post" action="{{ url_for('web.delete_speaker_config_route', name=config.name) }}" class="speaker-configs__delete" onsubmit="return confirm('Delete preset {{ config.name }}?');">
+          <form method="post" action="{{ url_for('voices.delete_speaker_config_named', name=config.name) }}" class="speaker-configs__delete" onsubmit="return confirm('Delete preset {{ config.name }}?');">
             <button type="submit" class="link-button">Delete</button>
           </form>
         </li>
@@ -135,7 +135,9 @@
 
         <div class="speaker-configs__actions">
           <button type="submit" class="button">Save configuration</button>
-          <a class="button button--ghost" href="{{ url_for('web.index') }}">Back to dashboard</a>
+                  <div class="speaker-configs__actions-right">
+          <a class="button button--ghost" href="{{ url_for('main.index') }}">Back to dashboard</a>
+        </div>
         </div>
       </form>
     </div>

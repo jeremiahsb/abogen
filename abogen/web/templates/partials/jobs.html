@@ -62,30 +62,30 @@
         <li class="job-card">
           <div class="job-card__header">
             <div>
-              <a class="job-card__title" href="{{ url_for('web.job_detail', job_id=job.id) }}">{{ job.original_filename }}</a>
+              <a class="job-card__title" href="{{ url_for('jobs.job_detail', job_id=job.id) }}">{{ job.original_filename }}</a>
               <div class="job-card__meta">Finished {{ job.finished_at|datetimeformat }}</div>
             </div>
             <span class="badge badge--{{ job.status.value }}">{{ job.status.value|title }}</span>
           </div>
           <div class="job-card__footer">
-            <a class="button button--ghost" href="{{ url_for('web.job_detail', job_id=job.id) }}">Inspect</a>
+            <a class="button button--ghost" href="{{ url_for('jobs.job_detail', job_id=job.id) }}">Inspect</a>
             {% if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED] %}
-              <button type="button" class="button button--ghost" hx-post="{{ url_for('web.retry_job', job_id=job.id) }}" hx-target="#jobs-panel" hx-swap="innerHTML">Retry</button>
+              <button type="button" class="button button--ghost" hx-post="{{ url_for('jobs.retry_job', job_id=job.id) }}" hx-target="#jobs-panel" hx-swap="innerHTML">Retry</button>
             {% endif %}
             {% set flags = download_flags.get(job.id, {}) %}
             {% if job.status == JobStatus.COMPLETED %}
               {% if flags.get('m4b') %}
-                <a class="button button--ghost" href="{{ url_for('web.download_job_m4b', job_id=job.id) }}">Download M4B</a>
+                <a class="button button--ghost" href="{{ url_for('jobs.download_file', job_id=job.id, file_type='audio') }}">Download M4B</a>
               {% elif flags.get('audio') %}
-                <a class="button button--ghost" href="{{ url_for('web.download_job', job_id=job.id) }}">Download Audio</a>
+                <a class="button button--ghost" href="{{ url_for('jobs.download_file', job_id=job.id, file_type='audio') }}">Download Audio</a>
               {% endif %}
               {% if flags.get('epub3') %}
-                <a class="button button--ghost" href="{{ url_for('web.download_job_epub3', job_id=job.id) }}">Download EPUB 3</a>
+                <a class="button button--ghost" href="{{ url_for('jobs.job_epub', job_id=job.id) }}">Download EPUB 3</a>
               {% endif %}
               {% if audiobookshelf_manual_available %}
                 <button type="button"
                         class="button button--ghost"
-                        hx-post="{{ url_for('web.send_job_to_audiobookshelf', job_id=job.id) }}"
+                        hx-post="{{ url_for('jobs.send_job_to_audiobookshelf', job_id=job.id) }}"
                         hx-target="#jobs-panel"
                         hx-swap="innerHTML">
                   Send to Audiobookshelf
@@ -106,14 +106,14 @@
               <button type="button"
                       class="icon-button"
                       data-role="open-reader"
-                      data-reader-url="{{ url_for('web.job_reader', job_id=job.id) }}"
+                      data-reader-url="{{ url_for('jobs.job_reader', job_id=job.id) }}"
                       data-book-title="{{ job_display_title }}"
                       title="Open reader"
                       aria-label="Open EPUB reader for {{ job_display_title }}">
                 📖
               </button>
             {% endif %}
-            <button type="button" class="button button--ghost" hx-post="{{ url_for('web.delete_job', job_id=job.id) }}" hx-target="#jobs-panel" hx-swap="innerHTML" hx-confirm="Remove this job from the list?">Remove</button>
+            <button type="button" class="button button--ghost" hx-post="{{ url_for('jobs.delete_job', job_id=job.id) }}" hx-target="#jobs-panel" hx-swap="innerHTML" hx-confirm="Remove this job from the list?">Remove</button>
           </div>
         </li>
       {% endfor %}

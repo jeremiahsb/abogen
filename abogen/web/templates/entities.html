@@ -49,11 +49,11 @@
       </label>
       <div class="entity-filter__actions">
         <button type="submit" class="button">Apply filters</button>
-        <a href="{{ url_for('web.entities_page') }}" class="button button--ghost">Reset</a>
+        <a href="{{ url_for('entities.entities_page') }}" class="button button--ghost">Reset</a>
       </div>
     </div>
   </form>
-  <p class="hint">Looking for saved speaker rosters instead? <a href="{{ url_for('web.speaker_configs_page') }}">Manage speaker presets</a>.</p>
+  <p class="hint">Looking for saved speaker rosters instead? <a href="{{ url_for('voices.speaker_configs_page') }}">Manage speaker presets</a>.</p>
 </section>
 
 <section class="card card--panel">
@@ -85,7 +85,7 @@
     id="override-create-form"
     class="form-section entity-create"
     method="post"
-    action="{{ url_for('web.entities_override_update') }}"
+    action="{{ url_for('entities.upsert_global_override') }}"
   >
     <h3 class="form-section__title">Add manual override</h3>
     <p class="entity-create__description">Create pronunciations or assign default voices without preparing a job.</p>
@@ -243,7 +243,7 @@
               id="{{ form_id }}"
               class="overrides-table__form"
               method="post"
-              action="{{ url_for('web.entities_override_update') }}"
+              action="{{ url_for('entities.upsert_global_override') }}"
             >
               <input type="hidden" name="lang" value="{{ language }}">
               <input type="hidden" name="token" value="{{ override.token }}">

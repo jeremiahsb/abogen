@@ -1,5 +1,5 @@
 from typing import Mapping
-from flask import Blueprint, request, jsonify, abort, render_template
+from flask import Blueprint, request, jsonify, abort, render_template, redirect, url_for
 from flask.typing import ResponseReturnValue
 
 from abogen.web.routes.utils.service import require_pending_job, get_service
@@ -12,6 +12,10 @@ from abogen.web.routes.utils.entity import (
 )
 from abogen.web.routes.utils.settings import coerce_int, load_settings
 from abogen.web.routes.utils.voice import template_options
+from abogen.pronunciation_store import (
+    delete_override as delete_pronunciation_override,
+    save_override as save_pronunciation_override,
+)
 
 entities_bp = Blueprint("entities", __name__)
 
@@ -95,6 +99,29 @@ def search_candidates(pending_id: str) -> ResponseReturnValue:
     
     results = search_manual_override_candidates(pending, query, limit=limit_value)
     return jsonify({"query": query, "limit": limit_value, "results": results})
+
+@entities_bp.post("/overrides")
+def upsert_global_override() -> ResponseReturnValue:
+    payload = request.form
+    action = payload.get("action", "save")
+    lang = payload.get("lang", "en")
+    token = payload.get("token", "").strip()
+    
+    if action == "delete":
+        if token:
+            delete_pronunciation_override(token=token, language=lang)
+    else:
+        pronunciation = payload.get("pronunciation", "").strip()
+        voice = payload.get("voice", "").strip()
+        if token:
+            save_pronunciation_override(
+                token=token,
+                pronunciation=pronunciation,
+                voice=voice or None,
+                language=lang
+            )
+        
+    return redirect(url_for("entities.entities_page", lang=lang))
 
 @entities_bp.get("/")
 def entities_page() -> str:

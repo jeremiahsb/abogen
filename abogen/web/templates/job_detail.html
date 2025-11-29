@@ -149,7 +149,7 @@
 </section>
 {% endif %}
 
-<section class="card" id="logs" hx-get="{{ url_for('web.job_logs_partial', job_id=job.id) }}" hx-trigger="load, every 2s" hx-target="#logs" hx-swap="innerHTML">
+<section class="card" id="logs" hx-get="{{ url_for('jobs.job_logs', job_id=job.id) }}" hx-trigger="load, every 2s" hx-target="#logs" hx-swap="innerHTML">
   {% include "partials/logs.html" %}
 </section>
 {% endblock %}

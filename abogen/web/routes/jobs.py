@@ -275,6 +275,13 @@ def stream_logs(job_id: str) -> ResponseReturnValue:
             
     return Response(generate(), mimetype="text/event-stream")
 
+@jobs_bp.get("/<job_id>/reader")
+def job_reader(job_id: str) -> ResponseReturnValue:
+    job = get_service().get_job(job_id)
+    if not job:
+        abort(404)
+    return render_template("reader_embed.html", job=job)
+
 @jobs_bp.get("/queue")
 def queue_page() -> str:
     return render_template(

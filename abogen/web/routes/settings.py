@@ -14,12 +14,21 @@ from abogen.web.routes.utils.voice import template_options
 
 settings_bp = Blueprint("settings", __name__)
 
+_NORMALIZATION_SAMPLES = {
+    "apostrophes": "It's a beautiful day, isn't it? 'Yes,' she said, 'it is.'",
+    "currency": "The price is $10.50, but it was £8.00 yesterday.",
+    "dates": "On 2023-01-01, we celebrated the new year.",
+    "numbers": "There are 123 apples and 456 oranges.",
+    "abbreviations": "Dr. Smith lives on Elm St. near the U.S. border.",
+}
+
 @settings_bp.get("/")
 def settings_page() -> str:
     return render_template(
         "settings.html",
         settings=load_settings(),
         options=template_options(),
+        normalization_samples=_NORMALIZATION_SAMPLES,
     )
 
 @settings_bp.post("/update")
