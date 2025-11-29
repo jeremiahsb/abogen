@@ -993,6 +993,17 @@ class CalibreOPDSClient:
         if key != "#" and not key.isalpha():
             key = "#"
         base_feed = self.fetch_feed(start_href)
+        
+        # Ensure we start from the beginning of the feed if possible
+        first_link = self._resolve_link(base_feed.links, "first") or self._resolve_link(base_feed.links, "start")
+        if first_link and first_link.href:
+            try:
+                # Only switch if the href is different to avoid redundant fetch
+                if not start_href or first_link.href != start_href:
+                    base_feed = self.fetch_feed(first_link.href)
+            except CalibreOPDSError:
+                pass
+
         mode = self._browse_mode_for_title(base_feed.title)
 
         def letter_matches(entry: OPDSEntry, active_mode: str) -> bool:
