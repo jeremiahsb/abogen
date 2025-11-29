@@ -23,8 +23,8 @@ from abogen.voice_profiles import serialize_profiles
 books_bp = Blueprint("books", __name__)
 
 def _calibre_integration_enabled(integrations: Dict[str, Any]) -> bool:
-    calibre = integrations.get("calibre", {})
-    return bool(calibre.get("enabled") and calibre.get("url"))
+    calibre = integrations.get("calibre_opds", {})
+    return bool(calibre.get("enabled") and calibre.get("base_url"))
 
 def _build_calibre_client(payload: Dict[str, Any]) -> CalibreOPDSClient:
     return CalibreOPDSClient(
@@ -56,13 +56,13 @@ def search_books() -> ResponseReturnValue:
 def calibre_opds_feed() -> ResponseReturnValue:
     settings = load_settings()
     integrations = settings.get("integrations", {})
-    calibre_settings = integrations.get("calibre", {})
+    calibre_settings = integrations.get("calibre_opds", {})
     
     payload = {
-        "base_url": calibre_settings.get("url"),
+        "base_url": calibre_settings.get("base_url"),
         "username": calibre_settings.get("username"),
         "password": calibre_settings.get("password"),
-        "verify_ssl": True, # Default
+        "verify_ssl": calibre_settings.get("verify_ssl", True),
     }
     
     if not payload.get("base_url"):
