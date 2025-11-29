@@ -304,7 +304,7 @@ def api_calibre_opds_import() -> ResponseReturnValue:
             "success": True,
             "status": "imported",
             "pending_id": result.pending.id,
-            "redirect_url": url_for("main.wizard_step", step="chapters", pending_id=result.pending.id)
+            "redirect_url": url_for("main.wizard_step", step="book", pending_id=result.pending.id)
         })
 
     except Exception as e:
