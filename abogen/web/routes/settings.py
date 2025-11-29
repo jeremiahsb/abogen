@@ -3,6 +3,7 @@ from flask.typing import ResponseReturnValue
 
 from abogen.web.routes.utils.settings import (
     load_settings,
+    load_integration_settings,
     save_settings,
     coerce_bool,
     coerce_int,
@@ -27,6 +28,7 @@ def settings_page() -> str:
     return render_template(
         "settings.html",
         settings=load_settings(),
+        integrations=load_integration_settings(),
         options=template_options(),
         normalization_samples=_NORMALIZATION_SAMPLES,
     )
