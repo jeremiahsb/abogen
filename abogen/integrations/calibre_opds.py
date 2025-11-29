@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import html
 import re
+import unicodedata
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
@@ -923,51 +924,68 @@ class CalibreOPDSClient:
         return ""
 
     @staticmethod
+    def _normalize_text(text: str) -> str:
+        if not text:
+            return ""
+        # Normalize unicode characters to their base form (e.g. é -> e)
+        normalized = unicodedata.normalize('NFKD', text).encode('ASCII', 'ignore').decode('utf-8')
+        return normalized.lower().strip()
+
+    @staticmethod
     def _alphabet_letter_for_entry(entry: OPDSEntry, mode: str) -> Optional[str]:
         source = CalibreOPDSClient._alphabet_source(entry, mode)
         if not source:
             return None
         if mode == "title":
             source = CalibreOPDSClient._strip_leading_article(source)
-        source = re.sub(r"^[^0-9A-Za-z]+", "", source)
-        if not source:
+        
+        # Normalize to handle accents (É -> E)
+        normalized_source = unicodedata.normalize('NFKD', source).encode('ASCII', 'ignore').decode('utf-8')
+        
+        cleaned = re.sub(r"^[^0-9A-Za-z]+", "", normalized_source)
+        if not cleaned:
             return "#"
-        initial = source[0]
+        initial = cleaned[0]
         if initial.isalpha():
             return initial.upper()
         if initial.isdigit():
             return "#"
-        normalized = initial.upper()
-        return normalized if normalized.isalpha() else "#"
+        return "#"
 
     @staticmethod
     def _entry_matches_query(entry: OPDSEntry, tokens: List[str]) -> bool:
         if not tokens:
             return True
         search_fragments: List[str] = []
+        
         if entry.title:
-            search_fragments.append(entry.title.strip().lower())
+            search_fragments.append(CalibreOPDSClient._normalize_text(entry.title))
         if entry.series:
-            search_fragments.append(entry.series.strip().lower())
+            search_fragments.append(CalibreOPDSClient._normalize_text(entry.series))
+            
         for author in entry.authors:
             cleaned = (author or "").strip()
             if not cleaned:
                 continue
-            lower_value = cleaned.lower()
-            search_fragments.append(lower_value)
-            for part in re.split(r"[\s,]+", lower_value):
+            normalized_author = CalibreOPDSClient._normalize_text(cleaned)
+            search_fragments.append(normalized_author)
+            for part in re.split(r"[\s,]+", normalized_author):
                 part = part.strip()
                 if part:
                     search_fragments.append(part)
+                    
         if not search_fragments:
             return False
+            
+        # Check if all tokens match at least one fragment
+        # Tokens are already normalized in _filter_feed_entries
         return all(any(token in fragment for fragment in search_fragments) for token in tokens)
 
     def _filter_feed_entries(self, feed: OPDSFeed, query: str) -> OPDSFeed:
-        normalized = (query or "").strip().lower()
-        if not normalized:
+        normalized_query = CalibreOPDSClient._normalize_text(query)
+        if not normalized_query:
             return feed
-        tokens = [token for token in re.split(r"\s+", normalized) if token]
+        tokens = [token for token in re.split(r"\s+", normalized_query) if token]
         if not tokens:
             return feed
         filtered = [entry for entry in feed.entries if self._entry_matches_query(entry, tokens)]
