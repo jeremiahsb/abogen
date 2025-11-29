@@ -171,6 +171,13 @@ def settings_defaults() -> Dict[str, Any]:
         "normalization_apostrophes_decades": True,
         "normalization_apostrophes_leading_elisions": True,
         "normalization_apostrophe_mode": "spacy",
+        "normalization_numbers_year_style": "american",
+        "normalization_contraction_aux_be": True,
+        "normalization_contraction_aux_have": True,
+        "normalization_contraction_modal_will": True,
+        "normalization_contraction_modal_would": True,
+        "normalization_contraction_negation_not": True,
+        "normalization_contraction_let_us": True,
     }
 
 
