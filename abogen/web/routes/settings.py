@@ -80,41 +80,62 @@ def update_settings() -> ResponseReturnValue:
         current[key] = (form.get(key) or "").strip()
 
     # Integrations
+    current["integrations"] = current.get("integrations", {})
+
     # Audiobookshelf
     abs_enabled = coerce_bool(form.get("audiobookshelf_enabled"), False)
-    abs_url = (form.get("audiobookshelf_url") or "").strip()
-    abs_token = (form.get("audiobookshelf_token") or "").strip()
+    abs_url = (form.get("audiobookshelf_base_url") or "").strip()
+    abs_token = (form.get("audiobookshelf_api_token") or "").strip()
     abs_library = (form.get("audiobookshelf_library_id") or "").strip()
     abs_folder = (form.get("audiobookshelf_folder_id") or "").strip()
+    abs_verify = coerce_bool(form.get("audiobookshelf_verify_ssl"), True)
+    abs_auto_send = coerce_bool(form.get("audiobookshelf_auto_send"), False)
     abs_cover = coerce_bool(form.get("audiobookshelf_send_cover"), True)
     abs_chapters = coerce_bool(form.get("audiobookshelf_send_chapters"), True)
-    abs_subtitles = coerce_bool(form.get("audiobookshelf_send_subtitles"), True)
+    abs_subtitles = coerce_bool(form.get("audiobookshelf_send_subtitles"), False)
     
-    current["integrations"] = current.get("integrations", {})
+    try:
+        abs_timeout = max(1.0, float(form.get("audiobookshelf_timeout", 30.0)))
+    except ValueError:
+        abs_timeout = 30.0
+
+    # Preserve existing token if not provided and not cleared
+    if not abs_token and not coerce_bool(form.get("audiobookshelf_api_token_clear"), False):
+        existing_abs = current["integrations"].get("audiobookshelf", {})
+        abs_token = existing_abs.get("api_token", "")
+
     current["integrations"]["audiobookshelf"] = {
         "enabled": abs_enabled,
-        "url": abs_url,
-        "token": abs_token,
+        "base_url": abs_url,
+        "api_token": abs_token,
         "library_id": abs_library,
         "folder_id": abs_folder,
+        "verify_ssl": abs_verify,
+        "auto_send": abs_auto_send,
         "send_cover": abs_cover,
         "send_chapters": abs_chapters,
         "send_subtitles": abs_subtitles,
+        "timeout": abs_timeout,
     }
     
-    # Calibre
-    calibre_enabled = coerce_bool(form.get("calibre_enabled"), False)
-    calibre_url = (form.get("calibre_url") or "").strip()
-    calibre_user = (form.get("calibre_username") or "").strip()
-    calibre_pass = (form.get("calibre_password") or "").strip()
-    calibre_library = (form.get("calibre_library_id") or "").strip()
+    # Calibre OPDS
+    calibre_enabled = coerce_bool(form.get("calibre_opds_enabled"), False)
+    calibre_url = (form.get("calibre_opds_base_url") or "").strip()
+    calibre_user = (form.get("calibre_opds_username") or "").strip()
+    calibre_pass = (form.get("calibre_opds_password") or "").strip()
+    calibre_verify = coerce_bool(form.get("calibre_opds_verify_ssl"), True)
     
-    current["integrations"]["calibre"] = {
+    # Preserve existing password if not provided and not cleared
+    if not calibre_pass and not coerce_bool(form.get("calibre_opds_password_clear"), False):
+        existing_calibre = current["integrations"].get("calibre_opds", {})
+        calibre_pass = existing_calibre.get("password", "")
+    
+    current["integrations"]["calibre_opds"] = {
         "enabled": calibre_enabled,
-        "url": calibre_url,
+        "base_url": calibre_url,
         "username": calibre_user,
         "password": calibre_pass,
-        "library_id": calibre_library,
+        "verify_ssl": calibre_verify,
     }
 
     save_settings(current)
