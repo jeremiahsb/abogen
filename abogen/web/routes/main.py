@@ -328,7 +328,7 @@ def wizard_cancel():
         remove_pending_job(pending_id)
     
     if wants_wizard_json():
-        return jsonify({"status": "cancelled", "redirect": url_for("main.index")})
+        return jsonify({"status": "cancelled", "redirect_url": url_for("main.index")})
         
     return redirect(url_for("main.index"))
 
@@ -356,7 +356,7 @@ def wizard_finish():
         return jsonify({
             "status": "submitted",
             "job_id": job_id,
-            "redirect": url_for("main.index"),
+            "redirect_url": url_for("main.index"),
             "jobs_panel": render_jobs_panel()
         })
         

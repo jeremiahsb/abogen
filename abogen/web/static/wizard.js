@@ -326,6 +326,7 @@ const submitWizardForm = async (form, submitter) => {
   const formData = new FormData(form);
   if (normalizedStepTarget) {
     formData.set("active_step", normalizedStepTarget);
+    formData.set("next_step", normalizedStepTarget);
   }
   if (submitter && submitter.name && !formData.has(submitter.name)) {
     formData.append(submitter.name, submitter.value ?? "");
