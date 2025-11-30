@@ -6,10 +6,20 @@ import unicodedata
 from fractions import Fraction
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+import logging
+
+logger = logging.getLogger(__name__)
+
 try:  # pragma: no cover - optional dependency guard
     from num2words import num2words
-except Exception:  # pragma: no cover - graceful degradation
-    num2words = None  # type: ignore
+except ImportError:
+    num2words = None
+    logger.warning("num2words library not found. Number normalization will be disabled.")
+except Exception as e:  # pragma: no cover - graceful degradation
+    num2words = None
+    logger.error(f"Failed to import num2words: {e}")
+
+HAS_NUM2WORDS = num2words is not None
 
 if TYPE_CHECKING:  # pragma: no cover - type checking only
     from abogen.llm_client import LLMCompletion
@@ -48,6 +58,7 @@ class ApostropheConfig:
     lowercase_for_matching: bool = True           # Normalize to lower for rule matching (not output)
     protect_cultural_names: bool = True           # Always keep O'Brien, D'Angelo, etc.
     convert_numbers: bool = True                  # Convert grouped numbers such as 12,500 to words
+    convert_currency: bool = True                 # Convert currency symbols to words
     number_lang: str = "en"                       # num2words language code
     year_pronunciation_mode: str = "american"     # off|american (extend if needed)
     contraction_categories: Dict[str, bool] = field(default_factory=lambda: dict(CONTRACTION_CATEGORY_DEFAULTS))
@@ -107,6 +118,11 @@ _FRACTION_SLASH_CLASS = re.escape(_FRACTION_SLASHES)
 _FRACTION_RE = re.compile(
     rf"(?<!\w)(?P<numerator>-?\d+)\s*[{_FRACTION_SLASH_CLASS}]\s*(?P<denominator>-?\d+)(?![\w{_FRACTION_SLASH_CLASS}])"
 )
+
+_CURRENCY_RE = re.compile(
+    r"(?P<symbol>[$£€¥])\s*(?P<amount>\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)(?!\d)"
+)
+
 _DECIMAL_NUMBER_RE = re.compile(
     rf"(?<![\w{_NUMBER_RANGE_CLASS}/])(?P<number>-?(?:\d{{1,3}}(?:,\d{{3}})+|\d+)\.(?P<fraction>\d+))(?![\w{_NUMBER_RANGE_CLASS}/])"
 )
@@ -1478,7 +1494,34 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
         spoken = f"{integer_words} point {' '.join(digit_words)}"
         return f"minus {spoken}" if is_negative else spoken
 
+    def _replace_currency(match: re.Match[str]) -> str:
+        if num2words is None:
+            return match.group(0)
+            
+        symbol = match.group("symbol")
+        amount_str = match.group("amount").replace(",", "")
+        try:
+            amount = float(amount_str)
+        except ValueError:
+            return match.group(0)
+
+        currency_map = {
+            "$": "USD",
+            "£": "GBP",
+            "€": "EUR",
+            "¥": "JPY",
+        }
+        currency_code = currency_map.get(symbol, "USD")
+        
+        try:
+            words = num2words(amount, to="currency", currency=currency_code, lang=language)
+            return words
+        except Exception:
+            return match.group(0)
+
     normalized = text
+    if cfg.convert_currency:
+        normalized = _CURRENCY_RE.sub(_replace_currency, normalized)
     normalized = _NUMBER_RANGE_RE.sub(lambda m: _replace_number_range(m, language), normalized)
     normalized = _NUMBER_SPACE_RANGE_RE.sub(lambda m: _replace_space_separated_range(m, language), normalized)
     normalized = _FRACTION_RE.sub(lambda m: _replace_fraction(m, language), normalized)

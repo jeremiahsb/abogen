@@ -156,6 +156,14 @@ class AudiobookshelfClient:
             metadata_payload["chapters"] = list(chapters)
 
         if metadata_payload:
+            # Ensure authors is a list of strings in the JSON payload if it exists
+            if "authors" in metadata_payload:
+                authors_val = metadata_payload["authors"]
+                if isinstance(authors_val, str):
+                    metadata_payload["authors"] = [a.strip() for a in authors_val.split(",") if a.strip()]
+                elif isinstance(authors_val, list):
+                    metadata_payload["authors"] = [str(a).strip() for a in authors_val if str(a).strip()]
+
             try:
                 fields["metadata"] = json.dumps(metadata_payload, ensure_ascii=False)
             except (TypeError, ValueError):
@@ -603,6 +611,7 @@ class AudiobookshelfClient:
         if isinstance(authors, Iterable) and not isinstance(authors, (str, Mapping)):
             names = [str(entry).strip() for entry in authors if isinstance(entry, str) and entry.strip()]
             if names:
+                # ABS expects a comma-separated string for multiple authors.
                 return ", ".join(names)
         return ""
 

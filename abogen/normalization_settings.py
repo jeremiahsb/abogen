@@ -32,6 +32,7 @@ _SETTINGS_DEFAULTS: Dict[str, Any] = {
     "llm_context_mode": "sentence",
     "normalization_numbers": True,
     "normalization_numbers_year_style": "american",
+    "normalization_currency": True,
     "normalization_titles": True,
     "normalization_terminal": True,
     "normalization_phoneme_hints": True,
@@ -172,6 +173,7 @@ def build_apostrophe_config(
 ) -> ApostropheConfig:
     config = replace(base or ApostropheConfig())
     config.convert_numbers = bool(settings.get("normalization_numbers", True))
+    config.convert_currency = bool(settings.get("normalization_currency", True))
     config.year_pronunciation_mode = str(settings.get("normalization_numbers_year_style", "american") or "").strip().lower()
     config.add_phoneme_hints = bool(settings.get("normalization_phoneme_hints", True))
     config.contraction_mode = "expand" if settings.get("normalization_apostrophes_contractions", True) else "keep"

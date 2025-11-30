@@ -22,7 +22,7 @@ import static_ffmpeg
 
 from abogen.constants import VOICES_INTERNAL
 from abogen.epub3.exporter import build_epub3_package
-from abogen.kokoro_text_normalization import ApostropheConfig, normalize_for_pipeline
+from abogen.kokoro_text_normalization import ApostropheConfig, normalize_for_pipeline, HAS_NUM2WORDS
 from abogen.normalization_settings import (
     build_apostrophe_config,
     build_llm_configuration,
@@ -125,7 +125,30 @@ def _simplify_heading_text(text: str) -> str:
 def _headings_equivalent(left: str, right: str) -> bool:
     simple_left = _simplify_heading_text(left)
     simple_right = _simplify_heading_text(right)
-    return bool(simple_left and simple_left == simple_right)
+    if not simple_left or not simple_right:
+        return False
+    
+    # Exact match
+    if simple_left == simple_right:
+        return True
+        
+    # Check if one is a prefix of the other (e.g. "Chapter 2" vs "Chapter 2: The Return")
+    # But be careful not to match "Chapter 1" with "Chapter 10"
+    # _simplify_heading_text removes "chapter" prefix, so we are comparing "2" vs "2thereturn"
+    
+    # If left is "2" and right is "2thereturn", left is prefix of right.
+    if simple_right.startswith(simple_left):
+        return True
+        
+    # If left is "2thereturn" and right is "2", right is prefix of left.
+    if simple_left.startswith(simple_right):
+        return True
+        
+    # Also check if the line is contained in the heading if it's long enough
+    if len(simple_left) > 5 and simple_left in simple_right:
+        return True
+        
+    return False
 
 
 def _format_spoken_chapter_title(title: str, index: int, apply_prefix: bool) -> str:
@@ -1247,6 +1270,15 @@ def run_conversion_job(job: Job) -> None:
         settings=normalization_settings,
         base=_APOSTROPHE_CONFIG,
     )
+    
+    if apostrophe_config.convert_numbers and not HAS_NUM2WORDS:
+        job.add_log(
+            "Number normalization is enabled but 'num2words' library is not available. "
+            "Numbers (including years) will NOT be converted to words. "
+            "Please install 'num2words' to enable this feature.",
+            level="warning"
+        )
+
     apostrophe_mode = str(normalization_settings.get("normalization_apostrophe_mode", "spacy")).lower()
     if apostrophe_mode == "llm":
         llm_config = build_llm_configuration(normalization_settings)
