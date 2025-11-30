@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional, cast
 from flask import Blueprint, redirect, render_template, request, url_for, jsonify, current_app
 from werkzeug.utils import secure_filename
 
-from abogen.web.service import PendingJob
+from abogen.web.service import PendingJob, JobStatus
 from abogen.web.routes.utils.service import get_service, remove_pending_job, submit_job
 from abogen.web.routes.utils.settings import load_settings
 from abogen.web.routes.utils.voice import template_options
@@ -48,11 +48,21 @@ def index():
         step_name = steps[min(step_index, len(steps)-1)]
         return redirect(url_for("main.wizard_step", step=step_name, pending_id=pending.id))
 
+    jobs = get_service().list_jobs()
+    stats = {
+        "total": len(jobs),
+        "completed": sum(1 for j in jobs if j.status == JobStatus.COMPLETED),
+        "running": sum(1 for j in jobs if j.status == JobStatus.RUNNING),
+        "pending": sum(1 for j in jobs if j.status == JobStatus.PENDING),
+        "failed": sum(1 for j in jobs if j.status == JobStatus.FAILED),
+    }
+
     return render_template(
         "index.html",
         options=template_options(),
         settings=load_settings(),
         jobs_panel=render_jobs_panel(),
+        stats=stats,
     )
 
 @main_bp.route("/wizard")
