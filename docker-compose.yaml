@@ -33,6 +33,9 @@ services:
     # below if you are deploying to a CPU-only host.
     deploy:
       resources:
+        limits:
+          cpus: '4.0'
+          memory: 8G
         reservations:
           devices:
             - capabilities: [gpu]

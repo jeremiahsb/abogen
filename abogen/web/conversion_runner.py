@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import traceback
+import gc
 from datetime import datetime
 from collections import defaultdict
 from contextlib import ExitStack
@@ -1948,6 +1949,17 @@ def run_conversion_job(job: Job) -> None:
         sink_stack.close()
         if subtitle_writer:
             subtitle_writer.close()
+
+        # Explicitly release the pipeline and force garbage collection to prevent
+        # memory accumulation in the worker process, which can lead to host lockups.
+        pipeline = None
+        gc.collect()
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
 
         if (
             audio_output_path
