@@ -228,8 +228,8 @@ class Job:
         }
 
 
-def _normalize_metadata_casefold(values: Optional[Mapping[str, Any]]) -> Dict[str, str]:
-    normalized: Dict[str, str] = {}
+def _normalize_metadata_casefold(values: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+    normalized: Dict[str, Any] = {}
     if not values:
         return normalized
     for key, value in values.items():
@@ -238,9 +238,12 @@ def _normalize_metadata_casefold(values: Optional[Mapping[str, Any]]) -> Dict[st
         key_text = str(key).strip().lower()
         if not key_text:
             continue
-        text = str(value).strip()
-        if text:
-            normalized[key_text] = text
+        if isinstance(value, (list, tuple, set)):
+            normalized[key_text] = value
+        else:
+            text = str(value).strip()
+            if text:
+                normalized[key_text] = text
     return normalized
 
 
@@ -304,10 +307,15 @@ def _split_simple_list(raw: Any) -> List[str]:
     return ordered
 
 
-def _first_nonempty(*values: Optional[str]) -> Optional[str]:
+def _first_nonempty(*values: Any) -> Optional[str]:
     for value in values:
         if value is None:
             continue
+        if isinstance(value, (list, tuple, set)):
+            items = list(value)
+            if not items:
+                continue
+            value = items[0]
         text = str(value).strip()
         if text:
             return text
