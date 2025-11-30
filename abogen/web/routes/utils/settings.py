@@ -367,6 +367,14 @@ def load_integration_settings() -> Dict[str, Dict[str, Any]]:
 
 def stored_integration_config(name: str) -> Dict[str, Any]:
     cfg = load_config() or {}
+    # Check under "integrations" first (new structure)
+    integrations = cfg.get("integrations")
+    if isinstance(integrations, Mapping):
+        entry = integrations.get(name)
+        if isinstance(entry, Mapping):
+            return dict(entry)
+    
+    # Fallback to top-level (legacy structure)
     entry = cfg.get(name)
     if isinstance(entry, Mapping):
         return dict(entry)

@@ -1159,6 +1159,7 @@ const initPrepare = (root = document) => {
     const entityRowTemplate = entityTabs.querySelector('template[data-role="entity-row-template"]');
     const entitiesRefreshButton = entitySummaryContainer?.querySelector('[data-role="entities-refresh"]');
     const entitySpinner = entitySummaryContainer?.querySelector('[data-role="entities-spinner"]');
+    const globalEntitySpinner = entityTabs.querySelector('[data-role="global-entity-spinner"]');
 
     const manualOverridesRoot = entityTabs.querySelector('[data-role="manual-overrides"]');
     const manualOverrideList = manualOverridesRoot?.querySelector('[data-role="manual-override-list"]');
@@ -1331,6 +1332,9 @@ const initPrepare = (root = document) => {
     };
 
     const setEntitiesLoading = (isLoading) => {
+      if (globalEntitySpinner) {
+        globalEntitySpinner.hidden = !isLoading;
+      }
       if (!entitySummaryContainer) {
         return;
       }

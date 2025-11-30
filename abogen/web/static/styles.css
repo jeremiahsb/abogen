@@ -4225,3 +4225,23 @@ input[data-state="locked"] {
     transform: rotate(360deg);
   }
 }
+
+.entity-tabs__status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.875rem;
+  padding-right: 1rem;
+}
+
+.entity-tabs__status-text {
+  font-weight: 500;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
