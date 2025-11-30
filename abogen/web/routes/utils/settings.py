@@ -579,10 +579,7 @@ def audiobookshelf_manual_available() -> bool:
     settings = stored_integration_config("audiobookshelf")
     if not settings:
         return False
-    if not coerce_bool(settings.get("enabled"), False):
-        return False
-    config = build_audiobookshelf_config(settings)
-    return config is not None
+    return coerce_bool(settings.get("enabled"), False)
 
 
 def build_calibre_client(settings: Mapping[str, Any]) -> CalibreOPDSClient:

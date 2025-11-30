@@ -1730,7 +1730,9 @@ const initPrepare = (root = document) => {
       }
 
       if (peopleStatsNode) {
-        if (!peopleEntries.length) {
+        if (errors.length) {
+          peopleStatsNode.textContent = errors.join(" · ");
+        } else if (!peopleEntries.length) {
           peopleStatsNode.textContent = "No characters detected yet.";
         } else if (!peopleRender.visible) {
           peopleStatsNode.textContent = "Adjust the mention filter to see additional characters.";
