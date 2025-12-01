@@ -26,7 +26,12 @@
             <div class="progress-bar" style="--progress: {{ progress_value }}%">
               <div class="progress-bar__fill"></div>
             </div>
-            <small>{{ progress_value }}% · {{ job.processed_characters }} / {{ job.total_characters or '—' }}</small>
+            <div class="job-card__progress-meta">
+              <small>{{ progress_value }}% · {{ job.processed_characters }} / {{ job.total_characters or '—' }}</small>
+              {% if job.estimated_time_remaining %}
+                <small class="job-card__eta">~{{ job.estimated_time_remaining | durationformat }} remaining</small>
+              {% endif %}
+            </div>
           </div>
           <div class="job-card__footer">
             <a class="button button--ghost" href="{{ url_for('jobs.job_detail', job_id=job.id) }}">Details</a>

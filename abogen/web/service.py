@@ -148,13 +148,24 @@ class Job:
     generate_epub3: bool = False
     speaker_analysis: Dict[str, Any] = field(default_factory=dict)
     speaker_analysis_threshold: int = 3
-    analysis_requested: bool = False
-    speaker_voice_languages: List[str] = field(default_factory=list)
-    applied_speaker_config: Optional[str] = None
-    entity_summary: Dict[str, Any] = field(default_factory=dict)
-    manual_overrides: List[Dict[str, Any]] = field(default_factory=list)
-    pronunciation_overrides: List[Dict[str, Any]] = field(default_factory=list)
-    normalization_overrides: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def estimated_time_remaining(self) -> Optional[float]:
+        """
+        Returns the estimated seconds remaining based on current progress and elapsed time.
+        Returns None if the job hasn't started, is finished, or progress is 0.
+        """
+        if self.status != JobStatus.RUNNING or not self.started_at or self.progress <= 0:
+            return None
+        
+        elapsed = time.time() - self.started_at
+        if elapsed <= 0:
+            return None
+            
+        # Estimate total time based on current progress
+        total_estimated = elapsed / self.progress
+        remaining = total_estimated - elapsed
+        return max(0.0, remaining)
 
     def add_log(self, message: str, level: str = "info") -> None:
         entry = JobLog(timestamp=time.time(), message=message, level=level)
@@ -1589,8 +1600,8 @@ def default_storage_root() -> Path:
 def build_service(
     runner: Callable[[Job], None],
     *,
-    output_root: Optional[Path] = None,
-    uploads_root: Optional[Path] = None,
+    output_root: Optional<Path] = None,
+    uploads_root: Optional<Path] = None,
 ) -> ConversionService:
     output_root = output_root or default_storage_root()
     service = ConversionService(

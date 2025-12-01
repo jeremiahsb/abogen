@@ -1910,6 +1910,17 @@ button.step-indicator__item:focus-visible {
   color: var(--muted);
 }
 
+.job-card__progress-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.job-card__eta {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .job-card__footer {
   display: flex;
   flex-wrap: wrap;

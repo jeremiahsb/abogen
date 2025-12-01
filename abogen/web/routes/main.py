@@ -35,6 +35,21 @@ def datetimeformat(value: float, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
     from datetime import datetime
     return datetime.fromtimestamp(value).strftime(fmt)
 
+@main_bp.app_template_filter("durationformat")
+def durationformat(value: Optional[float]) -> str:
+    if value is None:
+        return ""
+    seconds = int(value)
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes = seconds // 60
+    seconds = seconds % 60
+    if minutes < 60:
+        return f"{minutes}m {seconds}s"
+    hours = minutes // 60
+    minutes = minutes % 60
+    return f"{hours}h {minutes}m"
+
 @main_bp.route("/")
 def index():
     pending_id = request.args.get("pending_id")
