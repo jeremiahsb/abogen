@@ -134,6 +134,11 @@ def _resolve_apostrophe_s(token: Token) -> Optional[ContractionResolution]:
     if prev_lower == "let":
         return _resolution(prev, token, "us", "contraction_let_us", "us")
 
+    # Special check for 's been -> has been, overriding lemma
+    next_content = _next_content_token(token)
+    if next_content and next_content.text.lower() == "been":
+        return _resolution(prev, token, "has", "contraction_aux_have", "have")
+
     lemma = token.lemma_.lower()
     if not lemma:
         lemma = "be" if _favors_be(token) else "have" if _favors_have(token) else "be"

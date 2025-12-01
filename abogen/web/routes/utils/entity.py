@@ -7,6 +7,7 @@ from abogen.entity_analysis import (
     extract_entities,
     merge_override,
     normalize_token as normalize_entity_token,
+    normalize_manual_override_token,
     search_tokens as search_entity_tokens,
 )
 from abogen.pronunciation_store import (
@@ -84,7 +85,7 @@ def collect_pronunciation_overrides(pending: PendingJob) -> List[Dict[str, Any]]
         pronunciation_value = str(manual_entry.get("pronunciation") or "").strip()
         if not token_value or not pronunciation_value:
             continue
-        normalized = manual_entry.get("normalized") or normalize_entity_token(token_value)
+        normalized = manual_entry.get("normalized") or normalize_manual_override_token(token_value)
         if not normalized:
             continue
         collected[normalized] = {
@@ -196,7 +197,7 @@ def upsert_manual_override(pending: PendingJob, payload: Mapping[str, Any]) -> D
     voice_value = str(payload.get("voice") or "").strip()
     notes_value = str(payload.get("notes") or "").strip()
     context_value = str(payload.get("context") or "").strip()
-    normalized = payload.get("normalized") or normalize_entity_token(token_value)
+    normalized = payload.get("normalized") or normalize_manual_override_token(token_value)
     if not normalized:
         raise ValueError("Token is required")
 

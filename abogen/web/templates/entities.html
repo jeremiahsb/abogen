@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}abogen · Entities{% endblock %}
+{% block title %}abogen · TTS Overrides{% endblock %}
 
 {% block content %}
 <section
@@ -9,7 +9,7 @@
   data-preview-url="{{ url_for('api.api_entity_pronunciation_preview') }}"
   data-language="{{ language }}"
 >
-  <h1 class="card__title">Entities &amp; Pronunciation Overrides</h1>
+  <h1 class="card__title">TTS Overrides &amp; Pronunciation</h1>
   <p class="card__subtitle">Review and refine stored pronunciations so recurring names sound right in every project.</p>
   <form class="entity-filter" method="get">
     <div class="entity-filter__row">

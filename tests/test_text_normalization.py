@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from unittest.mock import patch
 
 from abogen.kokoro_text_normalization import (
     DEFAULT_APOSTROPHE_CONFIG,
@@ -254,3 +255,31 @@ def test_modal_will_contractions_can_be_disabled() -> None:
         normalization_overrides={"normalization_contraction_modal_will": False},
     )
     assert "captain'll" in normalized
+
+
+@pytest.fixture(autouse=True)
+def mock_settings():
+    defaults = {
+        "normalization_numbers": True,
+        "normalization_titles": True,
+        "normalization_terminal": True,
+        "normalization_phoneme_hints": True,
+        "normalization_caps_quotes": True,
+        "normalization_apostrophes_contractions": True,
+        "normalization_apostrophes_plural_possessives": True,
+        "normalization_apostrophes_sibilant_possessives": True,
+        "normalization_apostrophes_decades": True,
+        "normalization_apostrophes_leading_elisions": True,
+        "normalization_apostrophe_mode": "spacy",
+        "normalization_contraction_aux_be": True,
+        "normalization_contraction_aux_have": True,
+        "normalization_contraction_modal_will": True,
+        "normalization_contraction_modal_would": True,
+        "normalization_contraction_negation_not": True,
+        "normalization_contraction_let_us": True,
+        "normalization_currency": True,
+        "normalization_footnotes": True,
+        "normalization_numbers_year_style": "american",
+    }
+    with patch("tests.test_text_normalization.get_runtime_settings", return_value=defaults):
+        yield

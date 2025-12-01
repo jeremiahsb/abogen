@@ -442,3 +442,12 @@ def merge_override(summary: Mapping[str, Any], overrides: Mapping[str, Mapping[s
 
 def normalize_token(token: str) -> str:
     return _token_key(_normalize_label(token))
+
+
+def normalize_manual_override_token(token: str) -> str:
+    if not token:
+        return ""
+    stripped = token.strip().strip("\"'`“”’")
+    if not stripped:
+        return ""
+    return _MULTI_SPACE_PATTERN.sub(" ", stripped.lower()).strip()

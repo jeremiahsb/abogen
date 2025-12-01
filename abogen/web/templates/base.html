@@ -18,8 +18,8 @@
     <nav class="top-actions">
       {% set endpoint = request.endpoint or '' %}
     <a href="{{ url_for('main.index') }}" class="btn{% if endpoint == 'main.index' %} is-active{% endif %}">Dashboard</a>
-  <a href="{{ url_for('voices.voice_profiles') }}" class="btn{% if endpoint == 'voices.voice_profiles' %} is-active{% endif %}">Voice Mixer</a>
-    <a href="{{ url_for('entities.entities_page') }}" class="btn{% if endpoint == 'entities.entities_page' %} is-active{% endif %}">Entities</a>
+    <a href="{{ url_for('voices.voice_profiles') }}" class="btn{% if endpoint == 'voices.voice_profiles' %} is-active{% endif %}">Voice Mixer</a>
+    <a href="{{ url_for('entities.entities_page') }}" class="btn{% if endpoint == 'entities.entities_page' %} is-active{% endif %}">TTS Overrides</a>
     <a href="{{ url_for('books.find_books_page') }}" class="btn{% if endpoint == 'books.find_books_page' %} is-active{% endif %}">Find Books</a>
   <a href="{{ url_for('jobs.queue_page') }}" class="btn{% if endpoint in ['jobs.queue_page', 'jobs.job_detail'] %} is-active{% endif %}">Queue</a>
     <a href="{{ url_for('settings.settings_page') }}" class="btn{% if endpoint == 'settings.settings_page' %} is-active{% endif %}">Settings</a>

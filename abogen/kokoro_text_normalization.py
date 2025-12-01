@@ -59,6 +59,7 @@ class ApostropheConfig:
     protect_cultural_names: bool = True           # Always keep O'Brien, D'Angelo, etc.
     convert_numbers: bool = True                  # Convert grouped numbers such as 12,500 to words
     convert_currency: bool = True                 # Convert currency symbols to words
+    remove_footnotes: bool = True                 # Remove footnote indicators
     number_lang: str = "en"                       # num2words language code
     year_pronunciation_mode: str = "american"     # off|american (extend if needed)
     contraction_categories: Dict[str, bool] = field(default_factory=lambda: dict(CONTRACTION_CATEGORY_DEFAULTS))
@@ -122,6 +123,10 @@ _FRACTION_RE = re.compile(
 _CURRENCY_RE = re.compile(
     r"(?P<symbol>[$£€¥])\s*(?P<amount>\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)(?!\d)"
 )
+
+_URL_RE = re.compile(r"(https?://)?(www\.)?(?P<domain>[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+)(/[^\s]*)?")
+_FOOTNOTE_RE = re.compile(r"([a-zA-Z]+)(\d+)")
+_BRACKET_FOOTNOTE_RE = re.compile(r"\[\d+\]")
 
 _DECIMAL_NUMBER_RE = re.compile(
     rf"(?<![\w{_NUMBER_RANGE_CLASS}/])(?P<number>-?(?:\d{{1,3}}(?:,\d{{3}})+|\d+)\.(?P<fraction>\d+))(?![\w{_NUMBER_RANGE_CLASS}/])"
@@ -486,6 +491,7 @@ _ROMAN_CARDINAL_CONTEXTS = {
     "volume",
     "war",
     "world",
+    "world war",
 }
 _ROMAN_NAME_TITLES = {
     "baron",
@@ -702,14 +708,20 @@ def _normalize_roman_numerals(text: str, language: str) -> str:
                         replacement = f"{context_word} {words}"
         else:
             candidate = token.upper()
-            if len(token) >= 2 and _ROMAN_TOKEN_RE.match(candidate):
+            is_roman = _ROMAN_TOKEN_RE.match(candidate)
+            if is_roman:
                 numeric_value = _roman_to_int(candidate)
                 if numeric_value is not None:
                     convert = False
-                    if token.isupper():
-                        convert = True
-                    elif numeric_value <= 200 and _has_cardinal_leading_context(tokens, index):
-                        convert = True
+                    if len(token) >= 2:
+                        if token.isupper():
+                            convert = True
+                        elif numeric_value <= 200 and _has_cardinal_leading_context(tokens, index):
+                            convert = True
+                    elif len(token) == 1:
+                        # Only convert single letters if context is strong
+                        if _has_cardinal_leading_context(tokens, index):
+                            convert = True
 
                     if convert:
                         if _should_render_ordinal(tokens, index, numeric_value):
@@ -1340,6 +1352,13 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
             return words
 
         if style == "american":
+            # Special handling for 2000-2009 to use "two thousand X"
+            if 2000 <= value <= 2009:
+                words = _words(value)
+                if words:
+                    return words.replace(" and ", " ")
+                return None
+
             if value % 1000 == 0:
                 thousands = value // 1000
                 thousands_words = _words(thousands)
@@ -1349,52 +1368,17 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
 
             first_two = value // 100
             last_two = value % 100
-
-            # Special handling to match common American pronunciations.
-            if first_two == 20:
-                if last_two == 0:
-                    return "two thousand"
-                if last_two < 10:
-                    tail_word = _words(last_two)
-                    if tail_word:
-                        return f"two thousand {tail_word}"
-                    return None
-                prefix = _words(first_two)
-                tail = _words(last_two)
-                if prefix and tail:
-                    return f"{prefix} {tail}"
-                return prefix
-
+            
             prefix = _words(first_two)
             if not prefix:
                 return None
 
-            if first_two == 10:
-                if last_two == 0:
-                    return "one thousand"
-                tail = _format_year_tail(last_two)
-                if tail:
-                    return f"{prefix} {tail}"
-                return prefix
-
-            if first_two <= 12:
-                if last_two == 0:
-                    return f"{prefix} hundred"
-                tail = _format_year_tail(last_two)
-                if tail:
-                    return f"{prefix} hundred {tail}"
-                return f"{prefix} hundred"
-
-            if first_two <= 19:
-                if last_two == 0:
-                    return f"{prefix} hundred"
-                tail = _format_year_tail(last_two)
-                if tail:
-                    return f"{prefix} {tail}"
-                return prefix
-
             if last_two == 0:
                 return f"{prefix} hundred"
+            
+            if last_two < 10:
+                # Use "hundred oh X" format (e.g. "twelve hundred oh four")
+                return f"{prefix} hundred oh {_DIGIT_WORDS[last_two]}"
 
             tail = _format_year_tail(last_two)
             if tail:
@@ -1500,6 +1484,7 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
             
         symbol = match.group("symbol")
         amount_str = match.group("amount").replace(",", "")
+        # print(f"DEBUG: symbol={symbol} amount_str={amount_str}")
         try:
             amount = float(amount_str)
         except ValueError:
@@ -1514,12 +1499,51 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
         currency_code = currency_map.get(symbol, "USD")
         
         try:
+            # Always use float to avoid num2words treating int as cents (if that's what it does)
+            # or to ensure consistent behavior.
             words = num2words(amount, to="currency", currency=currency_code, lang=language)
+            
+            # Remove "zero cents" if present
+            # Patterns: ", zero cents", " and zero cents"
+            words = words.replace(", zero cents", "").replace(" and zero cents", "")
             return words
         except Exception:
             return match.group(0)
 
+    def _replace_url(match: re.Match[str]) -> str:
+        domain = match.group("domain")
+        
+        # Avoid matching numbers like 1.05 or 12.34.56
+        # If the domain consists only of digits and dots, ignore it (unless it has http/www prefix)
+        has_prefix = match.group(1) or match.group(2)
+        if not has_prefix and all(c.isdigit() or c == '.' or c == '-' for c in domain):
+             # Check if it really looks like a number (e.g. 1.05)
+             # If it has multiple dots like 1.2.3.4 it might be an IP, which we might want to speak as dot?
+             # But 1.05 is definitely a number.
+             # Let's be safe: if it looks like a float, skip.
+             try:
+                 float(domain)
+                 return match.group(0)
+             except ValueError:
+                 pass
+        
+        if domain.startswith("www."):
+            domain = domain[4:]
+        spoken = domain.replace(".", " dot ")
+        return spoken
+
+    def _remove_footnote(match: re.Match[str]) -> str:
+        return match.group(1)
+
     normalized = text
+    
+    # Apply URL replacement first
+    normalized = _URL_RE.sub(_replace_url, normalized)
+    
+    if getattr(cfg, "remove_footnotes", False):
+        normalized = _FOOTNOTE_RE.sub(_remove_footnote, normalized)
+        normalized = _BRACKET_FOOTNOTE_RE.sub("", normalized)
+
     if cfg.convert_currency:
         normalized = _CURRENCY_RE.sub(_replace_currency, normalized)
     normalized = _NUMBER_RANGE_RE.sub(lambda m: _replace_number_range(m, language), normalized)

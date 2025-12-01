@@ -33,6 +33,7 @@ _SETTINGS_DEFAULTS: Dict[str, Any] = {
     "normalization_numbers": True,
     "normalization_numbers_year_style": "american",
     "normalization_currency": True,
+    "normalization_footnotes": True,
     "normalization_titles": True,
     "normalization_terminal": True,
     "normalization_phoneme_hints": True,
