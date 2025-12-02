@@ -600,6 +600,46 @@ def apply_book_step_form(
 
     pending.applied_speaker_config = (form.get("speaker_config") or "").strip() or None
 
+    # Metadata updates
+    if "meta_title" in form:
+        pending.metadata_tags["title"] = str(form.get("meta_title", "")).strip()
+
+    if "meta_subtitle" in form:
+        pending.metadata_tags["subtitle"] = str(form.get("meta_subtitle", "")).strip()
+
+    if "meta_author" in form:
+        authors = str(form.get("meta_author", "")).strip()
+        pending.metadata_tags["authors"] = authors
+        pending.metadata_tags["author"] = authors
+
+    if "meta_series" in form:
+        series = str(form.get("meta_series", "")).strip()
+        pending.metadata_tags["series"] = series
+        pending.metadata_tags["series_name"] = series
+        pending.metadata_tags["seriesname"] = series
+        pending.metadata_tags["series_title"] = series
+        pending.metadata_tags["seriestitle"] = series
+        # If user manually edits series, update opds_series too so it persists
+        if "opds_series" in pending.metadata_tags:
+            pending.metadata_tags["opds_series"] = series
+
+    if "meta_series_index" in form:
+        idx = str(form.get("meta_series_index", "")).strip()
+        pending.metadata_tags["series_index"] = idx
+        pending.metadata_tags["series_sequence"] = idx
+
+    if "meta_publisher" in form:
+        pending.metadata_tags["publisher"] = str(form.get("meta_publisher", "")).strip()
+
+    if "meta_description" in form:
+        desc = str(form.get("meta_description", "")).strip()
+        pending.metadata_tags["description"] = desc
+        pending.metadata_tags["summary"] = desc
+
+    if coerce_bool(form.get("remove_cover"), False):
+        pending.cover_image_path = None
+        pending.cover_image_mime = None
+
 def persist_cover_image(extraction_result: Any, stored_path: Path) -> tuple[Optional[Path], Optional[str]]:
     cover_bytes = getattr(extraction_result, "cover_image", None)
     if not cover_bytes:

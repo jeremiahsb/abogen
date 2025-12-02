@@ -225,6 +225,7 @@ def api_calibre_opds_import() -> ResponseReturnValue:
 
         raw_series = metadata_payload.get("series") or metadata_payload.get("series_name")
         series_name = str(raw_series or "").strip()
+        
         if series_name:
             metadata_overrides["series"] = series_name
             metadata_overrides.setdefault("series_name", series_name)
@@ -257,6 +258,18 @@ def api_calibre_opds_import() -> ResponseReturnValue:
             if description_text:
                 metadata_overrides.setdefault("description", description_text)
                 metadata_overrides.setdefault("summary", description_text)
+
+        subtitle_value = metadata_payload.get("subtitle")
+        if subtitle_value:
+            subtitle_text = _stringify_metadata_value(subtitle_value)
+            if subtitle_text:
+                metadata_overrides.setdefault("subtitle", subtitle_text)
+
+        publisher_value = metadata_payload.get("publisher")
+        if publisher_value:
+            publisher_text = _stringify_metadata_value(publisher_value)
+            if publisher_text:
+                metadata_overrides.setdefault("publisher", publisher_text)
 
     settings = load_settings()
     integrations = load_integration_settings()
