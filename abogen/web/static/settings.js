@@ -531,8 +531,11 @@ function collectNormalizationSettings() {
   }
   const normalization = {
     normalization_numbers: Boolean(form.querySelector('input[name="normalization_numbers"]')?.checked),
+    normalization_currency: Boolean(form.querySelector('input[name="normalization_currency"]')?.checked),
     normalization_titles: Boolean(form.querySelector('input[name="normalization_titles"]')?.checked),
+    normalization_footnotes: Boolean(form.querySelector('input[name="normalization_footnotes"]')?.checked),
     normalization_terminal: Boolean(form.querySelector('input[name="normalization_terminal"]')?.checked),
+    normalization_caps_quotes: Boolean(form.querySelector('input[name="normalization_caps_quotes"]')?.checked),
     normalization_phoneme_hints: Boolean(form.querySelector('input[name="normalization_phoneme_hints"]')?.checked),
     normalization_apostrophes_contractions: Boolean(form.querySelector('input[name="normalization_apostrophes_contractions"]')?.checked),
     normalization_apostrophes_plural_possessives: Boolean(form.querySelector('input[name="normalization_apostrophes_plural_possessives"]')?.checked),

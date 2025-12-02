@@ -58,6 +58,8 @@ _NORMALIZATION_BOOLEAN_KEYS = {
     "normalization_contraction_modal_would",
     "normalization_contraction_negation_not",
     "normalization_contraction_let_us",
+    "normalization_currency",
+    "normalization_footnotes",
 }
 
 _NORMALIZATION_STRING_KEYS = {
