@@ -480,19 +480,6 @@ const initDashboard = () => {
     }
   };
 
-  const selectFirstProfileIfAvailable = () => {
-    if (!profileSelect) return false;
-    const saved = Array.from(profileSelect.options).filter(
-      (option) => option.value && option.value !== "__standard" && option.value !== "__formula",
-    );
-    if (!saved.length) {
-      profileSelect.value = "__standard";
-      return false;
-    }
-    saved[0].selected = true;
-    return true;
-  };
-
   const applySavedProfile = (option) => {
     if (!option) return;
     const presetFormula = option.dataset.formula || "";
@@ -562,15 +549,11 @@ const initDashboard = () => {
   };
 
   if (profileSelect) {
-    const hasSaved = selectFirstProfileIfAvailable();
     if (profileSelect.dataset.dashboardBound !== "true") {
       profileSelect.dataset.dashboardBound = "true";
       profileSelect.addEventListener("change", updateVoiceControls);
     }
     updateVoiceControls();
-    if (!hasSaved) {
-      hydrateDefaultVoice();
-    }
   } else {
     hydrateDefaultVoice();
   }

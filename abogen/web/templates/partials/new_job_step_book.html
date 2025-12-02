@@ -127,88 +127,6 @@
   {% set narrator_voice = '' %}
 {% endif %}
 {% set normalization_overrides = pending.normalization_overrides if pending and pending.normalization_overrides else {} %}
-{% set normalization_toggles = [
-  {
-    'name': 'normalization_numbers',
-    'label': "Convert grouped numbers to words",
-    'value': normalization_overrides.get('normalization_numbers', settings_dict.get('normalization_numbers', True)),
-  },
-  {
-    'name': 'normalization_titles',
-    'label': "Expand titles and suffixes (Dr., St., Jr., …)",
-    'value': normalization_overrides.get('normalization_titles', settings_dict.get('normalization_titles', True)),
-  },
-  {
-    'name': 'normalization_terminal',
-    'label': "Ensure sentences end with terminal punctuation",
-    'value': normalization_overrides.get('normalization_terminal', settings_dict.get('normalization_terminal', True)),
-  },
-  {
-    'name': 'normalization_phoneme_hints',
-    'label': "Apply phoneme hints for common abbreviations",
-    'value': normalization_overrides.get('normalization_phoneme_hints', settings_dict.get('normalization_phoneme_hints', True)),
-  },
-  {
-    'name': 'normalization_caps_quotes',
-    'label': "Convert ALL CAPS dialogue inside quotes",
-    'value': normalization_overrides.get('normalization_caps_quotes', settings_dict.get('normalization_caps_quotes', True)),
-  },
-  {
-    'name': 'normalization_apostrophes_contractions',
-    'label': "Expand contractions (it's -> it is)",
-    'value': normalization_overrides.get('normalization_apostrophes_contractions', settings_dict.get('normalization_apostrophes_contractions', True)),
-  },
-  {
-    'name': 'normalization_apostrophes_plural_possessives',
-    'label': "Collapse plural possessives (dogs' -> dogs)",
-    'value': normalization_overrides.get('normalization_apostrophes_plural_possessives', settings_dict.get('normalization_apostrophes_plural_possessives', True)),
-  },
-  {
-    'name': 'normalization_apostrophes_sibilant_possessives',
-    'label': "Mark sibilant possessives (boss's -> boss + IZ marker)",
-    'value': normalization_overrides.get('normalization_apostrophes_sibilant_possessives', settings_dict.get('normalization_apostrophes_sibilant_possessives', True)),
-  },
-  {
-    'name': 'normalization_apostrophes_decades',
-    'label': "Expand decades ('90s -> 1990s)",
-    'value': normalization_overrides.get('normalization_apostrophes_decades', settings_dict.get('normalization_apostrophes_decades', True)),
-  },
-  {
-    'name': 'normalization_apostrophes_leading_elisions',
-    'label': "Expand leading elisions ('tis -> it is)",
-    'value': normalization_overrides.get('normalization_apostrophes_leading_elisions', settings_dict.get('normalization_apostrophes_leading_elisions', True)),
-  },
-  {
-    'name': 'normalization_contraction_aux_be',
-    'label': "Expand auxiliary 'be' (I'm -> I am)",
-    'value': normalization_overrides.get('normalization_contraction_aux_be', settings_dict.get('normalization_contraction_aux_be', True)),
-  },
-  {
-    'name': 'normalization_contraction_aux_have',
-    'label': "Expand auxiliary 'have' (I've -> I have)",
-    'value': normalization_overrides.get('normalization_contraction_aux_have', settings_dict.get('normalization_contraction_aux_have', True)),
-  },
-  {
-    'name': 'normalization_contraction_modal_will',
-    'label': "Expand modal 'will' (I'll -> I will)",
-    'value': normalization_overrides.get('normalization_contraction_modal_will', settings_dict.get('normalization_contraction_modal_will', True)),
-  },
-  {
-    'name': 'normalization_contraction_modal_would',
-    'label': "Expand modal 'would' (I'd -> I would)",
-    'value': normalization_overrides.get('normalization_contraction_modal_would', settings_dict.get('normalization_contraction_modal_would', True)),
-  },
-  {
-    'name': 'normalization_contraction_negation_not',
-    'label': "Expand negation 'not' (don't -> do not)",
-    'value': normalization_overrides.get('normalization_contraction_negation_not', settings_dict.get('normalization_contraction_negation_not', True)),
-  },
-  {
-    'name': 'normalization_contraction_let_us',
-    'label': "Expand 'let's' -> let us",
-    'value': normalization_overrides.get('normalization_contraction_let_us', settings_dict.get('normalization_contraction_let_us', True)),
-  },
-] %}
 {% set voice_formula_value = '' %}
 {% set profile_value = narrator_profile if narrator_profile else '__standard' %}
 {% if profile_value == '__formula' %}
@@ -371,14 +289,16 @@
             <option value="off" {% if normalization_overrides.get('normalization_numbers_year_style', settings_dict.get('normalization_numbers_year_style', 'american')) == 'off' %}selected{% endif %}>Off (read as number)</option>
           </select>
         </div>
-  {% for toggle in normalization_toggles %}
+        {% for group in options.normalization_groups %}
+        {% for option in group.options %}
         <div class="field field--stack">
           <label class="toggle-pill">
-            <input type="hidden" name="{{ toggle.name }}" value="false">
-            <input type="checkbox" name="{{ toggle.name }}" value="true" {% if toggle.value %}checked{% endif %} {{ 'disabled' if readonly else '' }}>
-            <span>{{ toggle.label }}</span>
+            <input type="hidden" name="{{ option.key }}" value="false">
+            <input type="checkbox" name="{{ option.key }}" value="true" {% if normalization_overrides.get(option.key, settings_dict.get(option.key, True)) %}checked{% endif %} {{ 'disabled' if readonly else '' }}>
+            <span>{{ option.label }}</span>
           </label>
         </div>
+        {% endfor %}
         {% endfor %}
       </div>
     </section>

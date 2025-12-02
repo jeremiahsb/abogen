@@ -283,38 +283,10 @@
         </section>
 
         <section class="settings-panel" data-section="normalization">
+          {% for group in options.normalization_groups %}
           <fieldset class="settings__section">
-            <legend>General Rules</legend>
-            <div class="field field--choices">
-              <label class="toggle-pill">
-                <input type="checkbox" name="normalization_numbers" value="true" {% if settings.normalization_numbers %}checked{% endif %}>
-                <span>Convert grouped numbers to words</span>
-              </label>
-              <label class="toggle-pill">
-                <input type="checkbox" name="normalization_currency" value="true" {% if settings.normalization_currency %}checked{% endif %}>
-                <span>Convert currency symbols ($10 &rarr; ten dollars)</span>
-              </label>
-              <label class="toggle-pill">
-                <input type="checkbox" name="normalization_titles" value="true" {% if settings.normalization_titles %}checked{% endif %}>
-                <span>Expand titles and suffixes (Dr., St., Jr., …)</span>
-              </label>
-              <label class="toggle-pill">
-                <input type="checkbox" name="normalization_footnotes" value="true" {% if settings.normalization_footnotes %}checked{% endif %}>
-                <span>Remove footnote indicators ([1], [2])</span>
-              </label>
-              <label class="toggle-pill">
-                <input type="checkbox" name="normalization_terminal" value="true" {% if settings.normalization_terminal %}checked{% endif %}>
-                <span>Ensure sentences end with terminal punctuation</span>
-              </label>
-              <label class="toggle-pill">
-                <input type="checkbox" name="normalization_caps_quotes" value="true" {% if settings.normalization_caps_quotes %}checked{% endif %}>
-                <span>Convert ALL CAPS dialogue inside quotes</span>
-              </label>
-            </div>
-          </fieldset>
-
-          <fieldset class="settings__section">
-            <legend>Apostrophes &amp; Contractions</legend>
+            <legend>{{ group.label }}</legend>
+            {% if group.label == "Apostrophes & Contractions" %}
             <div class="field">
               <span class="field__label">Strategy</span>
               <div class="choices choices--inline">
@@ -329,38 +301,23 @@
               <p class="hint hint--warning">Configure the LLM connection before using it for audiobook runs.</p>
               {% endif %}
             </div>
-
+            {% endif %}
             <div class="field field--choices">
+              {% for option in group.options %}
               <label class="toggle-pill">
-                <input type="checkbox" name="normalization_apostrophes_contractions" value="true" {% if settings.normalization_apostrophes_contractions %}checked{% endif %}>
-                <span>Expand contractions ("it's" &rarr; "it is")</span>
+                <input type="checkbox" name="{{ option.key }}" value="true" {% if settings[option.key] %}checked{% endif %}>
+                <span>{{ option.label }}</span>
               </label>
-              <label class="toggle-pill">
-                <input type="checkbox" name="normalization_apostrophes_plural_possessives" value="true" {% if settings.normalization_apostrophes_plural_possessives %}checked{% endif %}>
-                <span>Collapse plural possessives (dogs' &rarr; dogs)</span>
-              </label>
-              <label class="toggle-pill">
-                <input type="checkbox" name="normalization_apostrophes_sibilant_possessives" value="true" {% if settings.normalization_apostrophes_sibilant_possessives %}checked{% endif %}>
-                <span>Add guidance for sibilant possessives (boss's &rarr; boss + IZ marker)</span>
-              </label>
-              <label class="toggle-pill">
-                <input type="checkbox" name="normalization_apostrophes_decades" value="true" {% if settings.normalization_apostrophes_decades %}checked{% endif %}>
-                <span>Expand decades ('90s &rarr; 1990s)</span>
-              </label>
-              <label class="toggle-pill">
-                <input type="checkbox" name="normalization_apostrophes_leading_elisions" value="true" {% if settings.normalization_apostrophes_leading_elisions %}checked{% endif %}>
-                <span>Expand leading elisions ('tis &rarr; it is)</span>
-              </label>
-              <label class="toggle-pill">
-                <input type="checkbox" name="normalization_phoneme_hints" value="true" {% if settings.normalization_phoneme_hints %}checked{% endif %}>
-                <span>Add phoneme hints for possessives</span>
-              </label>
+              {% endfor %}
             </div>
+            {% if group.label == "Apostrophes & Contractions" %}
             <div class="field field--inline field--actions">
               <button type="button" class="button button--ghost button--small" data-action="contraction-modal-open">Advanced Contraction Settings…</button>
               <p class="hint">Choose which contraction families are expanded.</p>
             </div>
+            {% endif %}
           </fieldset>
+          {% endfor %}
 
           <fieldset class="settings__section">
             <legend>Sample &amp; Preview</legend>

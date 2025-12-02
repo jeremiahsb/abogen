@@ -4,7 +4,7 @@ import numpy as np
 
 from abogen.speaker_configs import slugify_label
 from abogen.speaker_analysis import analyze_speakers
-from abogen.web.routes.utils.settings import load_settings, settings_defaults, _DEFAULT_ANALYSIS_THRESHOLD, _CHUNK_LEVEL_OPTIONS, _APOSTROPHE_MODE_OPTIONS
+from abogen.web.routes.utils.settings import load_settings, settings_defaults, _DEFAULT_ANALYSIS_THRESHOLD, _CHUNK_LEVEL_OPTIONS, _APOSTROPHE_MODE_OPTIONS, _NORMALIZATION_GROUPS
 from abogen.web.routes.utils.common import split_profile_spec
 from abogen.voice_profiles import (
     load_profiles,
@@ -605,6 +605,7 @@ def template_options() -> Dict[str, Any]:
             "speaker_pronunciation_sentence", settings_defaults()["speaker_pronunciation_sentence"]
         ),
         "apostrophe_modes": _APOSTROPHE_MODE_OPTIONS,
+        "normalization_groups": _NORMALIZATION_GROUPS,
     }
 
 

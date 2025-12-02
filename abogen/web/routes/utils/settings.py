@@ -100,6 +100,38 @@ BOOLEAN_SETTINGS = {
 FLOAT_SETTINGS = {"silence_between_chapters", "chapter_intro_delay", "llm_timeout"}
 INT_SETTINGS = {"max_subtitle_words", "speaker_analysis_threshold"}
 
+_NORMALIZATION_GROUPS = [
+    {
+        "label": "General Rules",
+        "options": [
+            {"key": "normalization_numbers", "label": "Convert grouped numbers to words"},
+            {"key": "normalization_currency", "label": "Convert currency symbols ($10 → ten dollars)"},
+            {"key": "normalization_titles", "label": "Expand titles and suffixes (Dr., St., Jr., …)"},
+            {"key": "normalization_footnotes", "label": "Remove footnote indicators ([1], [2])"},
+            {"key": "normalization_terminal", "label": "Ensure sentences end with terminal punctuation"},
+            {"key": "normalization_caps_quotes", "label": "Convert ALL CAPS dialogue inside quotes"},
+        ]
+    },
+    {
+        "label": "Apostrophes & Contractions",
+        "options": [
+            {"key": "normalization_apostrophes_contractions", "label": "Expand contractions (it's → it is)"},
+            {"key": "normalization_apostrophes_plural_possessives", "label": "Collapse plural possessives (dogs' → dogs)"},
+            {"key": "normalization_apostrophes_sibilant_possessives", "label": "Mark sibilant possessives (boss's → boss + IZ marker)"},
+            {"key": "normalization_apostrophes_decades", "label": "Expand decades ('90s → 1990s)"},
+            {"key": "normalization_apostrophes_leading_elisions", "label": "Expand leading elisions ('tis → it is)"},
+            {"key": "normalization_phoneme_hints", "label": "Add phoneme hints for possessives"},
+            {"key": "normalization_contraction_aux_be", "label": "Expand auxiliary 'be' (I'm → I am)"},
+            {"key": "normalization_contraction_aux_have", "label": "Expand auxiliary 'have' (I've → I have)"},
+            {"key": "normalization_contraction_modal_will", "label": "Expand modal 'will' (I'll → I will)"},
+            {"key": "normalization_contraction_modal_would", "label": "Expand modal 'would' (I'd → I would)"},
+            {"key": "normalization_contraction_negation_not", "label": "Expand negation 'not' (don't → do not)"},
+            {"key": "normalization_contraction_let_us", "label": "Expand 'let's' → let us"},
+        ]
+    }
+]
+
+
 def integration_defaults() -> Dict[str, Dict[str, Any]]:
     return {
         "calibre_opds": {

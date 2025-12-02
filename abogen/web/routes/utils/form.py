@@ -802,6 +802,34 @@ def build_pending_job_from_extraction(
         apply_config=bool(speaker_config_payload),
     )
 
+    def _extract_checkbox(name: str, default: bool) -> bool:
+        values: List[str] = []
+        getter = getattr(form, "getlist", None)
+        if callable(getter):
+            raw_values = getter(name)
+            if raw_values:
+                values = list(cast(Iterable[str], raw_values))
+        else:
+            raw_flag = form.get(name)
+            if raw_flag is not None:
+                values = [raw_flag]
+        if values:
+            return coerce_bool(values[-1], default)
+        return default
+
+    normalization_overrides = {}
+    for key in _NORMALIZATION_BOOLEAN_KEYS:
+        default_val = bool(settings.get(key, True))
+        normalization_overrides[key] = _extract_checkbox(key, default_val)
+
+    for key in _NORMALIZATION_STRING_KEYS:
+        default_val = str(settings.get(key, ""))
+        val = form.get(key)
+        if val is not None:
+            normalization_overrides[key] = str(val)
+        else:
+            normalization_overrides[key] = default_val
+
     pending = PendingJob(
         id=uuid.uuid4().hex,
         original_filename=original_name,
@@ -826,10 +854,7 @@ def build_pending_job_from_extraction(
         max_subtitle_words=max_subtitle_words,
         metadata_tags=metadata_tags,
         chapters=chapters_payload,
-        normalization_overrides={
-            **{key: bool(settings.get(key, True)) for key in _NORMALIZATION_BOOLEAN_KEYS},
-            **{key: str(settings.get(key, "")) for key in _NORMALIZATION_STRING_KEYS},
-        },
+        normalization_overrides=normalization_overrides,
         created_at=time.time(),
         cover_image_path=cover_path,
         cover_image_mime=cover_mime,
