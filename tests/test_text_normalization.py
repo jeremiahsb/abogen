@@ -283,3 +283,26 @@ def mock_settings():
     }
     with patch("tests.test_text_normalization.get_runtime_settings", return_value=defaults):
         yield
+
+def test_currency_magnitude():
+    cases = [
+        ("$2 million", "two million dollars"),
+        ("$2.5 million", "two point five million dollars"),
+        ("$100 billion", "one hundred billion dollars"),
+        ("$1.2 trillion", "one point two trillion dollars"),
+        ("$2.55 million", "two point five five million dollars"),
+        ("$1 million", "one million dollars"),
+        ("$0.5 million", "zero point five million dollars"),
+        ("$2.50", "two dollars, fifty cents"),
+        ("$100", "one hundred dollars"),
+    ]
+    
+    settings = {
+        "normalization_numbers": True,
+        "normalization_currency": True,
+        "normalization_apostrophe_mode": "spacy"
+    }
+    
+    for input_text, expected in cases:
+        normalized = _normalize_text(input_text, normalization_overrides=settings)
+        assert expected.lower() in normalized.lower(), f"Failed for {input_text}: got '{normalized}'"

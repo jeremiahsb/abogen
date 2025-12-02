@@ -121,7 +121,8 @@ _FRACTION_RE = re.compile(
 )
 
 _CURRENCY_RE = re.compile(
-    r"(?P<symbol>[$£€¥])\s*(?P<amount>\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)(?!\d)"
+    r"(?P<symbol>[$£€¥])\s*(?P<amount>\d{1,3}(?:,\d{3})*(?:\.\d+)?)(?:\s+(?P<magnitude>hundred|thousand|million|billion|trillion|quadrillion))?(?!\d)",
+    re.IGNORECASE
 )
 
 _URL_RE = re.compile(r"(https?://)?(www\.)?(?P<domain>[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+)(/[^\s]*)?")
@@ -1484,11 +1485,39 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
             
         symbol = match.group("symbol")
         amount_str = match.group("amount").replace(",", "")
-        # print(f"DEBUG: symbol={symbol} amount_str={amount_str}")
+        magnitude = match.group("magnitude")
+
         try:
             amount = float(amount_str)
         except ValueError:
             return match.group(0)
+
+        if magnitude:
+            # Magnitude case: $2.5 million -> two point five million dollars
+            if "." in amount_str:
+                integer_part, fraction_part = amount_str.split(".", 1)
+                integer_val = int(integer_part)
+                integer_words = _int_to_words(integer_val, language)
+                
+                # Spell out fraction digits
+                digit_words = []
+                for digit in fraction_part:
+                    if digit.isdigit():
+                        digit_words.append(_DIGIT_WORDS[int(digit)])
+                
+                amount_spoken = f"{integer_words} point {' '.join(digit_words)}"
+            else:
+                amount_spoken = _int_to_words(int(amount), language)
+            
+            currency_names = {
+                "$": "dollars",
+                "£": "pounds",
+                "€": "euros",
+                "¥": "yen",
+            }
+            currency_name = currency_names.get(symbol, "dollars")
+            
+            return f"{amount_spoken} {magnitude} {currency_name}"
 
         currency_map = {
             "$": "USD",
