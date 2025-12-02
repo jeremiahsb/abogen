@@ -238,3 +238,30 @@ def increment_usage(*, language: str, token: str, amount: int = 1) -> None:
             conn.commit()
         finally:
             conn.close()
+
+
+def get_override_stats(language: str) -> Dict[str, int]:
+    with _DB_LOCK:
+        conn = _connect()
+        try:
+            _ensure_schema(conn)
+            cursor = conn.execute(
+                """
+                SELECT 
+                    COUNT(*) as total,
+                    COUNT(CASE WHEN pronunciation IS NOT NULL AND pronunciation != '' THEN 1 END) as with_pronunciation,
+                    COUNT(CASE WHEN voice IS NOT NULL AND voice != '' THEN 1 END) as with_voice
+                FROM overrides 
+                WHERE language=?
+                """,
+                (language,),
+            )
+            row = cursor.fetchone()
+            return {
+                "total": row[0],
+                "filtered": row[0],
+                "with_pronunciation": row[1],
+                "with_voice": row[2],
+            }
+        finally:
+            conn.close()

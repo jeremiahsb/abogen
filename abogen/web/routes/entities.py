@@ -15,6 +15,7 @@ from abogen.web.routes.utils.voice import template_options
 from abogen.pronunciation_store import (
     delete_override as delete_pronunciation_override,
     save_override as save_pronunciation_override,
+    get_override_stats,
 )
 
 entities_bp = Blueprint("entities", __name__)
@@ -128,8 +129,12 @@ def entities_page() -> str:
     settings = load_settings()
     lang = request.args.get("lang") or settings.get("language", "en")
     options = template_options()
+    stats = get_override_stats(lang)
+    language_label = options["languages"].get(lang, lang)
     return render_template(
         "entities.html",
         language=lang,
+        language_label=language_label,
         languages=options["languages"].items(),
+        stats=stats,
     )
