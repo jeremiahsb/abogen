@@ -1378,8 +1378,8 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
                 return f"{prefix} hundred"
             
             if last_two < 10:
-                # Use "hundred oh X" format (e.g. "twelve hundred oh four")
-                return f"{prefix} hundred oh {_DIGIT_WORDS[last_two]}"
+                # Use "oh X" format (e.g. "nineteen oh five")
+                return f"{prefix} oh {_DIGIT_WORDS[last_two]}"
 
             tail = _format_year_tail(last_two)
             if tail:
@@ -1425,9 +1425,27 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
         value = _coerce_int_token(token)
         if value is None:
             return token
-        year_like = _format_year_like(token, value)
-        if year_like:
-            return year_like
+
+        # Check context for "address" vs year markers to avoid converting house numbers to years
+        window_start = max(0, start - 60)
+        window_end = min(len(source), end + 60)
+        context = source[window_start:window_end].lower()
+
+        # Check for "address" or "addresses" as a whole word
+        has_address = bool(re.search(r"\baddress(es)?\b", context))
+        
+        # Check for year markers as whole words
+        has_year_marker = bool(re.search(r"\b(bc|ad|bce|ce|b\.c\.|a\.d\.|b\.c\.e\.|c\.e\.)\b", context))
+
+        should_try_year = True
+        if has_address and not has_year_marker:
+            should_try_year = False
+
+        if should_try_year:
+            year_like = _format_year_like(token, value)
+            if year_like:
+                return year_like
+
         if num2words is None:
             return str(value)
         words = _int_to_words(value, language)
