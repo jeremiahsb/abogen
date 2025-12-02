@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import shutil
 import threading
 import time
@@ -25,10 +26,70 @@ def _store_path() -> Path:
     return target
 
 
+def _migrate_legacy_sqlite(target_json_path: Path) -> None:
+    try:
+        base_dir = Path(get_user_settings_dir())
+    except ModuleNotFoundError:
+        base_dir = Path(get_internal_cache_path("pronunciations"))
+    
+    sqlite_path = base_dir / "pronunciations.db"
+    if not sqlite_path.exists():
+        return
+
+    try:
+        conn = sqlite3.connect(sqlite_path)
+        conn.row_factory = sqlite3.Row
+        
+        # Check if table exists
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='overrides'")
+        if not cursor.fetchone():
+            conn.close()
+            return
+
+        cursor = conn.execute("SELECT * FROM overrides")
+        rows = cursor.fetchall()
+        
+        data = {"version": _SCHEMA_VERSION, "overrides": {}}
+        
+        for row in rows:
+            lang = row["language"]
+            if lang not in data["overrides"]:
+                data["overrides"][lang] = {}
+            
+            entry = {
+                "id": str(row["id"]),
+                "normalized": row["normalized"],
+                "token": row["token"],
+                "language": row["language"],
+                "pronunciation": row["pronunciation"],
+                "voice": row["voice"],
+                "notes": row["notes"],
+                "context": row["context"],
+                "usage_count": row["usage_count"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            data["overrides"][lang][row["normalized"]] = entry
+            
+        conn.close()
+        
+        # Save to JSON
+        with open(target_json_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            
+        # Rename old DB
+        sqlite_path.rename(sqlite_path.with_suffix(".db.bak"))
+        
+    except Exception:
+        pass
+
+
 def _load_db() -> Dict[str, Any]:
     path = _store_path()
     if not path.exists():
-        return {"version": _SCHEMA_VERSION, "overrides": {}}
+        _migrate_legacy_sqlite(path)
+        if not path.exists():
+            return {"version": _SCHEMA_VERSION, "overrides": {}}
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
