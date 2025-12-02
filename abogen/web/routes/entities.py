@@ -16,6 +16,7 @@ from abogen.pronunciation_store import (
     delete_override as delete_pronunciation_override,
     save_override as save_pronunciation_override,
     get_override_stats,
+    all_overrides,
 )
 
 entities_bp = Blueprint("entities", __name__)
@@ -128,13 +129,46 @@ def upsert_global_override() -> ResponseReturnValue:
 def entities_page() -> str:
     settings = load_settings()
     lang = request.args.get("lang") or settings.get("language", "en")
+    voice_filter = request.args.get("voice", "")
+    pronunciation_filter = request.args.get("pronunciation", "")
+
     options = template_options()
     stats = get_override_stats(lang)
+    
+    overrides = all_overrides(lang)
+    
+    if voice_filter == "assigned":
+        overrides = [o for o in overrides if o.get("voice")]
+    elif voice_filter == "unassigned":
+        overrides = [o for o in overrides if not o.get("voice")]
+        
+    if pronunciation_filter == "defined":
+        overrides = [o for o in overrides if o.get("pronunciation")]
+    elif pronunciation_filter == "undefined":
+        overrides = [o for o in overrides if not o.get("pronunciation")]
+
+    voice_filter_options = [
+        {"value": "", "label": "All voices"},
+        {"value": "assigned", "label": "Assigned"},
+        {"value": "unassigned", "label": "Unassigned"},
+    ]
+    pronunciation_filter_options = [
+        {"value": "", "label": "All pronunciations"},
+        {"value": "defined", "label": "Defined"},
+        {"value": "undefined", "label": "Undefined"},
+    ]
+
     language_label = options["languages"].get(lang, lang)
     return render_template(
         "entities.html",
         language=lang,
         language_label=language_label,
+        options=options,
         languages=options["languages"].items(),
         stats=stats,
+        overrides=overrides,
+        voice_filter=voice_filter,
+        pronunciation_filter=pronunciation_filter,
+        voice_filter_options=voice_filter_options,
+        pronunciation_filter_options=pronunciation_filter_options,
     )

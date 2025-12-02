@@ -109,7 +109,7 @@ def create_app(config: Optional[dict[str, Any]] = None) -> Flask:
     app.register_blueprint(jobs_bp, url_prefix="/jobs")
     app.register_blueprint(settings_bp, url_prefix="/settings")
     app.register_blueprint(voices_bp, url_prefix="/voices")
-    app.register_blueprint(entities_bp, url_prefix="/entities")
+    app.register_blueprint(entities_bp, url_prefix="/overrides")
     app.register_blueprint(books_bp, url_prefix="/find-books")
     app.register_blueprint(api_bp, url_prefix="/api")
 
