@@ -148,6 +148,13 @@ class Job:
     generate_epub3: bool = False
     speaker_analysis: Dict[str, Any] = field(default_factory=dict)
     speaker_analysis_threshold: int = 3
+    analysis_requested: bool = False
+    entity_summary: Dict[str, Any] = field(default_factory=dict)
+    manual_overrides: List[Dict[str, Any]] = field(default_factory=list)
+    pronunciation_overrides: List[Dict[str, Any]] = field(default_factory=list)
+    normalization_overrides: Dict[str, Any] = field(default_factory=dict)
+    speaker_voice_languages: List[str] = field(default_factory=list)
+    applied_speaker_config: Optional[str] = None
 
     @property
     def estimated_time_remaining(self) -> Optional[float]:
@@ -1600,8 +1607,8 @@ def default_storage_root() -> Path:
 def build_service(
     runner: Callable[[Job], None],
     *,
-    output_root: Optional<Path] = None,
-    uploads_root: Optional<Path] = None,
+    output_root: Optional[Path] = None,
+    uploads_root: Optional[Path] = None,
 ) -> ConversionService:
     output_root = output_root or default_storage_root()
     service = ConversionService(
