@@ -1,4 +1,5 @@
 {% set pending = pending if pending is defined else None %}
+{% set metadata = pending.metadata_tags if pending else {} %}
 {% set readonly = readonly if readonly is defined else False %}
 {% set settings_dict = settings if settings is defined else {} %}
 {% set options = options if options is defined else {} %}
@@ -225,32 +226,32 @@
       <div class="field-grid field-grid--compact">
         <div class="field field--span-2">
           <label for="meta_title">Title</label>
-          <input type="text" id="meta_title" name="meta_title" value="{{ pending.metadata_tags.get('title', '') }}" {{ 'disabled' if readonly else '' }}>
+          <input type="text" id="meta_title" name="meta_title" value="{{ metadata.get('title', '') }}" {{ 'disabled' if readonly else '' }}>
         </div>
         <div class="field field--span-2">
           <label for="meta_subtitle">Subtitle</label>
-          <input type="text" id="meta_subtitle" name="meta_subtitle" value="{{ pending.metadata_tags.get('subtitle', '') }}" {{ 'disabled' if readonly else '' }}>
+          <input type="text" id="meta_subtitle" name="meta_subtitle" value="{{ metadata.get('subtitle', '') }}" {{ 'disabled' if readonly else '' }}>
         </div>
         <div class="field field--span-2">
           <label for="meta_author">Author(s)</label>
-          <input type="text" id="meta_author" name="meta_author" value="{{ pending.metadata_tags.get('authors', '') or pending.metadata_tags.get('author', '') }}" {{ 'disabled' if readonly else '' }}>
+          <input type="text" id="meta_author" name="meta_author" value="{{ metadata.get('authors', '') or metadata.get('author', '') }}" {{ 'disabled' if readonly else '' }}>
           <p class="hint">Comma separated for multiple authors</p>
         </div>
         <div class="field">
           <label for="meta_series">Series</label>
-          <input type="text" id="meta_series" name="meta_series" value="{{ pending.metadata_tags.get('series', '') or pending.metadata_tags.get('series_name', '') }}" {{ 'disabled' if readonly else '' }}>
+          <input type="text" id="meta_series" name="meta_series" value="{{ metadata.get('series', '') or metadata.get('series_name', '') }}" {{ 'disabled' if readonly else '' }}>
         </div>
         <div class="field">
           <label for="meta_series_index">Series Index</label>
-          <input type="text" id="meta_series_index" name="meta_series_index" value="{{ pending.metadata_tags.get('series_index', '') or pending.metadata_tags.get('series_sequence', '') }}" {{ 'disabled' if readonly else '' }}>
+          <input type="text" id="meta_series_index" name="meta_series_index" value="{{ metadata.get('series_index', '') or metadata.get('series_sequence', '') }}" {{ 'disabled' if readonly else '' }}>
         </div>
         <div class="field field--span-2">
           <label for="meta_publisher">Publisher</label>
-          <input type="text" id="meta_publisher" name="meta_publisher" value="{{ pending.metadata_tags.get('publisher', '') }}" {{ 'disabled' if readonly else '' }}>
+          <input type="text" id="meta_publisher" name="meta_publisher" value="{{ metadata.get('publisher', '') }}" {{ 'disabled' if readonly else '' }}>
         </div>
         <div class="field field--span-2">
             <label for="meta_description">Description</label>
-            <textarea id="meta_description" name="meta_description" rows="3" {{ 'disabled' if readonly else '' }}>{{ pending.metadata_tags.get('description', '') or pending.metadata_tags.get('summary', '') }}</textarea>
+            <textarea id="meta_description" name="meta_description" rows="3" {{ 'disabled' if readonly else '' }}>{{ metadata.get('description', '') or metadata.get('summary', '') }}</textarea>
         </div>
          <div class="field field--stack field--span-2">
           <label class="toggle-pill">
@@ -258,7 +259,7 @@
             <input type="checkbox" name="remove_cover" value="true" {{ 'disabled' if readonly else '' }}>
             <span>Remove Cover Image</span>
           </label>
-          {% if pending.cover_image_path %}
+          {% if pending and pending.cover_image_path %}
             <p class="hint">Cover image currently exists.</p>
           {% else %}
              <p class="hint">No cover image found.</p>
