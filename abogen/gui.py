@@ -1980,6 +1980,13 @@ class abogen(QWidget):
                 queued_item, "replace_single_newlines", True
             )
             self.use_silent_gaps = getattr(queued_item, "use_silent_gaps", False)
+            # Restore save_chapters_separately and merge_chapters_at_end from queued item
+            self.save_chapters_separately = getattr(
+                queued_item, "save_chapters_separately", None
+            )
+            self.merge_chapters_at_end = getattr(
+                queued_item, "merge_chapters_at_end", None
+            )
             # Restore the original file path for save location
             self.displayed_file_path = (
                 queued_item.save_base_path or queued_item.file_name
