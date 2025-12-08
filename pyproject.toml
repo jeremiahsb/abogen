@@ -71,3 +71,77 @@ packages = ["abogen"]
 [tool.hatch.version]
 path = "abogen/VERSION"
 pattern = "^(?P<version>.+)$"
+
+# --- OPTIONAL DEPENDENCIES ---
+
+[project.optional-dependencies]
+# NVIDIA GPU (Windows) (CUDA 12.6)       # uv tool install abogen[cuda126]
+cuda126 = ["torch"]
+# NVIDIA GPU (Windows) (CUDA 12.8)       # uv tool install abogen[cuda]
+cuda = ["torch"]
+# NVIDIA GPU (Windows) (CUDA 13.0)       # uv tool install abogen[cuda130]
+cuda130 = ["torch"]
+# AMD GPU (Linux) (ROCm 6.4)             # uv tool install abogen[rocm]
+rocm = ["torch", "pytorch-triton-rocm"]
+
+# --- KOKORO CONFIGURATION (for macOS) ---
+
+[tool.uv.sources]
+kokoro = [
+  { git = "https://github.com/hexgrad/kokoro.git", marker = "sys_platform == 'darwin'" },
+  { index = "pypi", marker = "sys_platform != 'darwin'" }
+]
+
+# --- TORCH CONFIGURATION ---
+
+torch = [
+  # ROCm 6.4 Nightly (AMD)
+  { index = "pytorch-rocm-64-nightly", marker = "extra == 'rocm'" },
+
+  # CUDA 13.0 (NVIDIA)
+  { index = "pytorch-cuda-130", marker = "extra == 'cuda130' and extra != 'rocm'" },
+
+  # CUDA 12.6 (NVIDIA)
+  { index = "pytorch-cuda-126", marker = "extra == 'cuda126' and extra != 'rocm' and extra != 'cuda130'" },
+
+  # CUDA 12.8 (NVIDIA)
+  { index = "pytorch-cuda-128", marker = "extra == 'cuda' and extra != 'rocm' and extra != 'cuda130' and extra != 'cuda126'" }
+]
+
+# --- TRITON CONFIGURATION ---
+
+pytorch-triton-rocm = [
+  { index = "pytorch-rocm-64-nightly", marker = "extra == 'rocm'" }
+]
+
+# --- INDEX DEFINITIONS ---
+
+# PyPI Index
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
+# CUDA 12.6 Index
+[[tool.uv.index]]
+name = "pytorch-cuda-126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+# CUDA 12.8 Index
+[[tool.uv.index]]
+name = "pytorch-cuda-128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+# CUDA 13.0 Index
+[[tool.uv.index]]
+name = "pytorch-cuda-130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+# ROCm 6.4 Nightly Index
+[[tool.uv.index]]
+name = "pytorch-rocm-64-nightly"
+url = "https://download.pytorch.org/whl/nightly/rocm6.4"
+explicit = true
