@@ -3,6 +3,8 @@ import sys
 import platform
 import atexit
 import signal
+from abogen.utils import get_resource_path, load_config, prevent_sleep_end
+
 
 # Fix PyTorch DLL loading issue ([WinError 1114]) on Windows before importing PyQt6
 if platform.system() == "Windows":
@@ -20,6 +22,7 @@ if platform.system() == "Windows":
             ctypes.CDLL(os.path.normpath(dll_path))
     except Exception:
         pass
+
 
 # Qt platform plugin detection (fixes #59)
 try:
@@ -42,6 +45,28 @@ try:
 except ImportError:
     print("PyQt6 not installed.")
 
+
+# Pre-load "libxcb-cursor" on Linux (fixes #101)
+if platform.system() == "Linux":
+    arch = platform.machine().lower()
+    lib_filename = {"x86_64": "libxcb-cursor-amd64.so.0", "amd64": "libxcb-cursor-amd64.so.0", "aarch64": "libxcb-cursor-arm64.so.0", "arm64": "libxcb-cursor-arm64.so.0"}.get(arch)
+    if lib_filename:
+        import ctypes
+        try:
+            # Try to load the system libxcb-cursor.so.0 first
+            ctypes.CDLL('libxcb-cursor.so.0', mode=ctypes.RTLD_GLOBAL)
+        except OSError:
+            # System lib not available, load the bundled version
+            lib_path = get_resource_path('abogen.libs', lib_filename)
+            if lib_path:
+                try:
+                    ctypes.CDLL(lib_path, mode=ctypes.RTLD_GLOBAL)
+                except OSError:
+                    # If it fails (e.g. wrong glibc version on very old systems),
+                    # we simply ignore it and hope the system has the library.
+                    pass
+
+
 # Set application ID for Windows taskbar icon
 if platform.system() == "Windows":
     try:
@@ -63,8 +88,6 @@ from PyQt6.QtCore import (
 
 # Add the directory to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
-
-from abogen.utils import get_resource_path, load_config, prevent_sleep_end
 
 # Set Hugging Face Hub environment variables
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"  # Disable Hugging Face telemetry

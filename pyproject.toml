@@ -65,8 +65,14 @@ exclude = [
     "WINDOWS_INSTALL.bat",
 ]
 
+[tool.hatch.build.targets.sdist.force-include]
+"abogen/libs" = "abogen/libs"
+
 [tool.hatch.build.targets.wheel]
 packages = ["abogen"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"abogen/libs" = "abogen/libs"
 
 [tool.hatch.version]
 path = "abogen/VERSION"

@@ -1,7 +1,9 @@
 # 1.2.5 (Pre-release)
+- Fixed `Error "Could not load the Qt platform plugin "xcb"` error that occurred in some Linux distributions due to missing `libxcb-cursor0` library by conditionally loading the bundled library when the system version is unavailable, issue mentioned by @bmcgonag in #101.
 - Fixed the `No module named pip` error that occurred for users who installed Abogen via the [**uv**](https://github.com/astral-sh/uv) installer.
 - Fixed defaults for `replace_single_newlines` not being applied correctly in some cases.
 - Fixed `Save chapters separately for queued epubs is ignored`, issue mentioned by @dymas-cz in #109.
+- Improvements in code and documentation.
 
 # 1.2.4
 - **Subtitle generation is now available for all languages!** Abogen now supports subtitle generation for non-English languages using audio duration-based timing. Available modes include `Line`, `Sentence`, and `Sentence + Comma`. (Note: Word-level subtitle modes remain English-only due to Kokoro's timestamp token limitations.)
