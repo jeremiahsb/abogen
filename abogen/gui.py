@@ -1952,6 +1952,11 @@ class abogen(QWidget):
         dialog = QueueManager(self, self.queued_items)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.queued_items = dialog.get_queue()
+
+            # Reload config to capture the new "Override" setting
+            # The QueueManager writes to disk, so we must refresh our local copy
+            self.config = load_config()
+            
             # re-enable/disable buttons based on queue state
             self.enable_disable_queue_buttons()
 
@@ -1967,30 +1972,62 @@ class abogen(QWidget):
     def start_next_queued_item(self):
         if self.current_queue_index < len(self.queued_items):
             queued_item = self.queued_items[self.current_queue_index]
+            
             self.selected_file = queued_item.file_name
-            self.selected_lang = queued_item.lang_code
-            self.speed_slider.setValue(int(queued_item.speed * 100))
-            self.selected_voice = queued_item.voice
-            self.save_option = queued_item.save_option
-            self.selected_output_folder = queued_item.output_folder
-            self.subtitle_mode = queued_item.subtitle_mode
-            self.selected_format = queued_item.output_format
             self.char_count = queued_item.total_char_count
-            self.replace_single_newlines = getattr(
-                queued_item, "replace_single_newlines", True
+            
+            # Restore the original file path for save location (Important for EPUB/PDF)
+            self.displayed_file_path = (
+                queued_item.save_base_path or queued_item.file_name
             )
-            self.use_silent_gaps = getattr(queued_item, "use_silent_gaps", False)
-            # Restore save_chapters_separately and merge_chapters_at_end from queued item
+            
+            # Restore chapter options (Structure specific, must be preserved)
             self.save_chapters_separately = getattr(
                 queued_item, "save_chapters_separately", None
             )
             self.merge_chapters_at_end = getattr(
                 queued_item, "merge_chapters_at_end", None
             )
-            # Restore the original file path for save location
-            self.displayed_file_path = (
-                queued_item.save_base_path or queued_item.file_name
-            )
+
+            # CHECK GLOBAL OVERRIDE SETTING
+            if not self.config.get("queue_override_settings", False):
+                self.selected_lang = queued_item.lang_code
+                self.speed_slider.setValue(int(queued_item.speed * 100))
+                
+                # Load the specific voice string
+                self.selected_voice = queued_item.voice
+                # Clear complex GUI states so the specific voice string is used
+                self.mixed_voice_state = None
+                self.selected_profile_name = None
+
+                self.save_option = queued_item.save_option
+                self.selected_output_folder = queued_item.output_folder
+                self.subtitle_mode = queued_item.subtitle_mode
+                self.selected_format = queued_item.output_format
+                self.replace_single_newlines = getattr(
+                    queued_item, "replace_single_newlines", True
+                )
+                self.use_silent_gaps = getattr(queued_item, "use_silent_gaps", False)
+                self.subtitle_speed_method = getattr(
+                    queued_item, "subtitle_speed_method", "tts"
+                )
+
+                # This ensures that if conversion.py (or utils) reads from config/disk 
+                # instead of using passed arguments, it sees the correct queue values.
+                self.config["replace_single_newlines"] = self.replace_single_newlines
+                self.config["subtitle_mode"] = self.subtitle_mode
+                self.config["selected_format"] = self.selected_format
+                self.config["use_silent_gaps"] = self.use_silent_gaps
+                self.config["subtitle_speed_method"] = self.subtitle_speed_method
+                
+                # Sync Voice/Profile in config
+                self.config["selected_voice"] = self.selected_voice
+                if "selected_profile_name" in self.config:
+                    del self.config["selected_profile_name"]
+                
+                # Note: Speed is already synced via self.speed_slider.setValue() -> update_speed_label()
+                save_config(self.config)
+
             self.start_conversion(from_queue=True)
         else:
             # Queue finished, reset index
@@ -2188,36 +2225,95 @@ class abogen(QWidget):
         threading.Thread(target=gpu_and_load, daemon=True).start()
 
     def show_queue_summary(self):
-        """Show a styled, resizable summary dialog after queue finishes."""
+        """Show a summary dialog after queue finishes."""
         if not self.queued_items:
             return
 
-        # Build HTML summary for better styling
+        # Check if override was active (this determines which settings were ACTUALLY used)
+        override_active = self.config.get("queue_override_settings", False)
+
+        # If override is ON, capture the global settings that were used for processing
+        if override_active:
+            g_voice = self.get_voice_formula()
+            g_lang = self.get_selected_lang(g_voice)
+            g_speed = self.speed_slider.value() / 100.0
+            g_sub_mode = self.get_actual_subtitle_mode()
+            g_format = self.selected_format
+            g_newlines = self.replace_single_newlines
+            g_silent_gaps = self.use_silent_gaps
+            g_speed_method = self.subtitle_speed_method
+        
+        # Build HTML summary (Default Styling)
         summary_html = "<html><body>"
+        
+        header_text = "Queue finished"
+        if override_active:
+            header_text += " (Global Settings Applied)"
+            
         summary_html += (
-            f"<h2 style='color:{COLORS['LIGHT_BG']};'>Queue finished</h2>"
+            f"<h2>{header_text}</h2>"
             f"Processed {len(self.queued_items)} items:<br><br>"
         )
 
         for idx, item in enumerate(self.queued_items, 1):
-            output = getattr(item, "output_path", None)
-            if not output:
-                output = "Unknown"
+            # Resolve Effective Settings
+            if override_active:
+                eff_lang = g_lang
+                eff_voice = g_voice
+                eff_speed = g_speed
+                eff_sub_mode = g_sub_mode
+                eff_format = g_format
+                eff_newlines = g_newlines
+                eff_silent = g_silent_gaps
+                eff_method = g_speed_method
+            else:
+                eff_lang = item.lang_code
+                eff_voice = item.voice
+                eff_speed = item.speed
+                eff_sub_mode = item.subtitle_mode
+                eff_format = item.output_format
+                eff_newlines = getattr(item, "replace_single_newlines", True)
+                eff_silent = getattr(item, "use_silent_gaps", False)
+                eff_method = getattr(item, "subtitle_speed_method", "tts")
+
+            # Retrieve File-Specific Data (Never Overridden)
+            eff_chars = item.total_char_count
+            eff_input = item.file_name
+            eff_output = getattr(item, "output_path", "Unknown") 
+            eff_save_sep = getattr(item, "save_chapters_separately", None)
+            eff_merge = getattr(item, "merge_chapters_at_end", None)
+
+            # --- Construct Display Block ---
             summary_html += (
-                f"<span style='color:{COLORS['GREEN']}; font-weight:bold;'>{idx}) {os.path.basename(item.file_name)}</span><br>"
-                f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Language:</span> {item.lang_code}<br>"
-                f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Voice:</span> {item.voice}<br>"
-                f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Speed:</span> {item.speed}<br>"
-                f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Characters:</span> {item.total_char_count}<br>"
-                f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Input:</span> {item.file_name}<br>"
-                f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Output:</span> {output}</span>"
-                f"<br><br>"
+                f"<span style='color:{COLORS['GREEN']}; font-weight:bold;'>{idx}) {os.path.basename(eff_input)}</span><br>"
+                f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Language:</span> {eff_lang}<br>"
+                f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Voice:</span> {eff_voice}<br>"
+                f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Speed:</span> {eff_speed}<br>"
+                f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Characters:</span> {eff_chars}<br>"
+                f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Format:</span> {eff_format}<br>"
+                f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Subtitle Mode:</span> {eff_sub_mode}<br>"
+                f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Method:</span> {eff_method}<br>"
+                f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Silent Gaps:</span> {eff_silent}<br>"
+                f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Repl. Newlines:</span> {eff_newlines}<br>"
             )
+
+            # Book/Chapter specific options
+            if eff_save_sep is not None:
+                summary_html += f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Split Chapters:</span> {eff_save_sep}<br>"
+                if eff_save_sep and eff_merge is not None:
+                    summary_html += f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Merge End:</span> {eff_merge}<br>"
+
+            summary_html += (
+                f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Input:</span> {eff_input}<br>"
+                f"<span style='color:{COLORS['LIGHT_DISABLED']};'>Output:</span> {eff_output}<br><br>"
+            )
+
         summary_html += "</body></html>"
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Queue Summary")
-        dialog.resize(550, 650)  # Make window resizable and larger
+        # Allow resizing
+        dialog.resize(550, 650)
 
         layout = QVBoxLayout(dialog)
         text_edit = QTextEdit(dialog)
@@ -2232,7 +2328,7 @@ class abogen(QWidget):
 
         dialog.setLayout(layout)
         dialog.setMinimumSize(400, 300)
-        dialog.setSizeGripEnabled(True)  # Allow resizing
+        dialog.setSizeGripEnabled(True)
         dialog.exec()
 
     def on_conversion_finished(self, message, output_path):

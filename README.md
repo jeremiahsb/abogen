@@ -191,8 +191,9 @@ With voice mixer, you can create custom voices by mixing different voice models.
 
 Abogen supports **queue mode**, allowing you to add multiple files to a processing queue. This is useful if you want to convert several files in one batch.
 
-- You can add text files (`.txt`) directly using the **Add files** button in the Queue Manager. To add PDF, EPUB, or markdown files, use the input box in the main window and click the **Add to Queue** button.
+- You can add text files (`.txt`) and subtitle files (`.srt`, `.ass`, `.vtt`) directly using the **Add files** button in the Queue Manager or by dragging and dropping them into the queue list. To add PDF, EPUB, or markdown files, use the input box in the main window and click the **Add to Queue** button.
 - Each file in the queue keeps the configuration settings that were active when it was added. Changing the main window configuration afterward does **not** affect files already in the queue.
+- You can enable the **Override item settings with current selection** option to force all items in the queue to use the configuration currently selected in the main window, overriding their saved settings.
 - You can view each file's configuration by hovering over them.
 
 Abogen will process each item in the queue automatically, saving outputs as configured.

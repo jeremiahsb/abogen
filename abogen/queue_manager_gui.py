@@ -15,11 +15,27 @@ from PyQt6.QtWidgets import (
     QWidget,
     QSizePolicy,
     QAbstractItemView,
+    QCheckBox,
 )
 from PyQt6.QtCore import QFileInfo, Qt
 from abogen.constants import COLORS
 from copy import deepcopy
 from PyQt6.QtGui import QFontMetrics
+from abogen.utils import load_config, save_config
+
+# Define attributes that are safe to override with global settings
+OVERRIDE_FIELDS = [
+    "lang_code",
+    "speed",
+    "voice",
+    "save_option",
+    "output_folder",
+    "subtitle_mode",
+    "output_format",
+    "replace_single_newlines",
+    "use_silent_gaps",
+    "subtitle_speed_method",
+]
 
 
 class ElidedLabel(QLabel):
@@ -149,6 +165,8 @@ class QueueManager(QDialog):
             queue
         )  # Store a deep copy of the original queue
         self.parent = parent
+        self.config = load_config()  # Load config for persistence
+
         layout = QVBoxLayout()
         layout.setContentsMargins(15, 15, 15, 15)  # set main layout margins
         layout.setSpacing(12)  # set spacing between widgets in main layout
@@ -165,14 +183,27 @@ class QueueManager(QDialog):
             "<h2>How Queue Works?</h2>"
             "You can add text and subtitle files (.txt, .srt, .ass, .vtt) directly using the '<b>Add files</b>' button below. "
             "To add PDF, EPUB or markdown files, use the input box in the main window and click the <b>'Add to Queue'</b> button. "
-            "Each file in the queue keeps the configuration settings active when it was added. "
-            "Changing the main window configuration afterward <b>does not</b> affect files already in the queue. "
+            "By default, each file in the queue keeps the configuration settings active when they were added. "
+            "Enabling the <b>'Override item settings with current selection'</b> option below will force all items to use the configuration currently selected in the main window. "
             "You can view each file's configuration by hovering over them."
         )
         instructions.setAlignment(Qt.AlignmentFlag.AlignLeft)
         instructions.setWordWrap(True)
-        instructions.setStyleSheet("margin-bottom: 8px;")
         layout.addWidget(instructions)
+
+        # Override Checkbox
+        self.override_chk = QCheckBox("Override item settings with current selection")
+        self.override_chk.setToolTip(
+            "If checked, all items in the queue will be processed using the \n"
+            "settings currently selected in the main window, ignoring their saved state."
+        )
+        # Load saved state (default to False)
+        self.override_chk.setChecked(self.config.get("queue_override_settings", False))
+        # Trigger process_queue to update tooltips immediately when toggled
+        self.override_chk.stateChanged.connect(self.process_queue)
+        self.override_chk.setStyleSheet("margin-bottom: 8px;")
+        layout.addWidget(self.override_chk)
+
         # Overlay label for empty queue
         self.empty_overlay = QLabel(
             "Drag and drop your text or subtitle files here or use the 'Add files' button.",
@@ -245,8 +276,21 @@ class QueueManager(QDialog):
             return
         else:
             self.empty_overlay.hide()
+
+        # Get current global settings and checkbox state for overrides
+        current_global_settings = self.get_current_attributes()
+        is_override_active = self.override_chk.isChecked()
+
         icon_provider = QFileIconProvider()
         for item in self.queue:
+            # Dynamic Attribute Retrieval Helper
+            def get_val(attr, default=""):
+                # If override is ON and attr is overrideable, use global setting
+                if is_override_active and attr in OVERRIDE_FIELDS:
+                    return current_global_settings.get(attr, default)
+                # Otherwise return the item's saved attribute
+                return getattr(item, attr, default)
+
             # Determine display file path (prefer save_base_path for original file)
             display_file_path = getattr(item, "save_base_path", None) or item.file_name
             processing_file_path = item.file_name
@@ -271,8 +315,14 @@ class QueueManager(QDialog):
             # Get icon for the display file
             icon = icon_provider.icon(QFileInfo(display_file_path))
             list_item = QListWidgetItem()
-            # Set tooltip with detailed info
-            output_folder = getattr(item, "output_folder", "")
+
+            # Tooltip Generation
+            tooltip = ""
+            # If override is active, add the warning header on its own line
+            if is_override_active:
+                tooltip += "<b style='color: #ff9900;'>(Global Override Active)</b><br>"
+
+            output_folder = get_val("output_folder")
             # For plain .txt inputs we don't need to show a separate processing file
             show_processing = True
             try:
@@ -283,30 +333,31 @@ class QueueManager(QDialog):
             except Exception:
                 show_processing = True
 
-            tooltip = f"<b>Input File:</b> {display_file_path}<br>"
+            tooltip += f"<b>Input File:</b> {display_file_path}<br>"
             if (
                 show_processing
                 and processing_file_path
                 and processing_file_path != display_file_path
             ):
                 tooltip += f"<b>Processing File:</b> {processing_file_path}<br>"
+
             tooltip += (
-                f"<b>Language:</b> {getattr(item, 'lang_code', '')}<br>"
-                f"<b>Speed:</b> {getattr(item, 'speed', '')}<br>"
-                f"<b>Voice:</b> {getattr(item, 'voice', '')}<br>"
-                f"<b>Save Option:</b> {getattr(item, 'save_option', '')}<br>"
+                f"<b>Language:</b> {get_val('lang_code')}<br>"
+                f"<b>Speed:</b> {get_val('speed')}<br>"
+                f"<b>Voice:</b> {get_val('voice')}<br>"
+                f"<b>Save Option:</b> {get_val('save_option')}<br>"
             )
             if output_folder not in (None, "", "None"):
                 tooltip += f"<b>Output Folder:</b> {output_folder}<br>"
             tooltip += (
-                f"<b>Subtitle Mode:</b> {getattr(item, 'subtitle_mode', '')}<br>"
-                f"<b>Output Format:</b> {getattr(item, 'output_format', '')}<br>"
+                f"<b>Subtitle Mode:</b> {get_val('subtitle_mode')}<br>"
+                f"<b>Output Format:</b> {get_val('output_format')}<br>"
                 f"<b>Characters:</b> {getattr(item, 'total_char_count', '')}<br>"
-                f"<b>Replace Single Newlines:</b> {getattr(item, 'replace_single_newlines', True)}<br>"
-                f"<b>Use Silent Gaps:</b> {getattr(item, 'use_silent_gaps', False)}<br>"
-                f"<b>Speed Method:</b> {getattr(item, 'subtitle_speed_method', 'tts')}"
+                f"<b>Replace Single Newlines:</b> {get_val('replace_single_newlines', True)}<br>"
+                f"<b>Use Silent Gaps:</b> {get_val('use_silent_gaps', False)}<br>"
+                f"<b>Speed Method:</b> {get_val('subtitle_speed_method', 'tts')}"
             )
-            # Add book handler options if present
+            # Add book handler options if present (Preserve logic: specific to file structure)
             save_chapters_separately = getattr(item, "save_chapters_separately", None)
             merge_chapters_at_end = getattr(item, "merge_chapters_at_end", None)
             if save_chapters_separately is not None:
@@ -531,7 +582,6 @@ class QueueManager(QDialog):
 
     def add_more_files(self):
         from PyQt6.QtWidgets import QFileDialog
-        from abogen.utils import calculate_text_length  # import the function
 
         # Allow .txt, .srt, .ass, and .vtt files
         files, _ = QFileDialog.getOpenFileNames(
@@ -774,7 +824,10 @@ class QueueManager(QDialog):
         menu.exec(global_pos)
 
     def accept(self):
-        # Accept: keep changes
+        # Save the override state to config so it persists globally
+        self.config["queue_override_settings"] = self.override_chk.isChecked()
+        save_config(self.config)
+        
         super().accept()
 
     def reject(self):

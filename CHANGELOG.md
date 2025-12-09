@@ -1,4 +1,5 @@
 # 1.2.5 (Pre-release)
+- Added new option: `Override item settings with current selection` in the queue manager. When enabled, all items in the queue will be processed using the current global settings selected in the main GUI, overriding their individual settings. When disabled, each item will retain its own specific settings.
 - Fixed `Error "Could not load the Qt platform plugin "xcb"` error that occurred in some Linux distributions due to missing `libxcb-cursor0` library by conditionally loading the bundled library when the system version is unavailable, issue mentioned by @bmcgonag in #101.
 - Fixed the `No module named pip` error that occurred for users who installed Abogen via the [**uv**](https://github.com/astral-sh/uv) installer.
 - Fixed defaults for `replace_single_newlines` not being applied correctly in some cases.
