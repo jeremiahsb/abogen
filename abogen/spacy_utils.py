@@ -77,13 +77,18 @@ def get_spacy_model(lang_code, log_callback=None):
     # Try to load the model
     try:
         log(f"\nLoading spaCy model '{model_name}'...")
+        # sentence segmentation involving parentheses, quotes, and complex structure.
+        # We only disable heavier components we don't need like NER.
         nlp = spacy.load(
             model_name,
-            disable=["ner", "parser", "tagger", "lemmatizer", "attribute_ruler"],
+            disable=["ner", "tagger", "lemmatizer", "attribute_ruler"],
         )
-        # Enable sentence segmentation only
-        if "sentencizer" not in nlp.pipe_names:
+        
+        # Ensure a sentence segmentation strategy is in place
+        # The parser provides sents, but if it's missing (unlikely for core models), fallback to sentencizer
+        if "parser" not in nlp.pipe_names and "sentencizer" not in nlp.pipe_names:
             nlp.add_pipe("sentencizer")
+            
         _nlp_cache[lang_code] = nlp
         return nlp
     except OSError:
@@ -93,13 +98,14 @@ def get_spacy_model(lang_code, log_callback=None):
             from spacy.cli import download
 
             download(model_name)
-            # Retry loading
+            # Retry loading with the same fix
             nlp = spacy.load(
                 model_name,
-                disable=["ner", "parser", "tagger", "lemmatizer", "attribute_ruler"],
+                disable=["ner", "tagger", "lemmatizer", "attribute_ruler"],
             )
-            if "sentencizer" not in nlp.pipe_names:
+            if "parser" not in nlp.pipe_names and "sentencizer" not in nlp.pipe_names:
                 nlp.add_pipe("sentencizer")
+                
             _nlp_cache[lang_code] = nlp
             log(f"spaCy model '{model_name}' downloaded and loaded")
             return nlp

@@ -4,6 +4,7 @@
 - Fixed the `No module named pip` error that occurred for users who installed Abogen via the [**uv**](https://github.com/astral-sh/uv) installer.
 - Fixed defaults for `replace_single_newlines` not being applied correctly in some cases.
 - Fixed `Save chapters separately for queued epubs is ignored`, issue mentioned by @dymas-cz in #109.
+- Fixed incorrect sentence segmentation when using spaCy where text would erroneously split after opening parentheses.
 - Improvements in code and documentation.
 
 # 1.2.4
