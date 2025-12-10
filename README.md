@@ -81,7 +81,10 @@ First, [install uv](https://docs.astral.sh/uv/getting-started/installation/) if 
 # Install espeak-ng
 brew install espeak-ng
 
-# Install abogen (Automatically handles Silicon Mac/MPS support)
+# For Silicon Mac (M1, M2 etc.)
+uv tool install --python 3.13 abogen --with "kokoro @ git+https://github.com/hexgrad/kokoro.git,numpy<2"
+
+# For Intel Mac
 uv tool install --python 3.12 abogen --with "kokoro @ git+https://github.com/hexgrad/kokoro.git,numpy<2"
 ```
 
@@ -117,7 +120,7 @@ sudo apt install espeak-ng # Ubuntu/Debian
 sudo pacman -S espeak-ng # Arch Linux
 sudo dnf install espeak-ng # Fedora
 
-# For NVIDIA GPUs or without GPU (CPU) - No need to include [CUDA] in here.
+# For NVIDIA GPUs or without GPU - No need to include [cuda] in here.
 uv tool install --python 3.12 abogen
 
 # For AMD GPUs (ROCm 6.4)
