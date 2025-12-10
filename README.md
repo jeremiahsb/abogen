@@ -21,10 +21,10 @@ https://github.com/user-attachments/assets/094ba3df-7d66-494a-bc31-0e4b41d0b865
 
 ## `How to install?` <a href="https://pypi.org/project/abogen/" target="_blank"><img src="https://img.shields.io/pypi/pyversions/abogen" alt="Abogen Compatible PyPi Python Versions" align="right" style="margin-top:6px;"></a>
 
-### Windows
+### `Windows`
 Go to [espeak-ng latest release](https://github.com/espeak-ng/espeak-ng/releases/latest) download and run the *.msi file.
 
-#### OPTION 1: Install using script
+#### <b>OPTION 1: Install using script</b>
 1. [Download](https://github.com/denizsafak/abogen/archive/refs/heads/main.zip) the repository
 2. Extract the ZIP file
 3. Run `WINDOWS_INSTALL.bat` by double-clicking it
@@ -34,7 +34,26 @@ This method handles everything automatically - installing all dependencies inclu
 > [!NOTE]
 > You don't need to install Python separately. The script will install Python automatically.
 
-#### OPTION 2: Install using pip
+#### <b>OPTION 2: Install using uv</b>
+First, [install uv](https://docs.astral.sh/uv/getting-started/installation/) if you haven't already.
+
+```bash
+# For NVIDIA GPUs (CUDA 12.8) - Recommended
+uv tool install --python 3.12 abogen[cuda]
+
+# For NVIDIA GPUs (CUDA 12.6) - Older drivers
+uv tool install --python 3.12 abogen[cuda126]
+
+# For NVIDIA GPUs (CUDA 13.0) - Newer drivers
+uv tool install --python 3.12 abogen[cuda130]
+
+# For AMD GPUs or without GPU (CPU) - ROCm is not available on Windows. Use Linux if you have AMD GPU
+uv tool install --python 3.12 abogen
+```
+
+<details>
+<summary><b>Alternative: Install using pip (click to expand)</b></summary>
+
 ```bash
 # Create a virtual environment (optional)
 mkdir abogen && cd abogen
@@ -52,7 +71,23 @@ pip install torch==2.8.0+cu128 torchvision==0.23.0+cu128 torchaudio==2.8.0 --ind
 pip install abogen
 ```
 
-### Mac
+</details>
+
+### `Mac`
+
+First, [install uv](https://docs.astral.sh/uv/getting-started/installation/) if you haven't already.
+
+```bash
+# Install espeak-ng
+brew install espeak-ng
+
+# Install abogen (Automatically handles Silicon Mac/MPS support)
+uv tool install --python 3.12 abogen
+```
+
+<details>
+<summary><b>Alternative: Install using pip (click to expand)</b></summary>
+
 ```bash
 # Install espeak-ng
 brew install espeak-ng
@@ -69,7 +104,29 @@ pip3 install abogen
 # After installing abogen, we need to install Kokoro's development version which includes MPS support.
 pip3 install git+https://github.com/hexgrad/kokoro.git
 ```
-### Linux
+
+</details>
+
+### `Linux`
+
+First, [install uv](https://docs.astral.sh/uv/getting-started/installation/) if you haven't already.
+
+```bash
+# Install espeak-ng
+sudo apt install espeak-ng # Ubuntu/Debian
+sudo pacman -S espeak-ng # Arch Linux
+sudo dnf install espeak-ng # Fedora
+
+# For NVIDIA GPUs or without GPU (CPU) - No need to include [CUDA] in here.
+uv tool install --python 3.12 abogen
+
+# For AMD GPUs (ROCm 6.4)
+uv tool install --python 3.12 abogen[rocm]
+```
+
+<details>
+<summary><b>Alternative: Install using pip  (click to expand)</b></summary>
+
 ```bash
 # Install espeak-ng
 sudo apt install espeak-ng # Ubuntu/Debian
@@ -92,6 +149,8 @@ pip3 install abogen
 pip3 uninstall torch 
 pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/rocm6.4
 ```
+</details>
+
 
 > See [How to fix "CUDA GPU is not available. Using CPU" warning?](#cuda-warning)
 
@@ -101,12 +160,11 @@ pip3 install --pre torch torchvision torchaudio --index-url https://download.pyt
 
 > See [How to fix "[WinError 1114] A dynamic link library (DLL) initialization routine failed" error?](#WinError-1114)
 
-> See [How to use "uv" instead of "pip"?](#use-uv-instead-of-pip)
-
 > Special thanks to [@hg000125](https://github.com/hg000125) for his contribution in [#23](https://github.com/denizsafak/abogen/issues/23). AMD GPU support is possible thanks to his work.
 
 ## `How to run?`
-If you installed using pip, you can simply run the following command to start Abogen:
+
+You can simply run this command to start Abogen:
 
 ```bash
 abogen
@@ -400,6 +458,15 @@ This will start Abogen in command-line mode and display detailed error messages.
 > ```
 > 
 > If you have an AMD GPU, you need to use Linux and follow the Linux/ROCm [instructions](#linux). If you want to keep running on CPU, no action is required, but performance will just be reduced. See [#32](https://github.com/denizsafak/abogen/issues/32) for more details.
+>
+> If you used `uv` to install Abogen, you can uninstall and try reinstalling with another CUDA version:
+> ```bash
+> uv tool uninstall abogen
+> # First, try CUDA 13.0 for newer drivers
+> uv tool install --python 3.12 abogen[cuda130]
+> # If that doesn't work, try CUDA 12.6 for older drivers
+> uv tool install --python 3.12 abogen[cuda126]
+> ```
 
 </details>
 
@@ -418,7 +485,7 @@ This will start Abogen in command-line mode and display detailed error messages.
 <a name="no-matching-distribution-found">How to fix "No matching distribution found" error?<a>
 </b></summary>
 
-> Try installing Abogen on supported Python (3.10 to 3.12) versions. You can use [pyenv](https://github.com/pyenv/pyenv) to manage multiple Python versions easily in Linux. Watch this [video](https://www.youtube.com/watch?v=MVyb-nI4KyI) by NetworkChuck for a quick guide.
+> Try installing Abogen on supported Python (3.10 to 3.12) versions. I recommend installing with [uv](https://docs.astral.sh/uv/getting-started/installation/). You can also use [pyenv](https://github.com/pyenv/pyenv) to manage multiple Python versions easily on Linux. Watch this [video](https://www.youtube.com/watch?v=MVyb-nI4KyI) by NetworkChuck for a quick guide.
 
 </details>
 
@@ -448,18 +515,6 @@ This will start Abogen in command-line mode and display detailed error messages.
 </details>
 
 <details><summary><b>
-<a name="use-uv-instead-of-pip">How to use "uv" instead of "pip"?</a>
-</b></summary>
-
-> Abogen needs "pip", because Kokoro uses pip to download voice models from HuggingFace Hub. If you want to use "uv" instead of "pip", you can use the following command to run Abogen:
->
-> ```bash
-> uvx --with pip abogen
-> ```
-
-</details>
-
-<details><summary><b>
 <a name="use-uv-instead-of-pip">How to uninstall Abogen?</a>
 </b></summary>
 
@@ -470,6 +525,11 @@ This will start Abogen in command-line mode and display detailed error messages.
 >pip uninstall abogen # uninstalls abogen
 >pip cache purge # removes pip cache
 >```
+>- If you installed Abogen using uv, type:
+>```bash
+>uv tool uninstall abogen # uninstalls abogen
+>uv cache clear # removes uv cache
+>```
 > - If you installed Abogen using the Windows installer (WINDOWS_INSTALL.bat), just remove the folder that contains Abogen. It installs everything inside `python_embedded` folder, no other directories are created.
 > - If you installed espeak-ng, you need to remove it separately.
 
@@ -477,6 +537,7 @@ This will start Abogen in command-line mode and display detailed error messages.
 
 ## `Contributing`
 I welcome contributions! If you have ideas for new features, improvements, or bug fixes, please fork the repository and submit a pull request.
+
 ### For developers and contributors
 If you'd like to modify the code and contribute to development, you can [download the repository](https://github.com/denizsafak/abogen/archive/refs/heads/main.zip), extract it and run the following commands to build **or** install the package:
 ```bash
