@@ -82,7 +82,7 @@ First, [install uv](https://docs.astral.sh/uv/getting-started/installation/) if 
 brew install espeak-ng
 
 # Install abogen (Automatically handles Silicon Mac/MPS support)
-uv tool install --python 3.12 abogen
+uv tool install abogen --with "kokoro @ git+https://github.com/hexgrad/kokoro.git"
 ```
 
 <details>
