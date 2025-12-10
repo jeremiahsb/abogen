@@ -39,13 +39,13 @@ First, [install uv](https://docs.astral.sh/uv/getting-started/installation/) if 
 
 ```bash
 # For NVIDIA GPUs (CUDA 12.8) - Recommended
-uv tool install --python 3.12 abogen[cuda] --extra-index-url https://download.pytorch.org/whl/cu128
+uv tool install --python 3.12 abogen[cuda] --extra-index-url https://download.pytorch.org/whl/cu128 --index-strategy unsafe-best-match
 
 # For NVIDIA GPUs (CUDA 12.6) - Older drivers
-uv tool install --python 3.12 abogen[cuda126] --extra-index-url https://download.pytorch.org/whl/cu126
+uv tool install --python 3.12 abogen[cuda126] --extra-index-url https://download.pytorch.org/whl/cu126 --index-strategy unsafe-best-match
 
 # For NVIDIA GPUs (CUDA 13.0) - Newer drivers
-uv tool install --python 3.12 abogen[cuda130] --extra-index-url https://download.pytorch.org/whl/cu130
+uv tool install --python 3.12 abogen[cuda130] --extra-index-url https://download.pytorch.org/whl/cu130 --index-strategy unsafe-best-match
 
 # For AMD GPUs or without GPU (CPU) - ROCm is not available on Windows. Use Linux if you have AMD GPU
 uv tool install --python 3.12 abogen
@@ -121,7 +121,7 @@ sudo dnf install espeak-ng # Fedora
 uv tool install --python 3.12 abogen
 
 # For AMD GPUs (ROCm 6.4)
-uv tool install --python 3.12 abogen[rocm] --extra-index-url https://download.pytorch.org/whl/nightly/rocm6.4
+uv tool install --python 3.12 abogen[rocm] --extra-index-url https://download.pytorch.org/whl/nightly/rocm6.4 --index-strategy unsafe-best-match
 ```
 
 <details>
