@@ -1,6 +1,6 @@
 import re
 import platform
-from abogen.utils import detect_encoding
+from abogen.utils import detect_encoding, load_config
 from abogen.constants import SAMPLE_VOICE_TEXTS
 
 # Pre-compile frequently used regex patterns for better performance
