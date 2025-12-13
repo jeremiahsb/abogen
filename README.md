@@ -4,7 +4,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/denizsafak/abogen)](https://github.com/denizsafak/abogen/releases/latest)
 [![Abogen PyPi Python Versions](https://img.shields.io/pypi/pyversions/abogen)](https://pypi.org/project/abogen/)
 [![Operating Systems](https://img.shields.io/badge/os-windows%20%7C%20linux%20%7C%20macos%20-blue)](https://github.com/denizsafak/abogen/releases/latest)
-![Pepy Total Downloads](https://img.shields.io/pepy/dt/abogen?label=downloads%20(pypi)&color=blue)
+[![PyPi Total Downloads](https://img.shields.io/pepy/dt/abogen?label=downloads%20(pypi)&color=blue)](https://pypi.org/project/abogen/)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![License: MIT](https://img.shields.io/badge/License-MIT-maroon.svg)](https://opensource.org/licenses/MIT)
 
@@ -465,8 +465,9 @@ This will start Abogen in command-line mode and display detailed error messages.
 >
 > If you used `uv` to install Abogen, you can uninstall and try reinstalling with another CUDA version:
 > ```bash
+> # First uninstall Abogen
 > uv tool uninstall abogen
-> # First, try CUDA 12.6 for older drivers
+> # Try CUDA 12.6 for older drivers
 > uv tool install --python 3.12 abogen[cuda126] --extra-index-url https://download.pytorch.org/whl/cu126 --index-strategy unsafe-best-match
 > # If that doesn't work, try CUDA 13.0 for newer drivers
 > uv tool install --python 3.12 abogen[cuda130] --extra-index-url https://download.pytorch.org/whl/cu130 --index-strategy unsafe-best-match
@@ -546,11 +547,26 @@ I welcome contributions! If you have ideas for new features, improvements, or bu
 If you'd like to modify the code and contribute to development, you can [download the repository](https://github.com/denizsafak/abogen/archive/refs/heads/main.zip), extract it and run the following commands to build **or** install the package:
 ```bash
 # Go to the directory where you extracted the repository and run:
-pip install -e .      # Installs the package in editable mode
-pip install build     # Install the build package
-python -m build       # Builds the package in dist folder (optional)
-abogen                # Opens the GUI
+pip install -e .[dev]       # Installs the package in editable mode with build dependencies
+python -m build             # Builds the package in dist folder (optional)
+abogen                      # Opens the GUI
 ```
+> Make sure you are using Python 3.10 to 3.12. You need to create a virtual environment if needed.
+
+<details>
+<summary><b>Alternative: Using uv (click to expand)</b></summary>
+
+```bash
+# Go to the directory where you extracted the repository and run:
+uv venv --python 3.12       # Creates a virtual environment with Python 3.12
+# After activating the virtual environment, run:
+uv pip install -e .         # Installs the package in editable mode
+uv build                    # Builds the package in dist folder (optional)
+abogen                      # Opens the GUI
+```
+
+</details>
+
 Feel free to explore the code and make any changes you like.
 
 ## `Credits`

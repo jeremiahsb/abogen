@@ -83,6 +83,8 @@ cuda = ["torch"]
 cuda130 = ["torch"]
 # AMD GPU (Linux) (ROCm 6.4)             # uv tool install abogen[rocm]
 rocm = ["torch", "pytorch-triton-rocm"]
+# Development dependencies               # uv tool install abogen[dev]
+dev = ["build"]
 
 # --- KOKORO CONFIGURATION (for macOS) ---
 
