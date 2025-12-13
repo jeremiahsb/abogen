@@ -28,11 +28,15 @@ from PyQt6.QtCore import (
     QSize,
 )
 from abogen.utils import (
-    clean_text,
-    calculate_text_length,
     detect_encoding,
     get_resource_path,
 )
+
+from abogen.subtitle_utils import (
+    clean_text,
+    calculate_text_length,
+)
+
 import os
 import logging  # Add logging
 import urllib.parse

@@ -62,14 +62,18 @@ from abogen.utils import (
     load_config,
     save_config,
     get_gpu_acceleration,
-    clean_text,
     prevent_sleep_start,
     prevent_sleep_end,
-    calculate_text_length,
     get_resource_path,
     get_user_cache_path,
     LoadPipelineThread,
 )
+
+from abogen.subtitle_utils import (
+    clean_text,
+    calculate_text_length,
+)
+
 from abogen.conversion import ConversionThread, VoicePreviewThread, PlayAudioThread
 from abogen.book_handler import HandlerDialog
 from abogen.constants import (
