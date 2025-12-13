@@ -48,7 +48,7 @@ uv tool install --python 3.12 abogen[cuda126] --extra-index-url https://download
 # For NVIDIA GPUs (CUDA 13.0) - Newer drivers
 uv tool install --python 3.12 abogen[cuda130] --extra-index-url https://download.pytorch.org/whl/cu130 --index-strategy unsafe-best-match
 
-# For AMD GPUs or without GPU (CPU) - ROCm is not available on Windows. Use Linux if you have AMD GPU
+# For AMD GPUs or without GPU - If you have AMD GPU, you need to use Linux for GPU acceleration, because ROCm is not available on Windows.
 uv tool install --python 3.12 abogen
 ```
 
@@ -466,10 +466,10 @@ This will start Abogen in command-line mode and display detailed error messages.
 > If you used `uv` to install Abogen, you can uninstall and try reinstalling with another CUDA version:
 > ```bash
 > uv tool uninstall abogen
-> # First, try CUDA 13.0 for newer drivers
-> uv tool install --python 3.12 abogen[cuda130]
-> # If that doesn't work, try CUDA 12.6 for older drivers
-> uv tool install --python 3.12 abogen[cuda126]
+> # First, try CUDA 12.6 for older drivers
+> uv tool install --python 3.12 abogen[cuda126] --extra-index-url https://download.pytorch.org/whl/cu126 --index-strategy unsafe-best-match
+> # If that doesn't work, try CUDA 13.0 for newer drivers
+> uv tool install --python 3.12 abogen[cuda130] --extra-index-url https://download.pytorch.org/whl/cu130 --index-strategy unsafe-best-match
 > ```
 
 </details>
@@ -504,7 +504,7 @@ This will start Abogen in command-line mode and display detailed error messages.
 > ```
 > If you installed Abogen using pip, open your terminal in the virtual environment and run:
 > ```bash
-> pip install torch==2.8.0 torchaudio==2.8.0 torchvision==0.23.0
+> pip install torch==2.8.0 torchaudio==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cu128
 > ```
 
 </details>
