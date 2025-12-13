@@ -10,14 +10,6 @@ from threading import Thread
 
 warnings.filterwarnings("ignore")
 
-# Pre-compile frequently used regex patterns for better performance
-_WHITESPACE_PATTERN = re.compile(r"[^\S\n]+")
-_MULTIPLE_NEWLINES_PATTERN = re.compile(r"\n{3,}")
-_SINGLE_NEWLINE_PATTERN = re.compile(r"(?<!\n)\n(?!\n)")
-_CHAPTER_MARKER_PATTERN = re.compile(r"<<CHAPTER_MARKER:.*?>>")
-_METADATA_PATTERN = re.compile(r"<<METADATA_[^:]+:[^>]*>>")
-
-
 def detect_encoding(file_path):
     import chardet
     import charset_normalizer
@@ -129,27 +121,7 @@ def get_user_cache_path(folder=None):
 
 _sleep_procs = {"Darwin": None, "Linux": None}  # Store sleep prevention processes
 
-
-def clean_text(text, *args, **kwargs):
-    # Load replace_single_newlines from config
-    cfg = load_config()
-    replace_single_newlines = cfg.get("replace_single_newlines", True)
-    # Collapse all whitespace (excluding newlines) into single spaces per line and trim edges
-    # Use pre-compiled pattern for better performance
-    lines = [_WHITESPACE_PATTERN.sub(" ", line).strip() for line in text.splitlines()]
-    text = "\n".join(lines)
-    # Standardize paragraph breaks (multiple newlines become exactly two) and trim overall whitespace
-    # Use pre-compiled pattern for better performance
-    text = _MULTIPLE_NEWLINES_PATTERN.sub("\n\n", text).strip()
-    # Optionally replace single newlines with spaces, but preserve double newlines
-    if replace_single_newlines:
-        # Use pre-compiled pattern for better performance
-        text = _SINGLE_NEWLINE_PATTERN.sub(" ", text)
-    return text
-
-
 default_encoding = sys.getfilesystemencoding()
-
 
 def create_process(cmd, stdin=None, text=True, capture_output=False):
     import logging
@@ -251,17 +223,6 @@ def save_config(config):
     except Exception:
         pass
 
-
-def calculate_text_length(text):
-    # Use pre-compiled patterns for better performance
-    # Ignore chapter markers and metadata patterns in a single pass
-    text = _CHAPTER_MARKER_PATTERN.sub("", text)
-    text = _METADATA_PATTERN.sub("", text)
-    # Ignore newlines and leading/trailing spaces
-    text = text.replace("\n", "").strip()
-    # Calculate character count
-    char_count = len(text)
-    return char_count
 
 
 def get_gpu_acceleration(enabled):
