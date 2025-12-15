@@ -11,6 +11,14 @@
   <div class="alert alert--success">Settings saved successfully.</div>
   {% endif %}
 
+  {% with messages = get_flashed_messages(with_categories=True) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert {% if category == 'error' %}alert--error{% else %}alert--success{% endif %}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+  {% endwith %}
+
   <div class="settings-layout">
     <nav class="settings-nav" aria-label="Settings sections">
       <button type="button" class="settings-nav__item is-active" data-section="narration">Narration</button>
@@ -480,8 +488,8 @@
             <p class="hint">Generate a set of WAV files from a purpose-built EPUB containing code-tagged examples. When something sounds wrong, report the code (e.g. <code>NUM_001</code>) to pinpoint the failing transformation.</p>
 
             <div class="field field--stack">
-              <button type="submit" class="button" formaction="{{ url_for('settings.run_debug_wavs') }}" formmethod="post">Generate debug WAVs</button>
-              <p class="hint">Uses your current Settings defaults (voice, language, speed, GPU).</p>
+              <button type="submit" class="button" form="debug-tts-form">Generate debug WAVs</button>
+              <p class="hint">Uses your current Settings defaults (voice, language, speed, GPU). If generation fails, an error will appear at the top of this page.</p>
             </div>
 
             {% if debug_manifest and debug_manifest.artifacts %}
@@ -582,6 +590,8 @@
         <button type="submit" class="button">Save Settings</button>
       </div>
     </form>
+
+    <form id="debug-tts-form" action="{{ url_for('settings.run_debug_wavs') }}" method="post"></form>
   </div>
 </section>
 {% endblock %}

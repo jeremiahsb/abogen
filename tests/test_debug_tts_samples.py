@@ -95,3 +95,27 @@ def test_settings_debug_route_writes_manifest(tmp_path, monkeypatch):
         filenames = {item["filename"] for item in manifest.get("artifacts", [])}
         assert "overall.wav" in filenames
         assert any(name.startswith("case_") and name.endswith(".wav") for name in filenames)
+
+
+def test_debug_samples_have_minimum_per_category():
+    prefixes = {
+        "APOS": 5,
+        "POS": 5,
+        "NUM": 5,
+        "YEAR": 5,
+        "DATE": 5,
+        "CUR": 5,
+        "TITLE": 5,
+        "PUNC": 5,
+        "QUOTE": 5,
+        "FOOT": 5,
+    }
+
+    counts = {prefix: 0 for prefix in prefixes}
+    for sample in DEBUG_TTS_SAMPLES:
+        prefix = sample.code.split("_", 1)[0]
+        if prefix in counts:
+            counts[prefix] += 1
+
+    for prefix, minimum in prefixes.items():
+        assert counts[prefix] >= minimum
