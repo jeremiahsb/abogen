@@ -357,7 +357,7 @@ volume-max=200
 If you want to run Abogen in a Docker container:
 1) [Download the repository](https://github.com/denizsafak/abogen/archive/refs/heads/main.zip) and extract, or clone it using git.
 2) Go to `abogen` folder. You should see `Dockerfile` there.
-3) Open your termminal in that directory and run the following commands:
+3) Open your terminal in that directory and run the following commands:
 
 ```bash
 # Build the Docker image:
