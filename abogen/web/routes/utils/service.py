@@ -59,6 +59,7 @@ def submit_job(pending: PendingJob) -> str:
         entity_summary=getattr(pending, "entity_summary", None),
         manual_overrides=getattr(pending, "manual_overrides", None),
         pronunciation_overrides=getattr(pending, "pronunciation_overrides", None),
+        heteronym_overrides=getattr(pending, "heteronym_overrides", None),
         normalization_overrides=pending.normalization_overrides,
     )
     return job.id

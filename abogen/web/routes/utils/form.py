@@ -396,6 +396,31 @@ def apply_prepare_form(
 
     enabled_overrides = [entry for entry in overrides if entry.get("enabled")]
 
+    heteronym_entries = getattr(pending, "heteronym_overrides", None)
+    if isinstance(heteronym_entries, list) and heteronym_entries:
+        for entry in heteronym_entries:
+            if not isinstance(entry, dict):
+                continue
+            entry_id = str(entry.get("entry_id") or entry.get("id") or "").strip()
+            if not entry_id:
+                continue
+            raw_choice = form.get(f"heteronym-{entry_id}-choice")
+            if raw_choice is None:
+                continue
+            choice = str(raw_choice).strip()
+            if not choice:
+                continue
+            options = entry.get("options")
+            if isinstance(options, list) and options:
+                allowed = {
+                    str(opt.get("key")).strip()
+                    for opt in options
+                    if isinstance(opt, dict) and str(opt.get("key") or "").strip()
+                }
+                if allowed and choice not in allowed:
+                    continue
+            entry["choice"] = choice
+
     sync_pronunciation_overrides(pending)
 
     return (

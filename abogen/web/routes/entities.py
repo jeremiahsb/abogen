@@ -64,6 +64,7 @@ def list_manual_overrides(pending_id: str) -> ResponseReturnValue:
     return jsonify({
         "overrides": pending.manual_overrides or [],
         "pronunciation_overrides": pending.pronunciation_overrides or [],
+        "heteronym_overrides": getattr(pending, "heteronym_overrides", None) or [],
         "language": pending.language or "en",
     })
 

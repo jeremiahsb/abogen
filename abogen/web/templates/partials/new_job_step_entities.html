@@ -526,6 +526,28 @@
               </article>
             </template>
             <p class="manual-overrides__empty" data-role="manual-overrides-empty" hidden>No overrides yet. Use search or add a custom entry to begin.</p>
+
+            <section class="manual-overrides__section" data-role="heteronym-overrides">
+              <header class="manual-overrides__header">
+                <div class="manual-overrides__copy">
+                  <h2>Heteronyms</h2>
+                  <p class="hint">Review sentences that contain a word with multiple pronunciations. The suggested option is selected by default. Hover the highlighted word for examples and use Preview to audition each pronunciation.</p>
+                </div>
+              </header>
+              <div class="manual-overrides__list" data-role="heteronym-override-list"></div>
+              <template data-role="heteronym-override-template">
+                <article class="manual-override" data-entry-id="">
+                  <header class="manual-override__header">
+                    <div>
+                      <h3 class="manual-override__label" data-role="heteronym-sentence"></h3>
+                      <p class="manual-override__notes" data-role="heteronym-notes"></p>
+                    </div>
+                  </header>
+                  <div class="manual-override__body" data-role="heteronym-options"></div>
+                </article>
+              </template>
+              <p class="manual-overrides__empty" data-role="heteronym-overrides-empty" hidden>No heteronyms found in the current selection.</p>
+            </section>
           </div>
         </section>
       </div>
@@ -567,6 +589,7 @@
 <script id="entity-cache-key" type="application/json">{{ pending.entity_cache_key or '' | tojson }}</script>
 <script id="manual-overrides-data" type="application/json">{{ pending.manual_overrides or [] | tojson }}</script>
 <script id="pronunciation-overrides-data" type="application/json">{{ pending.pronunciation_overrides or [] | tojson }}</script>
+<script id="heteronym-overrides-data" type="application/json">{{ pending.heteronym_overrides or [] | tojson }}</script>
 <script id="voice-catalog-data" type="application/json">{{ options.voice_catalog | tojson }}</script>
 <script id="voice-language-map" type="application/json">{{ options.languages | tojson }}</script>
 {% if embed_scripts %}

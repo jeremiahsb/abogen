@@ -17,6 +17,7 @@ from abogen.pronunciation_store import (
     search_overrides as search_pronunciation_overrides,
 )
 from abogen.web.routes.utils.settings import load_settings
+from abogen.heteronym_overrides import extract_heteronym_overrides
 
 def collect_pronunciation_overrides(pending: PendingJob) -> List[Dict[str, Any]]:
     language = pending.language or "en"
@@ -140,22 +141,34 @@ def sync_pronunciation_overrides(pending: PendingJob) -> None:
 
 def refresh_entity_summary(pending: PendingJob, chapters: Iterable[Mapping[str, Any]]) -> None:
     settings = load_settings()
-    if not bool(settings.get("enable_entity_recognition", True)):
-        pending.entity_summary = {}
-        pending.entity_cache_key = ""
-        pending.pronunciation_overrides = pending.pronunciation_overrides or []
-        return
-
     language = pending.language or "en"
     chapter_list: List[Mapping[str, Any]] = [chapter for chapter in chapters if isinstance(chapter, Mapping)]
     if not chapter_list:
         pending.entity_summary = {}
         pending.entity_cache_key = ""
         pending.pronunciation_overrides = pending.pronunciation_overrides or []
+        pending.heteronym_overrides = pending.heteronym_overrides or []
         return
 
     enabled_only = [chapter for chapter in chapter_list if chapter.get("enabled")]
     target_chapters = enabled_only or chapter_list
+
+    # Always compute heteronym overrides (English only). Preserve any prior selections.
+    try:
+        pending.heteronym_overrides = extract_heteronym_overrides(
+            target_chapters,
+            language=language,
+            existing=getattr(pending, "heteronym_overrides", None),
+        )
+    except Exception:
+        pending.heteronym_overrides = getattr(pending, "heteronym_overrides", []) or []
+
+    if not bool(settings.get("enable_entity_recognition", True)):
+        pending.entity_summary = {}
+        pending.entity_cache_key = ""
+        pending.pronunciation_overrides = pending.pronunciation_overrides or []
+        return
+
     result = extract_entities(target_chapters, language=language)
     summary = dict(result.summary)
     tokens: List[str] = []
@@ -343,6 +356,7 @@ def pending_entities_payload(pending: PendingJob) -> Dict[str, Any]:
         "summary": pending.entity_summary or {},
         "manual_overrides": pending.manual_overrides or [],
         "pronunciation_overrides": pending.pronunciation_overrides or [],
+        "heteronym_overrides": getattr(pending, "heteronym_overrides", None) or [],
         "cache_key": pending.entity_cache_key,
         "language": pending.language or "en",
         "recognition_enabled": recognition_enabled,

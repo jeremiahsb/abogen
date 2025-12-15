@@ -906,6 +906,75 @@ def _compile_pronunciation_rules(
     return compiled
 
 
+def _compile_heteronym_sentence_rules(
+    overrides: Optional[Iterable[Mapping[str, Any]]],
+) -> List[Dict[str, Any]]:
+    """Compile sentence-level replacements for heteronym disambiguation.
+
+    These are intentionally scoped to a specific sentence string rather than a token,
+    so we can apply different pronunciations for the same word in different contexts.
+
+    Expected override entry shape (from pending/job):
+    - sentence: original sentence text
+    - choice: selected option key
+    - options: [{key, replacement_sentence, ...}]
+    """
+    if not overrides:
+        return []
+
+    compiled: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for entry in overrides:
+        if not isinstance(entry, Mapping):
+            continue
+        sentence = str(entry.get("sentence") or "").strip()
+        if not sentence:
+            continue
+        choice = str(entry.get("choice") or "").strip()
+        if not choice:
+            continue
+
+        replacement_sentence = ""
+        options = entry.get("options")
+        if isinstance(options, list):
+            for opt in options:
+                if not isinstance(opt, Mapping):
+                    continue
+                if str(opt.get("key") or "").strip() == choice:
+                    replacement_sentence = str(opt.get("replacement_sentence") or "").strip()
+                    break
+        if not replacement_sentence:
+            continue
+
+        rule_key = f"{sentence}\n{choice}".casefold()
+        if rule_key in seen:
+            continue
+        seen.add(rule_key)
+
+        parts = [p for p in re.split(r"\s+", sentence) if p]
+        if not parts:
+            continue
+        pattern_text = r"\s+".join(re.escape(p) for p in parts)
+        pattern = re.compile(pattern_text)
+        compiled.append({"pattern": pattern, "replacement": replacement_sentence})
+
+    # Replace longer sentences first to avoid partial matches.
+    compiled.sort(key=lambda item: len(item["pattern"].pattern), reverse=True)
+    return compiled
+
+
+def _apply_heteronym_sentence_rules(text: str, rules: List[Dict[str, Any]]) -> str:
+    if not text or not rules:
+        return text
+    result = text
+    for rule in rules:
+        pattern = rule["pattern"]
+        replacement = rule["replacement"]
+        result = pattern.sub(replacement, result)
+    return result
+
+
 def _apply_pronunciation_rules(
     text: str,
     rules: List[Dict[str, Any]],
@@ -1306,6 +1375,14 @@ def run_conversion_job(job: Job) -> None:
         extraction = extract_from_path(job.stored_path)
         file_type = _infer_file_type(job.stored_path)
         pronunciation_rules = _compile_pronunciation_rules(job.pronunciation_overrides)
+        heteronym_sentence_rules = _compile_heteronym_sentence_rules(
+            getattr(job, "heteronym_overrides", None)
+        )
+        if heteronym_sentence_rules:
+            job.add_log(
+                f"Applying {len(heteronym_sentence_rules)} heteronym override{'s' if len(heteronym_sentence_rules) != 1 else ''} during conversion.",
+                level="debug",
+            )
         if pronunciation_rules:
             count = len(pronunciation_rules)
             job.add_log(
@@ -1447,6 +1524,8 @@ def run_conversion_job(job: Job) -> None:
         ) -> int:
             nonlocal processed_chars, subtitle_index, current_time
             source_text = str(text or "")
+            if heteronym_sentence_rules:
+                source_text = _apply_heteronym_sentence_rules(source_text, heteronym_sentence_rules)
             if pronunciation_rules:
                 source_text = _apply_pronunciation_rules(
                     source_text,

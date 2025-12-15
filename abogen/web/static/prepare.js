@@ -1107,6 +1107,7 @@ const initPrepare = (root = document) => {
   const entityCacheKeyData = parseJSONScript("entity-cache-key");
   const manualOverridesSeed = parseJSONScript("manual-overrides-data") || [];
   const pronunciationOverridesSeed = parseJSONScript("pronunciation-overrides-data") || [];
+  const heteronymOverridesSeed = parseJSONScript("heteronym-overrides-data") || [];
 
   const entityTabs = form.querySelector('[data-role="entity-tabs"]');
   const entitiesUrl = form.dataset.entitiesUrl || "";
@@ -1124,6 +1125,7 @@ const initPrepare = (root = document) => {
     cacheKey: typeof entityCacheKeyData === "string" ? entityCacheKeyData : "",
     manualOverrides: Array.isArray(manualOverridesSeed) ? [...manualOverridesSeed] : [],
     pronunciationOverrides: Array.isArray(pronunciationOverridesSeed) ? [...pronunciationOverridesSeed] : [],
+    heteronymOverrides: Array.isArray(heteronymOverridesSeed) ? [...heteronymOverridesSeed] : [],
     filters: {
       people: 0,
       entities: 0,
@@ -1171,6 +1173,10 @@ const initPrepare = (root = document) => {
     const manualOverridesEmpty = manualOverridesRoot?.querySelector('[data-role="manual-overrides-empty"]');
     const manualOverrideSaveButton = manualOverridesRoot?.querySelector('[data-role="manual-override-save-all"]');
     const manualOverrideStatusNode = manualOverridesRoot?.querySelector('[data-role="manual-override-status"]');
+    const heteronymOverridesRoot = manualOverridesRoot?.querySelector('[data-role="heteronym-overrides"]');
+    const heteronymOverrideList = heteronymOverridesRoot?.querySelector('[data-role="heteronym-override-list"]');
+    const heteronymOverrideTemplate = heteronymOverridesRoot?.querySelector('template[data-role="heteronym-override-template"]');
+    const heteronymOverridesEmpty = heteronymOverridesRoot?.querySelector('[data-role="heteronym-overrides-empty"]');
     let manualOverrideStatusTimer = null;
     let manualOverrideStatusNonce = 0;
 
@@ -1879,6 +1885,165 @@ const initPrepare = (root = document) => {
       });
     }
 
+    const escapeRegExp = (value) => String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    const resolveHeteronymTooltip = (entry) => {
+      if (!entry || typeof entry !== "object") return "";
+      const options = Array.isArray(entry.options) ? entry.options : [];
+      if (options.length < 2) return "";
+      const parts = [];
+      options.slice(0, 2).forEach((opt) => {
+        const label = String(opt?.label || "").trim();
+        const example = String(opt?.example_sentence || "").trim();
+        if (label && example) {
+          parts.push(`${label}: ${example}`);
+        } else if (example) {
+          parts.push(example);
+        }
+      });
+      return parts.join("\n");
+    };
+
+    const fillHighlightedSentence = (container, sentence, token, tooltip) => {
+      if (!container) return;
+      container.textContent = "";
+      const rawSentence = String(sentence || "");
+      const rawToken = String(token || "");
+      if (!rawSentence) {
+        return;
+      }
+      if (!rawToken) {
+        container.textContent = rawSentence;
+        return;
+      }
+
+      const pattern = new RegExp(`\\b${escapeRegExp(rawToken)}\\b`, "i");
+      const match = pattern.exec(rawSentence);
+      if (!match) {
+        container.textContent = rawSentence;
+        return;
+      }
+
+      const before = rawSentence.slice(0, match.index);
+      const hit = rawSentence.slice(match.index, match.index + match[0].length);
+      const after = rawSentence.slice(match.index + match[0].length);
+
+      if (before) {
+        container.appendChild(document.createTextNode(before));
+      }
+      const chip = document.createElement("span");
+      chip.className = "chip";
+      chip.textContent = hit;
+      if (tooltip) {
+        chip.title = tooltip;
+      }
+      container.appendChild(chip);
+      if (after) {
+        container.appendChild(document.createTextNode(after));
+      }
+    };
+
+    function renderHeteronymOverrides() {
+      if (!heteronymOverrideList) return;
+      heteronymOverrideList.innerHTML = "";
+      const entries = Array.isArray(entityState.heteronymOverrides) ? entityState.heteronymOverrides : [];
+      if (!entries.length) {
+        if (heteronymOverridesEmpty) {
+          heteronymOverridesEmpty.hidden = false;
+        }
+        return;
+      }
+
+      if (heteronymOverridesEmpty) {
+        heteronymOverridesEmpty.hidden = true;
+      }
+
+      entries.forEach((entry) => {
+        if (!entry || typeof entry !== "object") return;
+        const entryId = String(entry.entry_id || entry.id || "").trim();
+        if (!entryId) return;
+        const sentence = String(entry.sentence || "").trim();
+        if (!sentence) return;
+        const token = String(entry.token || "").trim();
+
+        const node = cloneTemplate(heteronymOverrideTemplate);
+        if (!node) return;
+        node.dataset.entryId = entryId;
+
+        const sentenceEl = node.querySelector('[data-role="heteronym-sentence"]');
+        if (sentenceEl) {
+          const tooltip = resolveHeteronymTooltip(entry);
+          fillHighlightedSentence(sentenceEl, sentence, token, tooltip);
+        }
+
+        const notesEl = node.querySelector('[data-role="heteronym-notes"]');
+        if (notesEl) {
+          const suggested = String(entry.default_choice || "").trim();
+          if (suggested) {
+            const options = Array.isArray(entry.options) ? entry.options : [];
+            const match = options.find((opt) => String(opt?.key || "").trim() === suggested);
+            const label = String(match?.label || "").trim();
+            notesEl.textContent = label ? `Suggested: ${label}` : "";
+            notesEl.hidden = !notesEl.textContent;
+          } else {
+            notesEl.hidden = true;
+          }
+        }
+
+        const optionsContainer = node.querySelector('[data-role="heteronym-options"]');
+        if (optionsContainer) {
+          optionsContainer.innerHTML = "";
+          const options = Array.isArray(entry.options) ? entry.options : [];
+          const selectedKey = String(entry.choice || entry.default_choice || "").trim();
+          options.slice(0, 2).forEach((opt, index) => {
+            if (!opt || typeof opt !== "object") return;
+            const key = String(opt.key || "").trim();
+            const label = String(opt.label || "Option").trim();
+            const previewSentence = String(opt.replacement_sentence || sentence).trim();
+            if (!key) return;
+
+            const wrapper = document.createElement("div");
+            wrapper.className = "entity-inline-override__actions";
+
+            const choiceLabel = document.createElement("label");
+            choiceLabel.className = "toggle-pill";
+            const input = document.createElement("input");
+            input.type = "radio";
+            input.name = `heteronym-${entryId}-choice`;
+            input.value = key;
+            if (selectedKey) {
+              input.checked = selectedKey === key;
+            } else {
+              input.checked = index === 0;
+            }
+            const span = document.createElement("span");
+            span.textContent = label;
+            choiceLabel.appendChild(input);
+            choiceLabel.appendChild(span);
+
+            const previewButton = document.createElement("button");
+            previewButton.type = "button";
+            previewButton.className = "button button--ghost button--small";
+            previewButton.dataset.role = "speaker-preview";
+            previewButton.dataset.previewText = previewSentence;
+            previewButton.dataset.voice = baseVoice || "";
+            previewButton.dataset.language = languageCode;
+            previewButton.dataset.speed = defaultSpeed;
+            previewButton.dataset.useGpu = useGpuDefault;
+            previewButton.textContent = "Preview";
+            previewButton.disabled = !previewButton.dataset.voice;
+            previewButton.setAttribute("aria-disabled", previewButton.disabled ? "true" : "false");
+
+            wrapper.appendChild(choiceLabel);
+            wrapper.appendChild(previewButton);
+            optionsContainer.appendChild(wrapper);
+          });
+        }
+
+        heteronymOverrideList.appendChild(node);
+      });
+    }
+
     function applyEntityPayload(payload, options = {}) {
       if (payload && typeof payload === "object") {
         if (payload.summary) {
@@ -1889,6 +2054,9 @@ const initPrepare = (root = document) => {
         }
         if (Array.isArray(payload.pronunciation_overrides)) {
           entityState.pronunciationOverrides = payload.pronunciation_overrides;
+        }
+        if (Array.isArray(payload.heteronym_overrides)) {
+          entityState.heteronymOverrides = payload.heteronym_overrides;
         }
         if (typeof payload.cache_key === "string") {
           entityState.cacheKey = payload.cache_key;
@@ -1907,6 +2075,7 @@ const initPrepare = (root = document) => {
       }
       renderEntitySummary();
       renderManualOverrides();
+      renderHeteronymOverrides();
     }
 
     const filterVoicesByGender = (voices, genderHint) => {
@@ -2517,6 +2686,7 @@ const initPrepare = (root = document) => {
     activateEntityTab(initialTab?.dataset.panel || "people");
     renderEntitySummary();
     renderManualOverrides();
+    renderHeteronymOverrides();
     triggerEntitiesRefresh();
   }
 

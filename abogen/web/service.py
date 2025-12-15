@@ -152,6 +152,7 @@ class Job:
     entity_summary: Dict[str, Any] = field(default_factory=dict)
     manual_overrides: List[Dict[str, Any]] = field(default_factory=list)
     pronunciation_overrides: List[Dict[str, Any]] = field(default_factory=list)
+    heteronym_overrides: List[Dict[str, Any]] = field(default_factory=list)
     normalization_overrides: Dict[str, Any] = field(default_factory=dict)
     speaker_voice_languages: List[str] = field(default_factory=list)
     applied_speaker_config: Optional[str] = None
@@ -242,6 +243,7 @@ class Job:
             "entity_summary": dict(self.entity_summary),
             "manual_overrides": [dict(entry) for entry in self.manual_overrides],
             "pronunciation_overrides": [dict(entry) for entry in self.pronunciation_overrides],
+            "heteronym_overrides": [dict(entry) for entry in self.heteronym_overrides],
             "normalization_overrides": dict(self.normalization_overrides),
         }
 
@@ -565,6 +567,7 @@ class PendingJob:
     entity_summary: Dict[str, Any] = field(default_factory=dict)
     manual_overrides: List[Dict[str, Any]] = field(default_factory=list)
     pronunciation_overrides: List[Dict[str, Any]] = field(default_factory=list)
+    heteronym_overrides: List[Dict[str, Any]] = field(default_factory=list)
     entity_cache_key: Optional[str] = None
     wizard_max_step_index: int = 0
 
@@ -646,6 +649,7 @@ class ConversionService:
         entity_summary: Optional[Mapping[str, Any]] = None,
         manual_overrides: Optional[Iterable[Mapping[str, Any]]] = None,
         pronunciation_overrides: Optional[Iterable[Mapping[str, Any]]] = None,
+        heteronym_overrides: Optional[Iterable[Mapping[str, Any]]] = None,
         normalization_overrides: Optional[Mapping[str, Any]] = None,
     ) -> Job:
         job_id = uuid.uuid4().hex
@@ -697,6 +701,7 @@ class ConversionService:
             entity_summary=dict(entity_summary or {}),
             manual_overrides=[dict(entry) for entry in manual_overrides] if manual_overrides else [],
             pronunciation_overrides=[dict(entry) for entry in pronunciation_overrides] if pronunciation_overrides else [],
+            heteronym_overrides=[dict(entry) for entry in heteronym_overrides] if heteronym_overrides else [],
             normalization_overrides=dict(normalization_overrides or {}),
         )
         with self._lock:
@@ -1184,6 +1189,7 @@ class ConversionService:
             "entity_summary": dict(job.entity_summary),
             "manual_overrides": [dict(entry) for entry in job.manual_overrides],
             "pronunciation_overrides": [dict(entry) for entry in job.pronunciation_overrides],
+            "heteronym_overrides": [dict(entry) for entry in job.heteronym_overrides],
             "normalization_overrides": dict(job.normalization_overrides),
         }
 
@@ -1309,6 +1315,9 @@ class ConversionService:
         job.manual_overrides = [dict(entry) for entry in payload.get("manual_overrides", []) if isinstance(entry, Mapping)]
         job.pronunciation_overrides = [
             dict(entry) for entry in payload.get("pronunciation_overrides", []) if isinstance(entry, Mapping)
+        ]
+        job.heteronym_overrides = [
+            dict(entry) for entry in payload.get("heteronym_overrides", []) if isinstance(entry, Mapping)
         ]
         job.normalization_overrides = dict(payload.get("normalization_overrides", {}) or {})
         job.pause_event.set()
