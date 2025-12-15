@@ -20,6 +20,7 @@
       <button type="button" class="settings-nav__item{% if not llm_ready %} is-disabled{% endif %}" data-section="llm">LLM</button>
       <button type="button" class="settings-nav__item" data-section="normalization">Text Normalization</button>
       <button type="button" class="settings-nav__item" data-section="integrations">Integrations</button>
+      <button type="button" class="settings-nav__item" data-section="debug">Debug</button>
     </nav>
     <form action="{{ url_for('settings.update_settings') }}" method="post" class="settings__form">
       <div class="settings-panels">
@@ -470,6 +471,42 @@
               <button type="button" class="button button--ghost" data-action="audiobookshelf-test">Test connection</button>
               <span class="field__status" data-role="audiobookshelf-test-status" aria-live="polite"></span>
             </div>
+          </fieldset>
+        </section>
+
+        <section class="settings-panel" data-section="debug">
+          <fieldset class="settings__section">
+            <legend>Debug · TTS transformations</legend>
+            <p class="hint">Generate a set of WAV files from a purpose-built EPUB containing code-tagged examples. When something sounds wrong, report the code (e.g. <code>NUM_001</code>) to pinpoint the failing transformation.</p>
+
+            <div class="field field--stack">
+              <button type="submit" class="button" formaction="{{ url_for('settings.run_debug_wavs') }}" formmethod="post">Generate debug WAVs</button>
+              <p class="hint">Uses your current Settings defaults (voice, language, speed, GPU).</p>
+            </div>
+
+            {% if debug_manifest and debug_manifest.artifacts %}
+            <div class="field field--wide">
+              <label>Latest debug WAVs</label>
+              <ul>
+                {% for item in debug_manifest.artifacts %}
+                <li>
+                  <a href="{{ url_for('settings.download_debug_wav', run_id=debug_manifest.run_id, filename=item.filename) }}">{{ item.label }} · {{ item.filename }}</a>
+                </li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+
+            {% if debug_samples %}
+            <div class="field field--wide">
+              <label>Included examples</label>
+              <ul>
+                {% for sample in debug_samples %}
+                <li><strong>{{ sample.code }}</strong> — {{ sample.label }}: <span class="muted">{{ sample.text }}</span></li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
           </fieldset>
         </section>
       </div>

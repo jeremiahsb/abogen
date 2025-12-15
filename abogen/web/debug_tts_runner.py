@@ -1,0 +1,169 @@
+from __future__ import annotations
+
+import json
+import re
+import uuid
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+
+import numpy as np
+
+from abogen.debug_tts_samples import MARKER_PREFIX, MARKER_SUFFIX, build_debug_epub, iter_expected_codes
+from abogen.kokoro_text_normalization import normalize_for_pipeline
+from abogen.normalization_settings import build_apostrophe_config
+from abogen.text_extractor import extract_from_path
+from abogen.voice_cache import ensure_voice_assets
+from abogen.web.conversion_runner import SAMPLE_RATE, SPLIT_PATTERN, _select_device, _to_float32, _resolve_voice, _spec_to_voice_ids
+from abogen.utils import load_numpy_kpipeline
+
+
+_MARKER_RE = re.compile(re.escape(MARKER_PREFIX) + r"(?P<code>[A-Z0-9_]+)" + re.escape(MARKER_SUFFIX))
+
+
+@dataclass(frozen=True)
+class DebugWavArtifact:
+    label: str
+    filename: str
+    code: Optional[str] = None
+
+
+def _load_pipeline(language: str, use_gpu: bool) -> Any:
+    device = "cpu"
+    if use_gpu:
+        device = _select_device()
+    _np, KPipeline = load_numpy_kpipeline()
+    return KPipeline(lang_code=language, repo_id="hexgrad/Kokoro-82M", device=device)
+
+
+def _extract_cases_from_text(text: str) -> List[Tuple[str, str]]:
+    raw = str(text or "")
+    matches = list(_MARKER_RE.finditer(raw))
+    cases: List[Tuple[str, str]] = []
+    if not matches:
+        return cases
+    for idx, match in enumerate(matches):
+        code = match.group("code")
+        start = match.end()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(raw)
+        snippet = raw[start:end]
+        # Keep it small and predictable: collapse whitespace.
+        snippet = " ".join(snippet.strip().split())
+        cases.append((code, snippet))
+    return cases
+
+
+def run_debug_tts_wavs(
+    *,
+    output_root: Path,
+    settings: Mapping[str, Any],
+    epub_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Generate WAV artifacts for the debug EPUB samples.
+
+    Writes:
+    - overall.wav: concatenation of all samples
+    - case_<CODE>.wav: each sample rendered separately
+    - manifest.json: metadata + file list
+    """
+
+    output_root = Path(output_root)
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    run_id = uuid.uuid4().hex
+    run_dir = output_root / "debug" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    if epub_path is None:
+        epub_path = run_dir / "abogen_debug_samples.epub"
+        build_debug_epub(epub_path)
+    else:
+        epub_path = Path(epub_path)
+
+    extraction = extract_from_path(epub_path)
+    combined_text = extraction.combined_text or "\n\n".join((c.text or "") for c in extraction.chapters)
+    cases = _extract_cases_from_text(combined_text)
+
+    expected = list(iter_expected_codes())
+    found_codes = {code for code, _ in cases}
+    missing = [code for code in expected if code not in found_codes]
+    if missing:
+        raise RuntimeError(f"Debug EPUB missing expected codes: {', '.join(missing)}")
+
+    language = str(settings.get("language") or "en").strip() or "en"
+    voice_spec = str(settings.get("default_voice") or "").strip()
+    use_gpu = bool(settings.get("use_gpu", False))
+    speed = float(settings.get("default_speed", 1.0) or 1.0)
+
+    # Best-effort voice caching (only for known Kokoro internal voices).
+    voice_ids = _spec_to_voice_ids(voice_spec)
+    if voice_ids:
+        try:
+            ensure_voice_assets(voice_ids)
+        except Exception:
+            # Network / optional dependency variance; debug runner can still proceed.
+            pass
+
+    pipeline = _load_pipeline(language, use_gpu)
+    voice_choice = _resolve_voice(pipeline, voice_spec, use_gpu)
+
+    apostrophe_config = build_apostrophe_config(settings=settings)
+    normalization_settings = dict(settings)
+
+    artifacts: List[DebugWavArtifact] = []
+
+    overall_path = run_dir / "overall.wav"
+    overall_audio: List[np.ndarray] = []
+
+    def synth(text: str) -> np.ndarray:
+        normalized = normalize_for_pipeline(
+            text,
+            config=apostrophe_config,
+            settings=normalization_settings,
+        )
+        parts: List[np.ndarray] = []
+        for segment in pipeline(
+            normalized,
+            voice=voice_choice,
+            speed=speed,
+            split_pattern=SPLIT_PATTERN,
+        ):
+            audio = _to_float32(getattr(segment, "audio", None))
+            if audio.size:
+                parts.append(audio)
+        if not parts:
+            return np.zeros(0, dtype="float32")
+        return np.concatenate(parts).astype("float32", copy=False)
+
+    # Per sample
+    for code, snippet in cases:
+        if not snippet:
+            continue
+        audio = synth(snippet)
+        filename = f"case_{code}.wav"
+        path = run_dir / filename
+        # Write float32 PCM WAV.
+        import soundfile as sf
+
+        sf.write(path, audio, SAMPLE_RATE, subtype="FLOAT")
+        artifacts.append(DebugWavArtifact(label=f"{code}", filename=filename, code=code))
+        overall_audio.append(audio)
+
+    # Overall
+    if overall_audio:
+        combined = np.concatenate(overall_audio).astype("float32", copy=False)
+    else:
+        combined = np.zeros(0, dtype="float32")
+    import soundfile as sf
+
+    sf.write(overall_path, combined, SAMPLE_RATE, subtype="FLOAT")
+    artifacts.insert(0, DebugWavArtifact(label="Overall", filename="overall.wav", code=None))
+
+    manifest = {
+        "run_id": run_id,
+        "epub": str(epub_path),
+        "artifacts": [artifact.__dict__ for artifact in artifacts],
+        "sample_rate": SAMPLE_RATE,
+    }
+    (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return manifest
