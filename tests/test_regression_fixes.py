@@ -12,11 +12,10 @@ def normalize(text, overrides=None):
     return normalize_for_pipeline(text, config=config, settings=settings)
 
 def test_year_pronunciation():
-    # 1925 -> Nineteen Twenty Five
+    # 1925 -> Nineteen Hundred Twenty Five
     normalized = normalize("1925")
     print(f"1925 -> {normalized}")
-    # num2words might output "nineteen twenty-five"
-    assert "nineteen twenty" in normalized.lower()
+    assert "nineteen hundred" in normalized.lower()
     assert "five" in normalized.lower()
 
     # 2025 -> Twenty Twenty Five

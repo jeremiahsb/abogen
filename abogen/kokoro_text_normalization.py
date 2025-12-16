@@ -1586,8 +1586,8 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
                     return words.replace(" and ", " ")
                 return None
 
-            # 1200s are commonly spoken as "twelve hundred".
-            if 1200 <= value < 1300:
+            # US-style: 1100-1999 are often spoken as "X hundred Y".
+            if 1100 <= value <= 1999:
                 hundreds = value // 100
                 remainder = value % 100
                 prefix = _words(hundreds)

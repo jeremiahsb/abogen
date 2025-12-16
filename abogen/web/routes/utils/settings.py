@@ -316,6 +316,12 @@ def normalize_setting_value(key: str, value: Any, defaults: Dict[str, Any]) -> A
             if normalized_mode in {"off", "spacy", "llm"}:
                 return normalized_mode
         return defaults[key]
+        if key == "normalization_numbers_year_style":
+            if isinstance(value, str):
+                normalized_style = value.strip().lower()
+                if normalized_style in {"american", "off"}:
+                    return normalized_style
+            return defaults[key]
     if key == "llm_context_mode":
         if isinstance(value, str):
             normalized_scope = value.strip().lower()

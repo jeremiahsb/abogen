@@ -121,7 +121,8 @@ def test_space_separated_numbers_become_ranges() -> None:
 def test_year_like_numbers_use_common_pronunciation() -> None:
     normalized = _normalize_text("In 1924 the journey began")
     folded = normalized.lower().replace("-", " ")
-    assert "nineteen twenty four" in folded
+    assert "nineteen hundred" in folded
+    assert "twenty four" in folded
 
 
 def test_early_century_years_use_hundred_format() -> None:

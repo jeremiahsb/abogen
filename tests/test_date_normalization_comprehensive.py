@@ -11,14 +11,14 @@ def normalize(text, config):
 class TestDateNormalization:
     
     def test_standard_years(self, cfg):
-        # 1990 -> nineteen ninety
-        assert "nineteen ninety" in normalize("In 1990, the web was born.", cfg)
+        # 1990 -> nineteen hundred ninety
+        assert "nineteen hundred ninety" in normalize("In 1990, the web was born.", cfg)
         # 1066 -> ten sixty-six
         assert "ten sixty-six" in normalize("The battle was in 1066.", cfg)
         # 2023 -> twenty twenty-three
         assert "twenty twenty-three" in normalize("It is currently 2023.", cfg)
-        # 1905 -> nineteen oh five
-        assert "nineteen oh five" in normalize("In 1905, Einstein published.", cfg)
+        # 1905 -> nineteen hundred oh five
+        assert "nineteen hundred oh five" in normalize("In 1905, Einstein published.", cfg)
         
     def test_future_years(self, cfg):
         # 3400 -> thirty-four hundred
@@ -62,14 +62,14 @@ class TestDateNormalization:
 
     def test_ambiguous_numbers(self, cfg):
         # Just a number, no "address", no markers. Should default to year if 4 digits 1000-9999
-        assert "nineteen fifty" in normalize("I have 1950 apples.", cfg) 
+        assert "nineteen hundred fifty" in normalize("I have 1950 apples.", cfg) 
         # This is a known limitation/feature: it aggressively identifies years.
         
     def test_specific_user_examples(self, cfg):
         # 1021
         assert "ten twenty-one" in normalize("1021", cfg)
         # 1925
-        assert "nineteen twenty-five" in normalize("1925", cfg)
+        assert "nineteen hundred" in normalize("1925", cfg)
         # 3400
         assert "thirty-four hundred" in normalize("3400", cfg)
 
@@ -88,13 +88,13 @@ class TestDateNormalization:
         # "address" is far away (> 60 chars). Should be year.
         padding = "x" * 70
         text = f"address {padding} 1999"
-        assert "nineteen ninety-nine" in normalize(text, cfg)
+        assert "nineteen hundred ninety-nine" in normalize(text, cfg)
 
         # "address" is close (< 60 chars). Should be number.
         padding = "x" * 10
         text = f"address {padding} 1999"
         res = normalize(text, cfg)
-        assert "nineteen ninety-nine" not in res
+        assert "nineteen hundred ninety-nine" not in res
         assert "one thousand" in res
 
     def test_2000s(self, cfg):

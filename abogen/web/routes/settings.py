@@ -92,7 +92,8 @@ def update_settings() -> ResponseReturnValue:
     for key in _NORMALIZATION_BOOLEAN_KEYS:
         current[key] = _extract_checkbox(key, bool(current.get(key, True)))
     for key in _NORMALIZATION_STRING_KEYS:
-        current[key] = (form.get(key) or "").strip()
+        if hasattr(form, "__contains__") and key in form:
+            current[key] = (form.get(key) or "").strip()
 
     # Integrations
     current["integrations"] = current.get("integrations", {})
