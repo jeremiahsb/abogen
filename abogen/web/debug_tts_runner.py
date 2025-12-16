@@ -28,6 +28,18 @@ class DebugWavArtifact:
     code: Optional[str] = None
 
 
+def _resolve_voice_setting(value: str) -> tuple[str, Optional[str], Optional[str]]:
+    """Resolve settings voice strings into a pipeline-ready voice spec.
+
+    Supports "profile:<name>" by converting it into a concrete voice formula.
+    Returns (resolved_voice_spec, profile_name, profile_language).
+    """
+
+    from abogen.web.routes.utils.voice import resolve_voice_setting
+
+    return resolve_voice_setting(value)
+
+
 def _load_pipeline(language: str, use_gpu: bool) -> Any:
     device = "cpu"
     if use_gpu:
@@ -116,6 +128,19 @@ def run_debug_tts_wavs(
     voice_spec = str(settings.get("default_voice") or "").strip()
     use_gpu = bool(settings.get("use_gpu", False))
     speed = float(settings.get("default_speed", 1.0) or 1.0)
+
+    # Settings may store "profile:<name>" which is not a Kokoro voice ID.
+    # Resolve it to a concrete voice formula (e.g. "af_heart*0.5+...") so Kokoro
+    # doesn't attempt to download a non-existent "voices/profile:<name>.pt".
+    try:
+        resolved_voice, _profile_name, profile_language = _resolve_voice_setting(voice_spec)
+        if resolved_voice:
+            voice_spec = resolved_voice
+        if profile_language:
+            language = str(profile_language).strip() or language
+    except Exception:
+        # Voice profile resolution is best-effort; fall back to raw voice_spec.
+        pass
 
     # Best-effort voice caching (only for known Kokoro internal voices).
     voice_ids = _spec_to_voice_ids(voice_spec)

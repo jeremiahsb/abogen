@@ -119,3 +119,37 @@ def test_debug_samples_have_minimum_per_category():
 
     for prefix, minimum in prefixes.items():
         assert counts[prefix] >= minimum
+
+
+def test_debug_runner_resolves_profile_voice_before_pipeline(tmp_path, monkeypatch):
+    from abogen.web import debug_tts_runner as runner
+
+    # Stub voice setting resolution so we don't depend on the user's profile file.
+    monkeypatch.setattr(runner, "_resolve_voice_setting", lambda value: ("af_heart", "AM HQ Alt", None))
+
+    calls = []
+
+    class _Seg:
+        def __init__(self, audio):
+            self.audio = audio
+
+    class DummyPipeline:
+        def __call__(self, text, **kwargs):
+            calls.append(kwargs.get("voice"))
+            audio = np.zeros(int(0.05 * runner.SAMPLE_RATE), dtype="float32")
+            yield _Seg(audio)
+
+    monkeypatch.setattr(runner, "_load_pipeline", lambda language, use_gpu: DummyPipeline())
+
+    settings = {
+        "language": "en",
+        "default_voice": "profile:AM HQ Alt",
+        "use_gpu": False,
+        "default_speed": 1.0,
+    }
+
+    manifest = runner.run_debug_tts_wavs(output_root=tmp_path, settings=settings)
+    assert manifest.get("run_id")
+    assert calls
+    # Must not pass through the profile:* string.
+    assert all(isinstance(v, str) and not v.lower().startswith("profile:") for v in calls)
