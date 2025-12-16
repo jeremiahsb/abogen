@@ -5,7 +5,10 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-import spacy
+try:  # pragma: no cover - optional dependency
+    import spacy  # type: ignore
+except Exception:  # pragma: no cover - spaCy may be unavailable in minimal environments
+    spacy = None
 
 
 @dataclass(frozen=True)
@@ -177,6 +180,9 @@ def _build_replacement_sentence(sentence: str, token: str, replacement_token: st
 
 
 def _load_spacy(language: str) -> Any:
+    if spacy is None:
+        return None
+
     # English only for now.
     # Use installed small model; keep it simple.
     lang = (language or "en").lower()
@@ -211,7 +217,12 @@ def extract_heteronym_overrides(
     if not lang.startswith("en"):
         return []
 
+    if spacy is None:
+        return []
+
     nlp = _load_spacy(lang)
+    if nlp is None:
+        return []
 
     previous_choices: Dict[str, str] = {}
     if existing:

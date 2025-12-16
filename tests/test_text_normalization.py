@@ -215,6 +215,40 @@ def test_decades_can_skip_expansion_when_disabled() -> None:
     assert "'90s" in normalized
 
 
+def test_abbreviated_decades_expand_to_spoken_form() -> None:
+    normalized = _normalize_text("She loved music from the '80s.")
+    assert "eighties" in normalized.lower()
+
+
+def test_currency_under_one_dollar_uses_cents() -> None:
+    normalized = _normalize_text("It cost $0.99.")
+    folded = normalized.lower().replace("-", " ")
+    assert "zero dollars" not in folded
+    assert "cents" in folded
+
+
+def test_iso_dates_use_locale_order_and_ordinals(monkeypatch) -> None:
+    monkeypatch.setenv("LC_TIME", "en_US.UTF-8")
+    normalized = _normalize_text("The date is 2025/12/15.")
+    folded = normalized.lower().replace("-", " ")
+    assert "december" in folded
+    assert "fifteenth" in folded
+
+
+def test_times_and_acronyms_do_not_say_dot() -> None:
+    normalized = _normalize_text("Meet at 5 p.m. near the U.S.A. border.")
+    folded = normalized.lower()
+    assert " dot " not in folded
+
+
+def test_internet_slang_expansion_is_configurable() -> None:
+    normalized = _normalize_text(
+        "pls knock before entering.",
+        normalization_overrides={"normalization_internet_slang": True},
+    )
+    assert "please" in normalized.lower()
+
+
 @pytest.mark.skipif(not SPACY_RESOLVER_AVAILABLE, reason="spaCy model unavailable")
 def test_spacy_disambiguates_it_has_from_context() -> None:
     normalized = _normalize_text("It's been a long time.")

@@ -182,7 +182,7 @@ DEBUG_TTS_SAMPLES: Sequence[DebugTTSSample] = (
     DebugTTSSample(
         code="TITLE_003",
         label="Titles and abbreviations (3)",
-        text="Gen. Lee spoke to Sgt. Rivera on Main St.",
+        text="Gen. Smith spoke to Sgt. Rivera on Main St.",
     ),
     DebugTTSSample(
         code="TITLE_004",

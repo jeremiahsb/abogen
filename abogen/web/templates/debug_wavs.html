@@ -7,10 +7,7 @@
   <h1 class="card__title">Debug WAVs</h1>
   <p class="tag">Run ID: <code>{{ run_id }}</code></p>
 
-  <div class="field field--stack">
-    <audio data-role="debug-audio" controls preload="none" style="width: 100%;"></audio>
-    <p class="hint">Click an ID to play its WAV. “Overall” is the concatenation of all samples.</p>
-  </div>
+  <p class="hint">Each clip reads: ID, one second pause, then the reference text.</p>
 
   {% if artifacts %}
   <div class="field field--wide">
@@ -18,15 +15,15 @@
     <ul>
       {% for item in artifacts %}
       <li>
-        <button
-          type="button"
-          class="button button--ghost"
-          data-role="debug-play"
-          data-audio-src="{{ item.url }}"
-        >
-          {{ item.label }}
-        </button>
-        <a class="muted" href="{{ item.url }}" download>{{ item.filename }}</a>
+        <div class="field field--stack" style="margin: 0;">
+          <div>
+            <strong>{{ item.label }}</strong>
+            {% if item.text %}
+              — <span class="muted">{{ item.text }}</span>
+            {% endif %}
+          </div>
+          <audio controls preload="none" src="{{ item.url }}"></audio>
+        </div>
       </li>
       {% endfor %}
     </ul>
@@ -37,25 +34,4 @@
     <a href="{{ url_for('settings.settings_page', _anchor='debug') }}" class="button button--ghost">Back to Settings</a>
   </div>
 </section>
-
-<script>
-  (function () {
-    const audio = document.querySelector('[data-role="debug-audio"]');
-    const buttons = Array.from(document.querySelectorAll('[data-role="debug-play"]'));
-    if (!audio || !buttons.length) {
-      return;
-    }
-
-    buttons.forEach((button) => {
-      button.addEventListener('click', () => {
-        const src = button.dataset.audioSrc;
-        if (!src) return;
-        if (audio.src !== src) {
-          audio.src = src;
-        }
-        audio.play();
-      });
-    });
-  })();
-</script>
 {% endblock %}

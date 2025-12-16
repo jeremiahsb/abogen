@@ -80,9 +80,17 @@ def update_settings() -> ResponseReturnValue:
         maximum=25,
     )
 
+    def _extract_checkbox(name: str, default: bool) -> bool:
+        values = form.getlist(name) if hasattr(form, "getlist") else []
+        if values:
+            return coerce_bool(values[-1], default)
+        if hasattr(form, "__contains__") and name in form:
+            return False
+        return default
+
     # Normalization settings
     for key in _NORMALIZATION_BOOLEAN_KEYS:
-        current[key] = coerce_bool(form.get(key), False)
+        current[key] = _extract_checkbox(key, bool(current.get(key, True)))
     for key in _NORMALIZATION_STRING_KEYS:
         current[key] = (form.get(key) or "").strip()
 
@@ -236,7 +244,8 @@ def download_debug_wav(run_id: str, filename: str) -> ResponseReturnValue:
     safe_name = (filename or "").strip()
     if not safe_run or not safe_name or "/" in safe_name or "\\" in safe_name:
         abort(404)
-    if not safe_name.lower().endswith(".wav") and safe_name != "manifest.json":
+    is_wav = safe_name.lower().endswith(".wav")
+    if not is_wav and safe_name != "manifest.json":
         abort(404)
 
     root = Path(current_app.config.get("OUTPUT_FOLDER") or get_user_output_path("web"))
@@ -247,4 +256,12 @@ def download_debug_wav(run_id: str, filename: str) -> ResponseReturnValue:
     expected_dir = (root / "debug" / safe_run).resolve()
     if expected_dir not in path.parents:
         abort(404)
-    return send_file(path, as_attachment=True, download_name=path.name)
+    wants_download = str(request.args.get("download") or "").strip().lower() in {"1", "true", "yes"}
+    mimetype = "audio/wav" if is_wav else "application/json"
+    # Inline playback should work for WAVs; allow explicit downloads via ?download=1.
+    return send_file(
+        path,
+        mimetype=mimetype,
+        as_attachment=wants_download,
+        download_name=path.name,
+    )

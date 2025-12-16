@@ -26,6 +26,7 @@ class DebugWavArtifact:
     label: str
     filename: str
     code: Optional[str] = None
+    text: Optional[str] = None
 
 
 def _resolve_voice_setting(value: str) -> tuple[str, Optional[str], Optional[str]]:
@@ -65,6 +66,21 @@ def _extract_cases_from_text(text: str) -> List[Tuple[str, str]]:
     return cases
 
 
+def _spoken_id(code: str) -> str:
+    # Make IDs pronounceable and stable (avoid reading as a word).
+    out: List[str] = []
+    for ch in str(code or ""):
+        if ch == "_":
+            out.append(" ")
+        elif ch.isalnum():
+            out.append(ch)
+        else:
+            out.append(" ")
+    # Add spaces between alnum to encourage letter-by-letter reading.
+    spaced = " ".join("".join(out).split())
+    return spaced
+
+
 def run_debug_tts_wavs(
     *,
     output_root: Path,
@@ -95,6 +111,14 @@ def run_debug_tts_wavs(
     extraction = extract_from_path(epub_path)
     combined_text = extraction.combined_text or "\n\n".join((c.text or "") for c in extraction.chapters)
     cases = _extract_cases_from_text(combined_text)
+
+    # Prefer the canonical sample catalog for text (EPUB extraction may include headings).
+    try:
+        from abogen.debug_tts_samples import DEBUG_TTS_SAMPLES
+
+        sample_text_by_code = {sample.code: sample.text for sample in DEBUG_TTS_SAMPLES}
+    except Exception:
+        sample_text_by_code = {}
 
     expected = list(iter_expected_codes())
     found_codes = {code for code, _ in cases}
@@ -162,11 +186,15 @@ def run_debug_tts_wavs(
     overall_path = run_dir / "overall.wav"
     overall_audio: List[np.ndarray] = []
 
-    def synth(text: str) -> np.ndarray:
-        normalized = normalize_for_pipeline(
-            text,
-            config=apostrophe_config,
-            settings=normalization_settings,
+    def synth(text: str, *, apply_normalization: bool = True) -> np.ndarray:
+        normalized = (
+            normalize_for_pipeline(
+                text,
+                config=apostrophe_config,
+                settings=normalization_settings,
+            )
+            if apply_normalization
+            else str(text or "")
         )
         parts: List[np.ndarray] = []
         for segment in pipeline(
@@ -182,19 +210,26 @@ def run_debug_tts_wavs(
             return np.zeros(0, dtype="float32")
         return np.concatenate(parts).astype("float32", copy=False)
 
+    pause_1s = np.zeros(int(1.0 * SAMPLE_RATE), dtype="float32")
+    between_cases = np.zeros(int(0.35 * SAMPLE_RATE), dtype="float32")
+
     # Per sample
     for code, snippet in cases:
+        snippet = sample_text_by_code.get(code, snippet)
         if not snippet:
             continue
-        audio = synth(snippet)
+        id_audio = synth(_spoken_id(code), apply_normalization=False)
+        text_audio = synth(snippet, apply_normalization=True)
+        audio = np.concatenate([id_audio, pause_1s, text_audio]).astype("float32", copy=False)
         filename = f"case_{code}.wav"
         path = run_dir / filename
         # Write float32 PCM WAV.
         import soundfile as sf
 
         sf.write(path, audio, SAMPLE_RATE, subtype="FLOAT")
-        artifacts.append(DebugWavArtifact(label=f"{code}", filename=filename, code=code))
+        artifacts.append(DebugWavArtifact(label=f"{code}", filename=filename, code=code, text=snippet))
         overall_audio.append(audio)
+        overall_audio.append(between_cases)
 
     # Overall
     if overall_audio:
@@ -204,7 +239,7 @@ def run_debug_tts_wavs(
     import soundfile as sf
 
     sf.write(overall_path, combined, SAMPLE_RATE, subtype="FLOAT")
-    artifacts.insert(0, DebugWavArtifact(label="Overall", filename="overall.wav", code=None))
+    artifacts.insert(0, DebugWavArtifact(label="Overall", filename="overall.wav", code=None, text=None))
 
     manifest = {
         "run_id": run_id,

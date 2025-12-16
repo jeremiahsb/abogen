@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+import os
+import locale
 from fractions import Fraction
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -129,6 +131,176 @@ _URL_RE = re.compile(r"(https?://)?(www\.)?(?P<domain>[a-zA-Z0-9-]+(\.[a-zA-Z0-9
 _FOOTNOTE_RE = re.compile(r"([a-zA-Z]+)(\d+)")
 _BRACKET_FOOTNOTE_RE = re.compile(r"\[\d+\]")
 
+_ISO_DATE_RE = re.compile(r"\b(?P<year>\d{4})[/-](?P<month>\d{1,2})[/-](?P<day>\d{1,2})\b")
+_MDY_DATE_RE = re.compile(
+    r"\b(?P<month>Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+"
+    r"(?P<day>\d{1,2})(?:st|nd|rd|th)?\s*,\s*(?P<year>\d{4})\b",
+    re.IGNORECASE,
+)
+
+_TIME_RE = re.compile(
+    r"\b(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<meridian>a\.?m\.?|p\.?m\.?)\b",
+    re.IGNORECASE,
+)
+
+_ADDRESS_ABBR_RE = re.compile(r"(?P<prefix>\b\w+\s+)(?P<abbr>St|Rd|Ave|Blvd|Ln|Dr)\.(?=\s*(?:,|\.|!|\?|$))")
+
+_MONTH_MAP = {
+    "jan": "January",
+    "january": "January",
+    "feb": "February",
+    "february": "February",
+    "mar": "March",
+    "march": "March",
+    "apr": "April",
+    "april": "April",
+    "may": "May",
+    "jun": "June",
+    "june": "June",
+    "jul": "July",
+    "july": "July",
+    "aug": "August",
+    "august": "August",
+    "sep": "September",
+    "sept": "September",
+    "september": "September",
+    "oct": "October",
+    "october": "October",
+    "nov": "November",
+    "november": "November",
+    "dec": "December",
+    "december": "December",
+}
+
+
+def _is_us_locale() -> bool:
+    for key in ("LC_ALL", "LC_TIME", "LANG"):
+        value = os.environ.get(key)
+        if value and "en_US" in value:
+            return True
+    try:
+        loc = locale.getlocale(locale.LC_TIME)
+        if loc and loc[0] and "en_US" in loc[0]:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _year_to_words_american(value: int, language: str) -> str:
+    if language.lower().startswith("en") and 2000 <= value <= 2099:
+        if value == 2000:
+            return "two thousand"
+        if 2001 <= value <= 2009:
+            tail = _DIGIT_WORDS[value % 10]
+            return f"two thousand {tail}"
+
+        first_two = value // 100
+        last_two = value % 100
+        first_words = _int_to_words(first_two, language) or "twenty"
+        if last_two == 0:
+            return f"{first_words} hundred"
+        if last_two < 10:
+            return f"{first_words} oh {_DIGIT_WORDS[last_two]}"
+        last_words = _int_to_words(last_two, language)
+        return f"{first_words} {last_words or last_two}"
+
+    words = _int_to_words(value, language)
+    return words or str(value)
+
+
+def _normalize_dates(text: str, language: str) -> str:
+    us = _is_us_locale()
+
+    def _format_iso(match: re.Match[str]) -> str:
+        year = int(match.group("year"))
+        month = int(match.group("month"))
+        day = int(match.group("day"))
+        if not (1 <= month <= 12 and 1 <= day <= 31):
+            return match.group(0)
+        month_name = (
+            [
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December",
+            ][month - 1]
+        )
+        ordinal = _int_to_ordinal_words(day, language) or str(day)
+        year_words = _year_to_words_american(year, language)
+        return f"{month_name} {ordinal}, {year_words}" if us else f"{ordinal} {month_name} {year_words}"
+
+    def _format_mdy(match: re.Match[str]) -> str:
+        month_raw = str(match.group("month") or "").strip().lower().rstrip(".")
+        month_name = _MONTH_MAP.get(month_raw)
+        if not month_name:
+            return match.group(0)
+        day = int(match.group("day"))
+        year = int(match.group("year"))
+        ordinal = _int_to_ordinal_words(day, language) or str(day)
+        year_words = _year_to_words_american(year, language)
+        return f"{month_name} {ordinal}, {year_words}" if us else f"{ordinal} {month_name} {year_words}"
+
+    out = _ISO_DATE_RE.sub(_format_iso, text)
+    out = _MDY_DATE_RE.sub(_format_mdy, out)
+    return out
+
+
+def _normalize_times(text: str) -> str:
+    def _replace(match: re.Match[str]) -> str:
+        hour = match.group("hour")
+        minute = match.group("minute")
+        meridian = match.group("meridian").lower().replace(".", "")
+        if minute:
+            return f"{hour}:{minute} {meridian}"
+        return f"{hour} {meridian}"
+
+    return _TIME_RE.sub(_replace, text)
+
+
+def _normalize_address_abbreviations(text: str) -> str:
+    mapping = {
+        "st": "street",
+        "rd": "road",
+        "ave": "avenue",
+        "blvd": "boulevard",
+        "ln": "lane",
+        "dr": "drive",
+    }
+
+    def _replace(match: re.Match[str]) -> str:
+        abbr = match.group("abbr")
+        full = mapping.get(abbr.lower())
+        if not full:
+            return match.group(0)
+        return match.group("prefix") + _match_casing(abbr, full)
+
+    return _ADDRESS_ABBR_RE.sub(_replace, text)
+
+
+def _normalize_internet_slang(text: str) -> str:
+    mapping = {
+        "pls": "please",
+        "plz": "please",
+    }
+
+    def _replace(match: re.Match[str]) -> str:
+        token = match.group(0)
+        replacement = mapping.get(token.lower())
+        if not replacement:
+            return token
+        return _match_casing(token, replacement)
+
+    return re.sub(r"\b(?:pls|plz)\b", _replace, text, flags=re.IGNORECASE)
+
 _DECIMAL_NUMBER_RE = re.compile(
     rf"(?<![\w{_NUMBER_RANGE_CLASS}/])(?P<number>-?(?:\d{{1,3}}(?:,\d{{3}})+|\d+)\.(?P<fraction>\d+))(?![\w{_NUMBER_RANGE_CLASS}/])"
 )
@@ -155,13 +327,49 @@ def _int_to_words(value: int, language: str) -> Optional[str]:
 
 
 def _int_to_ordinal_words(value: int, language: str) -> Optional[str]:
-    if num2words is None:
-        return None
+    if num2words is not None:
+        try:
+            return num2words(value, lang=language, ordinal=True)
+        except Exception:  # pragma: no cover - unsupported locale
+            return None
 
-    try:
-        return num2words(value, lang=language, ordinal=True)
-    except Exception:  # pragma: no cover - unsupported locale
-        return None
+    if language.lower().startswith("en"):
+        ordinals = {
+            1: "first",
+            2: "second",
+            3: "third",
+            4: "fourth",
+            5: "fifth",
+            6: "sixth",
+            7: "seventh",
+            8: "eighth",
+            9: "ninth",
+            10: "tenth",
+            11: "eleventh",
+            12: "twelfth",
+            13: "thirteenth",
+            14: "fourteenth",
+            15: "fifteenth",
+            16: "sixteenth",
+            17: "seventeenth",
+            18: "eighteenth",
+            19: "nineteenth",
+            20: "twentieth",
+            21: "twenty-first",
+            22: "twenty-second",
+            23: "twenty-third",
+            24: "twenty-fourth",
+            25: "twenty-fifth",
+            26: "twenty-sixth",
+            27: "twenty-seventh",
+            28: "twenty-eighth",
+            29: "twenty-ninth",
+            30: "thirtieth",
+            31: "thirty-first",
+        }
+        return ordinals.get(int(value))
+
+    return None
 
 
 def _pluralize_fraction_word(base: str) -> str:
@@ -366,6 +574,8 @@ TITLE_ABBREVIATIONS = {
     "dr": "doctor",
     "prof": "professor",
     "rev": "reverend",
+    "gen": "general",
+    "sgt": "sergeant",
 }
 
 SUFFIX_ABBREVIATIONS = {
@@ -1146,7 +1356,23 @@ def classify_token(token: str, cfg: ApostropheConfig) -> Tuple[str, str]:
     # 1. Decades
     if DECADE_RE.match(token):
         if cfg.decades_mode == "expand":
-            return "decade", f"19{token[2:4]}s"
+            decade_digit = token[1]
+            decade_map = {
+                "0": "two thousands",
+                "1": "tens",
+                "2": "twenties",
+                "3": "thirties",
+                "4": "forties",
+                "5": "fifties",
+                "6": "sixties",
+                "7": "seventies",
+                "8": "eighties",
+                "9": "nineties",
+            }
+            spoken = decade_map.get(decade_digit)
+            if spoken:
+                return "decade", spoken
+            return "decade", token
         return "decade", token
 
     # 2. Leading elision
@@ -1312,7 +1538,7 @@ def normalize_apostrophes(text: str, cfg: ApostropheConfig | None = None) -> Tup
     return normalized_text, results
 
 def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
-    if not text or not cfg.convert_numbers:
+    if not text:
         return text
 
     language = (cfg.number_lang or "en").strip() or "en"
@@ -1359,6 +1585,20 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
                 if words:
                     return words.replace(" and ", " ")
                 return None
+
+            # 1200s are commonly spoken as "twelve hundred".
+            if 1200 <= value < 1300:
+                hundreds = value // 100
+                remainder = value % 100
+                prefix = _words(hundreds)
+                if not prefix:
+                    return None
+                if remainder == 0:
+                    return f"{prefix} hundred"
+                tail = _format_year_tail(remainder, allow_oh=True)
+                if tail is None:
+                    return None
+                return f"{prefix} hundred {tail}".strip()
 
             if value % 1000 == 0:
                 thousands = value // 1000
@@ -1537,6 +1777,29 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
             
             return f"{amount_spoken} {magnitude} {currency_name}"
 
+        # Handle $0.99 -> ninety-nine cents (avoid "zero dollars and...").
+        if amount_str.startswith("0") and amount < 1.0:
+            dollars_part, dot, fraction = amount_str.partition(".")
+            if dot and fraction:
+                cents_str = (fraction + "00")[:2]
+                try:
+                    cents_value = int(cents_str)
+                except ValueError:
+                    cents_value = 0
+                if cents_value > 0:
+                    cents_words = _int_to_words(cents_value, language) or str(cents_value)
+                    subunit = {
+                        "$": "cent",
+                        "€": "cent",
+                        "£": "penny",
+                        "¥": "yen",
+                    }.get(symbol, "cent")
+                    if symbol == "£":
+                        subunit = "pence" if cents_value != 1 else "penny"
+                    else:
+                        subunit = (subunit + "s") if cents_value != 1 and subunit not in {"pence", "yen"} else subunit
+                    return f"{cents_words} {subunit}".strip()
+
         currency_map = {
             "$": "USD",
             "£": "GBP",
@@ -1559,6 +1822,13 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
 
     def _replace_url(match: re.Match[str]) -> str:
         domain = match.group("domain")
+
+        # Avoid matching dotted abbreviations/acronyms without an explicit URL prefix.
+        has_prefix = match.group(1) or match.group(2)
+        if not has_prefix:
+            parts = [p for p in domain.split(".") if p]
+            if parts and all(p.isalpha() and len(p) <= 2 for p in parts):
+                return match.group(0)
         
         # Avoid matching numbers like 1.05 or 12.34.56
         # If the domain consists only of digits and dots, ignore it (unless it has http/www prefix)
@@ -1583,24 +1853,34 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
         return match.group(1)
 
     normalized = text
-    
-    # Apply URL replacement first
+
+    # Apply URL replacement first (independent of number conversion).
     normalized = _URL_RE.sub(_replace_url, normalized)
-    
+
     if getattr(cfg, "remove_footnotes", False):
         normalized = _FOOTNOTE_RE.sub(_remove_footnote, normalized)
         normalized = _BRACKET_FOOTNOTE_RE.sub("", normalized)
 
     if cfg.convert_currency:
         normalized = _CURRENCY_RE.sub(_replace_currency, normalized)
-    normalized = _NUMBER_RANGE_RE.sub(lambda m: _replace_number_range(m, language), normalized)
-    normalized = _NUMBER_SPACE_RANGE_RE.sub(lambda m: _replace_space_separated_range(m, language), normalized)
-    normalized = _FRACTION_RE.sub(lambda m: _replace_fraction(m, language), normalized)
-    normalized = _DECIMAL_NUMBER_RE.sub(_replace_decimal, normalized)
-    normalized = _NUMBER_WITH_GROUP_RE.sub(_replace_grouped, normalized)
-    normalized = _PLAIN_NUMBER_RE.sub(_replace_plain, normalized)
-    normalized = _normalize_roman_numerals(normalized, language)
+
+    if cfg.convert_numbers:
+        normalized = _NUMBER_RANGE_RE.sub(lambda m: _replace_number_range(m, language), normalized)
+        normalized = _NUMBER_SPACE_RANGE_RE.sub(lambda m: _replace_space_separated_range(m, language), normalized)
+        normalized = _FRACTION_RE.sub(lambda m: _replace_fraction(m, language), normalized)
+        normalized = _DECIMAL_NUMBER_RE.sub(_replace_decimal, normalized)
+        normalized = _NUMBER_WITH_GROUP_RE.sub(_replace_grouped, normalized)
+        normalized = _PLAIN_NUMBER_RE.sub(_replace_plain, normalized)
+        normalized = _normalize_roman_numerals(normalized, language)
+
     return normalized
+def _normalize_dotted_acronyms(text: str) -> str:
+    def _replace(match: re.Match[str]) -> str:
+        value = match.group(0)
+        compact = value.replace(".", "")
+        return compact
+
+    return re.sub(r"\b(?:[A-Z]\.){1,}[A-Z]\.?(?=\W|$)", _replace, text)
 
 # ---------- Optional phoneme hint post-processing ----------
 
@@ -1909,21 +2189,31 @@ def normalize_for_pipeline(
     mode = str(runtime_settings.get("normalization_apostrophe_mode", "spacy")).lower()
     normalized = text
 
+    # Pre-normalization that must happen before number/url parsing.
+    if runtime_settings.get("normalization_numbers", True):
+        normalized = _normalize_dates(normalized, cfg.number_lang)
+        normalized = _normalize_times(normalized)
+        normalized = _normalize_dotted_acronyms(normalized)
+    if runtime_settings.get("normalization_titles", True):
+        normalized = _normalize_address_abbreviations(normalized)
+    if runtime_settings.get("normalization_internet_slang", False):
+        normalized = _normalize_internet_slang(normalized)
+
     if mode == "off":
-        normalized = normalize_unicode_apostrophes(text)
-        if cfg.convert_numbers:
+        normalized = normalize_unicode_apostrophes(normalized)
+        if cfg.convert_numbers or cfg.convert_currency or getattr(cfg, "remove_footnotes", False):
             normalized = _normalize_grouped_numbers(normalized, cfg)
         normalized = _cleanup_spacing(normalized)
     elif mode == "llm":
         try:
-            normalized = _normalize_with_llm(text, settings=runtime_settings, config=cfg)
+            normalized = _normalize_with_llm(normalized, settings=runtime_settings, config=cfg)
         except LLMClientError:
             raise
-        if cfg.convert_numbers:
+        if cfg.convert_numbers or cfg.convert_currency or getattr(cfg, "remove_footnotes", False):
             normalized = _normalize_grouped_numbers(normalized, cfg)
         normalized = _cleanup_spacing(normalized)
     else:
-        normalized, _ = normalize_apostrophes(text, cfg)
+        normalized, _ = normalize_apostrophes(normalized, cfg)
 
     if runtime_settings.get("normalization_titles", True):
         normalized = expand_titles_and_suffixes(normalized)
