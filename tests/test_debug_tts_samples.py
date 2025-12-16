@@ -84,10 +84,10 @@ def test_settings_debug_route_writes_manifest(tmp_path, monkeypatch):
         resp = client.post("/settings/debug/run")
         assert resp.status_code in {302, 303}
         location = resp.headers.get("Location", "")
-        assert "debug_run_id=" in location
+        assert "/settings/debug/" in location
 
-        # Extract run id from query string.
-        run_id = location.split("debug_run_id=")[1].split("&")[0].split("#")[0]
+        # Extract run id from /settings/debug/<run_id>
+        run_id = location.rsplit("/settings/debug/", 1)[1].split("?", 1)[0].split("#", 1)[0]
         manifest_path = tmp_path / "debug" / run_id / "manifest.json"
         assert manifest_path.exists()
 

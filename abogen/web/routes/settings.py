@@ -195,12 +195,38 @@ def run_debug_wavs() -> ResponseReturnValue:
         return redirect(url_for("settings.settings_page", _anchor="debug"))
 
     flash("Debug WAV generation completed.", "success")
-    return redirect(
-        url_for(
-            "settings.settings_page",
-            debug_run_id=str(manifest.get("run_id") or ""),
-            _anchor="debug",
-        )
+    return redirect(url_for("settings.debug_wavs_page", run_id=str(manifest.get("run_id") or "")))
+
+
+@settings_bp.get("/debug/<run_id>")
+def debug_wavs_page(run_id: str) -> ResponseReturnValue:
+    safe_run = (run_id or "").strip()
+    if not safe_run:
+        abort(404)
+
+    root = Path(current_app.config.get("OUTPUT_FOLDER") or get_user_output_path("web"))
+    run_dir = (root / "debug" / safe_run).resolve()
+    manifest_path = run_dir / "manifest.json"
+    if not manifest_path.exists():
+        abort(404)
+
+    try:
+        import json
+
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        abort(404)
+
+    artifacts = manifest.get("artifacts") or []
+    # Precompute download URLs for each artifact.
+    for item in artifacts:
+        filename = str(item.get("filename") or "")
+        item["url"] = url_for("settings.download_debug_wav", run_id=safe_run, filename=filename)
+
+    return render_template(
+        "debug_wavs.html",
+        run_id=safe_run,
+        artifacts=artifacts,
     )
 
 

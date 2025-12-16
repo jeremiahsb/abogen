@@ -90,7 +90,29 @@ def run_debug_tts_wavs(
     if missing:
         raise RuntimeError(f"Debug EPUB missing expected codes: {', '.join(missing)}")
 
-    language = str(settings.get("language") or "en").strip() or "en"
+    language = str(settings.get("language") or "a").strip() or "a"
+    # Kokoro's KPipeline expects short language codes like "a" (American English),
+    # but older settings may store ISO-like values such as "en".
+    language_aliases = {
+        "en": "a",
+        "en-us": "a",
+        "en_us": "a",
+        "en-gb": "b",
+        "en_gb": "b",
+        "es": "e",
+        "es-es": "e",
+        "fr": "f",
+        "fr-fr": "f",
+        "hi": "h",
+        "it": "i",
+        "pt": "p",
+        "pt-br": "p",
+        "ja": "j",
+        "jp": "j",
+        "zh": "z",
+        "zh-cn": "z",
+    }
+    language = language_aliases.get(language.lower(), language)
     voice_spec = str(settings.get("default_voice") or "").strip()
     use_gpu = bool(settings.get("use_gpu", False))
     speed = float(settings.get("default_speed", 1.0) or 1.0)
