@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass
+import logging
 import math
 import re
 from typing import Any, Iterable, Iterator, Optional
 
 import numpy as np
+
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_SUPERTONIC_VOICES = ("M1", "M2", "M3", "M4", "M5", "F1", "F2", "F3", "F4", "F5")
@@ -76,6 +81,48 @@ def _split_text(text: str, *, split_pattern: Optional[str], max_chunk_length: in
     return result
 
 
+_UNSUPPORTED_CHARS_RE = re.compile(r"unsupported character\(s\):\s*(\[[^\]]*\])", re.IGNORECASE)
+
+
+def _parse_unsupported_characters(error: BaseException) -> list[str]:
+    """Best-effort extraction of unsupported characters from SuperTonic errors."""
+
+    message = " ".join(str(part) for part in getattr(error, "args", ()) if part is not None) or str(error)
+    match = _UNSUPPORTED_CHARS_RE.search(message)
+    if not match:
+        return []
+
+    raw = match.group(1)
+    try:
+        value = ast.literal_eval(raw)
+    except Exception:
+        return []
+
+    if isinstance(value, (list, tuple)):
+        out: list[str] = []
+        for item in value:
+            if item is None:
+                continue
+            s = str(item)
+            if s:
+                out.append(s)
+        return out
+
+    if isinstance(value, str) and value:
+        return [value]
+
+    return []
+
+
+def _remove_unsupported_characters(text: str, unsupported: Iterable[str]) -> str:
+    result = text
+    for item in unsupported:
+        if not item:
+            continue
+        result = result.replace(item, "")
+    return result
+
+
 class SupertonicPipeline:
     """Minimal adapter that mimics Kokoro's pipeline iteration interface."""
 
@@ -118,15 +165,57 @@ class SupertonicPipeline:
         style = self._tts.get_voice_style(voice_name=voice_name)
         chunks = _split_text(text, split_pattern=split_pattern, max_chunk_length=self.max_chunk_length)
         for chunk in chunks:
-            wav, duration = self._tts.synthesize(
-                text=chunk,
-                voice_style=style,
-                total_steps=steps,
-                speed=speed_value,
-                max_chunk_length=self.max_chunk_length,
-                silence_duration=0.0,
-                verbose=False,
-            )
+            chunk_to_speak = chunk
+            removed: set[str] = set()
+            last_exc: Exception | None = None
+
+            # SuperTonic can raise ValueError for unsupported characters; strip and retry.
+            for attempt in range(3):
+                try:
+                    wav, duration = self._tts.synthesize(
+                        text=chunk_to_speak,
+                        voice_style=style,
+                        total_steps=steps,
+                        speed=speed_value,
+                        max_chunk_length=self.max_chunk_length,
+                        silence_duration=0.0,
+                        verbose=False,
+                    )
+                    break
+                except ValueError as exc:
+                    last_exc = exc
+                    unsupported = _parse_unsupported_characters(exc)
+                    if not unsupported:
+                        raise
+
+                    removed.update(unsupported)
+                    sanitized = _remove_unsupported_characters(chunk_to_speak, unsupported).strip()
+
+                    # If we didn't change anything, don't loop forever.
+                    if sanitized == chunk_to_speak.strip():
+                        raise
+
+                    chunk_to_speak = sanitized
+                    if not chunk_to_speak:
+                        logger.warning(
+                            "SuperTonic: dropped a chunk after removing unsupported characters: %s",
+                            sorted(removed),
+                        )
+                        break
+
+                    if attempt == 0:
+                        logger.warning(
+                            "SuperTonic: removed unsupported characters %s and retried.",
+                            sorted(removed),
+                        )
+            else:
+                # Exhausted retries.
+                assert last_exc is not None
+                raise last_exc
+
+            if not chunk_to_speak:
+                continue
+
             audio = _ensure_float32_mono(wav)
 
             # If duration is present, infer the source sample rate and resample if needed.
@@ -143,4 +232,4 @@ class SupertonicPipeline:
             if src_rate != self.sample_rate:
                 audio = _resample_linear(audio, src_rate, self.sample_rate)
 
-            yield SupertonicSegment(graphemes=chunk, audio=audio)
+            yield SupertonicSegment(graphemes=chunk_to_speak, audio=audio)

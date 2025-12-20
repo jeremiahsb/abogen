@@ -252,6 +252,15 @@ def job_logs(job_id: str) -> str:
         abort(404)
     return render_template("job_logs_static.html", job=job)
 
+
+@jobs_bp.get("/<job_id>/logs/partial")
+def job_logs_partial(job_id: str) -> ResponseReturnValue:
+    job = get_service().get_job(job_id)
+    if not job:
+        # Return a non-polling section so HTMX stops retrying.
+        return render_template("partials/logs_section_missing.html"), 200
+    return render_template("partials/logs_section.html", job=job)
+
 @jobs_bp.get("/<job_id>/logs/stream")
 def stream_logs(job_id: str) -> ResponseReturnValue:
     job = get_service().get_job(job_id)

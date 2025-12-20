@@ -30,6 +30,7 @@ from abogen.normalization_settings import (
     apply_overrides as apply_normalization_overrides,
 )
 from abogen.entity_analysis import normalize_token as normalize_entity_token
+from abogen.entity_analysis import normalize_manual_override_token
 from abogen.text_extractor import ExtractedChapter, extract_from_path
 from abogen.utils import (
     calculate_text_length,
@@ -907,6 +908,97 @@ def _normalize_for_pipeline(
     return normalize_for_pipeline(text, config=apostrophe_config, settings=runtime_settings)
 
 
+def _merge_pronunciation_overrides(job: Any) -> List[Dict[str, Any]]:
+    """Return pronunciation override entries, ensuring manual overrides are included.
+
+    Pending jobs keep both `manual_overrides` and `pronunciation_overrides`, but the
+    latter can be stale if the UI didn't resync before enqueue. During conversion,
+    we must merge manual overrides so they always apply (before TTS).
+
+    Precedence: manual overrides win over existing entries for the same normalized key.
+    """
+
+    collected: Dict[str, Dict[str, Any]] = {}
+
+    existing = getattr(job, "pronunciation_overrides", None)
+    if isinstance(existing, list):
+        for entry in existing:
+            if not isinstance(entry, Mapping):
+                continue
+            token_value = str(entry.get("token") or "").strip()
+            pronunciation_value = str(entry.get("pronunciation") or "").strip()
+            if not token_value or not pronunciation_value:
+                continue
+            normalized = str(entry.get("normalized") or "").strip() or normalize_entity_token(token_value)
+            if not normalized:
+                continue
+            collected[normalized] = {
+                "token": token_value,
+                "normalized": normalized,
+                "pronunciation": pronunciation_value,
+                "voice": str(entry.get("voice") or "").strip() or None,
+                "notes": str(entry.get("notes") or "").strip() or None,
+                "context": str(entry.get("context") or "").strip() or None,
+                "source": str(entry.get("source") or "pronunciation"),
+                "language": getattr(job, "language", None),
+            }
+
+    # Speaker pronunciation entries (optional), mirrored from the pending-job collector.
+    speakers = getattr(job, "speakers", None)
+    if isinstance(speakers, dict):
+        for payload in speakers.values():
+            if not isinstance(payload, Mapping):
+                continue
+            token_value = str(payload.get("token") or "").strip()
+            pronunciation_value = str(payload.get("pronunciation") or "").strip()
+            if not token_value or not pronunciation_value:
+                continue
+            normalized = normalize_entity_token(token_value)
+            if not normalized:
+                continue
+            collected[normalized] = {
+                "token": token_value,
+                "normalized": normalized,
+                "pronunciation": pronunciation_value,
+                "voice": str(
+                    payload.get("resolved_voice")
+                    or payload.get("voice")
+                    or getattr(job, "voice", "")
+                ).strip()
+                or None,
+                "notes": None,
+                "context": None,
+                "source": "speaker",
+                "language": getattr(job, "language", None),
+            }
+
+    # Manual overrides should take precedence.
+    manual = getattr(job, "manual_overrides", None)
+    if isinstance(manual, list):
+        for entry in manual:
+            if not isinstance(entry, Mapping):
+                continue
+            token_value = str(entry.get("token") or "").strip()
+            pronunciation_value = str(entry.get("pronunciation") or "").strip()
+            if not token_value or not pronunciation_value:
+                continue
+            normalized = str(entry.get("normalized") or "").strip() or normalize_manual_override_token(token_value)
+            if not normalized:
+                continue
+            collected[normalized] = {
+                "token": token_value,
+                "normalized": normalized,
+                "pronunciation": pronunciation_value,
+                "voice": str(entry.get("voice") or "").strip() or None,
+                "notes": str(entry.get("notes") or "").strip() or None,
+                "context": str(entry.get("context") or "").strip() or None,
+                "source": str(entry.get("source") or "manual"),
+                "language": getattr(job, "language", None),
+            }
+
+    return list(collected.values())
+
+
 def _compile_pronunciation_rules(
     overrides: Optional[Iterable[Mapping[str, Any]]],
 ) -> List[Dict[str, Any]]:
@@ -1535,7 +1627,8 @@ def run_conversion_job(job: Job) -> None:
 
         extraction = extract_from_path(job.stored_path)
         file_type = _infer_file_type(job.stored_path)
-        pronunciation_rules = _compile_pronunciation_rules(job.pronunciation_overrides)
+        pronunciation_overrides = _merge_pronunciation_overrides(job)
+        pronunciation_rules = _compile_pronunciation_rules(pronunciation_overrides)
         heteronym_sentence_rules = _compile_heteronym_sentence_rules(
             getattr(job, "heteronym_overrides", None)
         )
@@ -1550,7 +1643,7 @@ def run_conversion_job(job: Job) -> None:
                 f"Applying {count} pronunciation override{'s' if count != 1 else ''} during conversion.",
                 level="debug",
             )
-        for override_entry in job.pronunciation_overrides or []:
+        for override_entry in pronunciation_overrides or []:
             if not isinstance(override_entry, Mapping):
                 continue
             raw_token = str(override_entry.get("token") or "").strip()
