@@ -33,6 +33,32 @@ def test_calibre_opds_feed_exposes_series_metadata() -> None:
     assert feed_dict["entries"][0]["series_index"] == 4.0
 
 
+def test_calibre_opds_feed_exposes_subtitle_metadata() -> None:
+    client = CalibreOPDSClient("http://example.com/catalog")
+    xml_payload = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+    <feed xmlns=\"http://www.w3.org/2005/Atom\"
+          xmlns:calibre_md=\"http://calibre.kovidgoyal.net/2009/metadata\">
+      <id>catalog</id>
+      <title>Example Catalog</title>
+      <entry>
+        <id>book-1</id>
+        <title>Sample Book</title>
+        <calibre_md:subtitle>A Novel</calibre_md:subtitle>
+        <link rel=\"http://opds-spec.org/acquisition\"
+              href=\"books/sample.epub\"
+              type=\"application/epub+zip\" />
+      </entry>
+    </feed>
+    """
+
+    feed = client._parse_feed(xml_payload, base_url="http://example.com/catalog")
+    assert feed.entries
+    assert feed.entries[0].subtitle == "A Novel"
+
+    feed_dict = feed_to_dict(feed)
+    assert feed_dict["entries"][0]["subtitle"] == "A Novel"
+
+
 def test_calibre_opds_feed_extracts_series_from_categories() -> None:
     client = CalibreOPDSClient("http://example.com/catalog")
     xml_payload = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>

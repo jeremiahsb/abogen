@@ -1,5 +1,8 @@
 from pathlib import Path
 
+from collections.abc import Mapping
+from typing import Any
+
 from flask import Blueprint, current_app, render_template, request, redirect, url_for, flash, send_file, abort
 from flask.typing import ResponseReturnValue
 
@@ -7,6 +10,7 @@ from abogen.web.routes.utils.settings import (
     load_settings,
     load_integration_settings,
     save_settings,
+    stored_integration_config,
     coerce_bool,
     coerce_int,
     SAVE_MODE_LABELS,
@@ -18,7 +22,7 @@ from abogen.web.routes.utils.settings import (
 from abogen.web.routes.utils.voice import template_options
 from abogen.web.debug_tts_runner import run_debug_tts_wavs
 from abogen.debug_tts_samples import DEBUG_TTS_SAMPLES
-from abogen.utils import get_user_output_path
+from abogen.utils import get_user_output_path, load_config
 
 settings_bp = Blueprint("settings", __name__)
 
@@ -105,7 +109,22 @@ def update_settings() -> ResponseReturnValue:
             current[key] = (form.get(key) or "").strip()
 
     # Integrations
-    current["integrations"] = current.get("integrations", {})
+    # `load_settings()` returns only the general settings subset and intentionally
+    # does not include stored integrations. Seed them from the stored config so
+    # saving unrelated settings cannot wipe credentials/tokens.
+    current_integrations: dict[str, dict[str, Any]] = {}
+    cfg = load_config() or {}
+    stored_integrations = cfg.get("integrations")
+    if isinstance(stored_integrations, Mapping):
+        for name, payload in stored_integrations.items():
+            if isinstance(name, str) and isinstance(payload, Mapping):
+                current_integrations[name] = dict(payload)
+    # Ensure known integrations are loaded even if the config is still in legacy format.
+    for name in ("audiobookshelf", "calibre_opds"):
+        stored = stored_integration_config(name)
+        if stored and name not in current_integrations:
+            current_integrations[name] = dict(stored)
+    current["integrations"] = current_integrations
 
     # Audiobookshelf
     abs_enabled = coerce_bool(form.get("audiobookshelf_enabled"), False)

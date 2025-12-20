@@ -759,6 +759,18 @@ if (modal && browser) {
         metadata.description = entry.summary;
         metadata.summary = entry.summary;
       }
+
+      if (Array.isArray(entry.authors) && entry.authors.length > 0) {
+        const authorsText = entry.authors.map((name) => String(name || '').trim()).filter(Boolean).join(', ');
+        if (authorsText) {
+          metadata.authors = authorsText;
+          metadata.author = authorsText;
+        }
+      }
+
+      if (typeof entry.subtitle === 'string' && entry.subtitle.trim()) {
+        metadata.subtitle = entry.subtitle.trim();
+      }
       if (entry.rating !== null && entry.rating !== undefined && entry.rating !== '') {
         metadata.rating = String(entry.rating);
       }

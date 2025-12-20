@@ -77,6 +77,7 @@ class OPDSEntry:
     title: str
     position: Optional[int] = None
     authors: List[str] = field(default_factory=list)
+    subtitle: Optional[str] = None
     updated: Optional[str] = None
     published: Optional[str] = None
     summary: Optional[str] = None
@@ -96,6 +97,7 @@ class OPDSEntry:
             "title": self.title,
             "position": self.position,
             "authors": list(self.authors),
+            "subtitle": self.subtitle,
             "updated": self.updated,
             "published": self.published,
             "summary": self.summary,
@@ -599,6 +601,14 @@ class CalibreOPDSClient:
     def _parse_entry(self, node: ET.Element, base_url: str) -> OPDSEntry:
         entry_id = node.findtext("atom:id", default="", namespaces=NS).strip()
         title = node.findtext("atom:title", default="Untitled", namespaces=NS).strip() or "Untitled"
+
+        subtitle = (
+            node.findtext("calibre_md:subtitle", default=None, namespaces=NS)
+            or node.findtext("calibre:subtitle", default=None, namespaces=NS)
+            or node.findtext("atom:subtitle", default=None, namespaces=NS)
+        )
+        subtitle = self._strip_html(subtitle.strip()) if subtitle else None
+
         position_value = self._extract_position(node)
         updated = node.findtext("atom:updated", default=None, namespaces=NS)
         published = (
@@ -691,6 +701,7 @@ class CalibreOPDSClient:
             title=title,
             position=position_value,
             authors=authors,
+            subtitle=subtitle,
             updated=updated,
             published=published,
             summary=cleaned_summary,
