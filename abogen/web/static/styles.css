@@ -262,6 +262,11 @@ body {
   display: none !important;
 }
 
+/* Ensure the HTML hidden attribute always wins over component display rules. */
+[hidden] {
+  display: none !important;
+}
+
 .modal__overlay {
   position: absolute;
   inset: 0;

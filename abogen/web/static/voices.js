@@ -31,6 +31,8 @@ const setupVoiceMixer = () => {
   const supertonicVoiceSelect = app.querySelector('[data-role="supertonic-voice"]');
   const supertonicStepsInput = app.querySelector('[data-role="supertonic-steps"]');
   const supertonicSpeedInput = app.querySelector('[data-role="supertonic-speed"]');
+  const supertonicStepsLabel = app.querySelector('[data-role="supertonic-steps-display"]');
+  const supertonicSpeedLabel = app.querySelector('[data-role="supertonic-speed-display"]');
   const speedInput = document.getElementById("preview-speed");
   const importInput = document.getElementById("voice-import-input");
   const headerActions = document.querySelector(".voice-mixer__header-actions");
@@ -290,6 +292,7 @@ const setupVoiceMixer = () => {
       const desired = Number(state.draft.supertonic?.speed ?? 1.0);
       if (!Number.isNaN(desired)) {
         speedInput.value = String(desired);
+        setRangeFill(speedInput);
       }
     }
   };
@@ -591,9 +594,18 @@ const setupVoiceMixer = () => {
     }
     if (supertonicStepsInput) {
       supertonicStepsInput.value = String(state.draft.supertonic?.total_steps ?? 5);
+      setRangeFill(supertonicStepsInput);
     }
     if (supertonicSpeedInput) {
       supertonicSpeedInput.value = String(state.draft.supertonic?.speed ?? 1.0);
+      setRangeFill(supertonicSpeedInput);
+    }
+    if (supertonicStepsLabel) {
+      supertonicStepsLabel.textContent = String(state.draft.supertonic?.total_steps ?? 5);
+    }
+    if (supertonicSpeedLabel) {
+      const speed = Number(state.draft.supertonic?.speed ?? 1.0);
+      supertonicSpeedLabel.textContent = `${(Number.isFinite(speed) ? speed : 1.0).toFixed(2)}×`;
     }
     applyProviderToUI();
     renderSelectedVoices();
@@ -1016,8 +1028,13 @@ const setupVoiceMixer = () => {
       const value = Number(supertonicStepsInput.value || "5");
       state.draft.supertonic.total_steps = clamp(value, 2, 15);
       supertonicStepsInput.value = String(Math.round(state.draft.supertonic.total_steps));
+      if (supertonicStepsLabel) {
+        supertonicStepsLabel.textContent = supertonicStepsInput.value;
+      }
+      setRangeFill(supertonicStepsInput);
       markDirty();
     });
+    setRangeFill(supertonicStepsInput);
   }
 
   if (supertonicSpeedInput) {
@@ -1026,11 +1043,17 @@ const setupVoiceMixer = () => {
       const normalized = clamp(value, 0.7, 2.0);
       state.draft.supertonic.speed = normalized;
       supertonicSpeedInput.value = normalized.toFixed(2);
+      if (supertonicSpeedLabel) {
+        supertonicSpeedLabel.textContent = `${normalized.toFixed(2)}×`;
+      }
+      setRangeFill(supertonicSpeedInput);
       if (speedInput) {
         speedInput.value = String(normalized);
+        setRangeFill(speedInput);
       }
       markDirty();
     });
+    setRangeFill(supertonicSpeedInput);
   }
 
   if (voiceFilterSelect) {
@@ -1052,6 +1075,10 @@ const setupVoiceMixer = () => {
         state.draft.supertonic.speed = clamp(speed, 0.7, 2.0);
         if (supertonicSpeedInput) {
           supertonicSpeedInput.value = state.draft.supertonic.speed.toFixed(2);
+          setRangeFill(supertonicSpeedInput);
+        }
+        if (supertonicSpeedLabel) {
+          supertonicSpeedLabel.textContent = `${state.draft.supertonic.speed.toFixed(2)}×`;
         }
       }
     };

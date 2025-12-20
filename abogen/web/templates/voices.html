@@ -73,14 +73,14 @@
                 {% endfor %}
               </select>
             </div>
-            <div class="field">
-              <label for="supertonic-quality">Supertonic quality (total steps)</label>
-              <input type="number" id="supertonic-quality" data-role="supertonic-steps" min="2" max="15" value="5">
+            <div class="field field--slider">
+              <label for="supertonic-quality">Supertonic quality (total steps) <span class="tag" data-role="supertonic-steps-display">5</span></label>
+              <input type="range" id="supertonic-quality" data-role="supertonic-steps" min="2" max="15" step="1" value="5">
               <p class="hint">2 = fastest/lowest quality, 15 = slowest/highest quality.</p>
             </div>
-            <div class="field">
-              <label for="supertonic-speaker-speed">Supertonic speed</label>
-              <input type="number" id="supertonic-speaker-speed" data-role="supertonic-speed" min="0.7" max="2.0" step="0.05" value="1.0">
+            <div class="field field--slider">
+              <label for="supertonic-speaker-speed">Supertonic speed <span class="tag" data-role="supertonic-speed-display">1.00×</span></label>
+              <input type="range" id="supertonic-speaker-speed" data-role="supertonic-speed" min="0.7" max="2.0" step="0.05" value="1.0">
             </div>
             <p class="hint">Supertonic voice mixing is not implemented yet. Stub target: <a href="https://github.com/Topping1/Supertonic-Voice-Mixer" target="_blank" rel="noreferrer">Supertonic-Voice-Mixer</a>.</p>
           </div>
