@@ -6,13 +6,38 @@ import soundfile as sf
 from flask import current_app, send_file
 from flask.typing import ResponseReturnValue
 
-from abogen.utils import load_numpy_kpipeline
-from abogen.voice_formulas import get_new_voice
-from abogen.web.conversion_runner import SPLIT_PATTERN, SAMPLE_RATE, _select_device, _to_float32
-from abogen.kokoro_text_normalization import normalize_for_pipeline
+
+SPLIT_PATTERN = r"\n+"
+SAMPLE_RATE = 24000
 
 _preview_pipelines: Dict[Tuple[str, str], Any] = {}
 _preview_pipeline_lock = threading.Lock()
+
+
+def _select_device() -> str:
+    import platform
+
+    system = platform.system()
+    if system == "Darwin" and platform.processor() == "arm":
+        return "mps"
+    return "cuda"
+
+
+def _to_float32(audio_segment) -> np.ndarray:
+    if audio_segment is None:
+        return np.zeros(0, dtype="float32")
+
+    tensor = audio_segment
+    if hasattr(tensor, "detach"):
+        tensor = tensor.detach()
+    if hasattr(tensor, "cpu"):
+        try:
+            tensor = tensor.cpu()
+        except Exception:
+            pass
+    if hasattr(tensor, "numpy"):
+        return np.asarray(tensor.numpy(), dtype="float32").reshape(-1)
+    return np.asarray(tensor, dtype="float32").reshape(-1)
 
 def get_preview_pipeline(language: str, device: str) -> Any:
     key = (language, device)
@@ -20,6 +45,8 @@ def get_preview_pipeline(language: str, device: str) -> Any:
         pipeline = _preview_pipelines.get(key)
         if pipeline is not None:
             return pipeline
+        from abogen.utils import load_numpy_kpipeline
+
         _, KPipeline = load_numpy_kpipeline()
         pipeline = KPipeline(lang_code=language, repo_id="hexgrad/Kokoro-82M", device=device)
         _preview_pipelines[key] = pipeline
@@ -40,11 +67,15 @@ def generate_preview_audio(
 
     provider = (tts_provider or "kokoro").strip().lower()
 
-    try:
-        normalized_text = normalize_for_pipeline(text)
-    except Exception:
-        current_app.logger.exception("Preview normalization failed; using raw text")
-        normalized_text = text
+    normalized_text = text
+    if provider != "supertonic":
+        try:
+            from abogen.kokoro_text_normalization import normalize_for_pipeline
+
+            normalized_text = normalize_for_pipeline(text)
+        except Exception:
+            current_app.logger.exception("Preview normalization failed; using raw text")
+            normalized_text = text
 
     if provider == "supertonic":
         from abogen.tts_supertonic import SupertonicPipeline
@@ -72,6 +103,8 @@ def generate_preview_audio(
 
         voice_choice: Any = voice_spec
         if voice_spec and "*" in voice_spec:
+            from abogen.voice_formulas import get_new_voice
+
             voice_choice = get_new_voice(pipeline, voice_spec, use_gpu)
 
         segments = pipeline(

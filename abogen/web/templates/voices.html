@@ -146,6 +146,25 @@
     </section>
   </div>
   <input id="voice-import-input" type="file" accept="application/json" hidden>
+
+  <div class="modal" data-role="provider-picker-modal" hidden>
+    <div class="modal__overlay" data-role="provider-picker-overlay" tabindex="-1"></div>
+    <div class="modal__content card card--modal" role="dialog" aria-modal="true" aria-labelledby="provider-picker-title">
+      <header class="modal__header">
+        <p class="modal__eyebrow">Speaker Studio</p>
+        <h2 class="modal__title" id="provider-picker-title">Choose a TTS provider</h2>
+        <button type="button" class="button button--ghost button--small" data-role="provider-picker-close" aria-label="Close provider picker">Close</button>
+      </header>
+      <div class="modal__body">
+        <p class="hint">Select which text-to-speech provider this speaker will use. You can create separate speakers per provider.</p>
+        <div class="field field--choices" data-role="provider-picker-options"></div>
+      </div>
+      <footer class="modal__footer">
+        <button type="button" class="button button--ghost" data-role="provider-picker-cancel">Cancel</button>
+        <button type="button" class="button" data-role="provider-picker-confirm">Continue</button>
+      </footer>
+    </div>
+  </div>
 </section>
 {% endblock %}
 

@@ -42,6 +42,7 @@ from abogen.utils import (
 )
 from abogen.voice_cache import ensure_voice_assets
 from abogen.voice_formulas import extract_voice_ids, get_new_voice
+from abogen.voice_profiles import load_profiles, normalize_profile_entry
 from abogen.pronunciation_store import increment_usage
 from abogen.llm_client import LLMClientError
 from abogen.tts_supertonic import DEFAULT_SUPERTONIC_VOICES, SupertonicPipeline
@@ -65,6 +66,58 @@ def _supertonic_voice_from_spec(spec: Any, fallback: str) -> str:
     if upper in DEFAULT_SUPERTONIC_VOICES:
         return upper
     return str(fallback or "").strip() or "M1"
+
+
+def _split_speaker_reference(value: Any) -> tuple[Optional[str], str]:
+    raw = str(value or "").strip()
+    if not raw or ":" not in raw:
+        return None, raw
+    prefix, remainder = raw.split(":", 1)
+    prefix = prefix.strip().lower()
+    if prefix not in {"speaker", "profile"}:
+        return None, raw
+    name = remainder.strip()
+    return (name or None), raw
+
+
+def _formula_from_kokoro_entry(entry: Mapping[str, Any]) -> str:
+    voices = entry.get("voices") or []
+    if not voices:
+        return ""
+    total = 0.0
+    parts: list[tuple[str, float]] = []
+    for item in voices:
+        if not isinstance(item, (list, tuple)) or len(item) < 2:
+            continue
+        name = str(item[0] or "").strip()
+        try:
+            weight = float(item[1])
+        except (TypeError, ValueError):
+            continue
+        if not name or weight <= 0:
+            continue
+        parts.append((name, weight))
+        total += weight
+    if total <= 0 or not parts:
+        return ""
+
+    def _format_weight(value: float) -> str:
+        normalized = value / total if total else 0.0
+        return (f"{normalized:.4f}").rstrip("0").rstrip(".") or "0"
+
+    return "+".join(f"{name}*{_format_weight(weight)}" for name, weight in parts)
+
+
+def _infer_provider_from_spec(value: Any, fallback: str = "kokoro") -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return fallback
+    upper = raw.upper()
+    if upper in DEFAULT_SUPERTONIC_VOICES:
+        return "supertonic"
+    if "*" in raw or "+" in raw:
+        return "kokoro"
+    return fallback
 
 
 class _JobCancelled(Exception):
@@ -1380,14 +1433,76 @@ def run_conversion_job(job: Job) -> None:
     audio_output_path: Optional[Path] = None
     extraction: Optional[Any] = None
     pipeline: Any = None
+    pipelines: Dict[str, Any] = {}
+    kokoro_cache_ready = False
+    normalized_profiles: Dict[str, Dict[str, Any]] = {}
     chunk_groups: Dict[int, List[Dict[str, Any]]] = {}
     active_chapter_configs: List[Dict[str, Any]] = []
     usage_counter: Dict[str, int] = defaultdict(int)
     override_token_map: Dict[str, str] = {}
     try:
-        pipeline = _load_pipeline(job)
-        if getattr(job, "tts_provider", "kokoro") == "kokoro":
-            _initialize_voice_cache(job)
+        # Load saved speakers once so we can resolve speaker: references during conversion.
+        try:
+            profiles = load_profiles()
+        except Exception:
+            profiles = {}
+        for name, entry in (profiles or {}).items():
+            normalized = normalize_profile_entry(entry)
+            if normalized:
+                normalized_profiles[str(name)] = normalized
+
+        def get_pipeline(provider: str) -> Any:
+            nonlocal kokoro_cache_ready
+            provider_norm = str(provider or "kokoro").strip().lower() or "kokoro"
+            if provider_norm not in {"kokoro", "supertonic"}:
+                provider_norm = "kokoro"
+
+            existing = pipelines.get(provider_norm)
+            if existing is not None:
+                return existing
+
+            if provider_norm == "supertonic":
+                pipelines[provider_norm] = SupertonicPipeline(
+                    sample_rate=SAMPLE_RATE,
+                    auto_download=True,
+                    total_steps=int(getattr(job, "supertonic_total_steps", 5) or 5),
+                )
+                return pipelines[provider_norm]
+
+            # Kokoro
+            cfg = load_config()
+            disable_gpu = not job.use_gpu or not cfg.get("use_gpu", True)
+            device = "cpu"
+            if not disable_gpu:
+                device = _select_device()
+            _np, KPipeline = load_numpy_kpipeline()
+            pipelines[provider_norm] = KPipeline(lang_code=job.language, repo_id="hexgrad/Kokoro-82M", device=device)
+            if not kokoro_cache_ready:
+                _initialize_voice_cache(job)
+                kokoro_cache_ready = True
+            return pipelines[provider_norm]
+
+        def resolve_voice_target(raw_spec: str) -> tuple[str, str, Optional[float], Optional[int]]:
+            """Return (provider, voice_spec, speed_override, steps_override)."""
+            spec = str(raw_spec or "").strip()
+            speaker_name, _ = _split_speaker_reference(spec)
+            if speaker_name and speaker_name in normalized_profiles:
+                entry = normalized_profiles[speaker_name]
+                provider = str(entry.get("provider") or "kokoro").strip().lower() or "kokoro"
+                if provider == "supertonic":
+                    voice = str(entry.get("voice") or getattr(job, "voice", "M1") or "M1").strip() or "M1"
+                    steps = int(entry.get("total_steps") or getattr(job, "supertonic_total_steps", 5) or 5)
+                    speed = float(entry.get("speed") or getattr(job, "speed", 1.0) or 1.0)
+                    return "supertonic", _supertonic_voice_from_spec(voice, getattr(job, "voice", "M1")), speed, steps
+                formula = _formula_from_kokoro_entry(entry)
+                return "kokoro", formula or spec, None, None
+
+            fallback_provider = str(getattr(job, "tts_provider", "kokoro") or "kokoro").strip().lower() or "kokoro"
+            inferred = _infer_provider_from_spec(spec, fallback=fallback_provider)
+            if inferred == "supertonic":
+                return "supertonic", _supertonic_voice_from_spec(spec, getattr(job, "voice", "M1")), None, None
+            return "kokoro", spec, None, None
+
         extraction = extract_from_path(job.stored_path)
         file_type = _infer_file_type(job.stored_path)
         pronunciation_rules = _compile_pronunciation_rules(job.pronunciation_overrides)
@@ -1507,9 +1622,10 @@ def run_conversion_job(job: Job) -> None:
 
         base_voice_spec = _job_voice_fallback(job)
         voice_cache: Dict[str, Any] = {}
-        if getattr(job, "tts_provider", "kokoro") == "kokoro":
-            if base_voice_spec and "*" not in base_voice_spec:
-                voice_cache[base_voice_spec] = _resolve_voice(pipeline, base_voice_spec, job.use_gpu)
+        base_provider, base_voice_resolved, _, _ = resolve_voice_target(base_voice_spec)
+        if base_provider == "kokoro" and base_voice_resolved and "*" not in base_voice_resolved:
+            kokoro_pipeline = get_pipeline("kokoro")
+            voice_cache[f"kokoro:{base_voice_resolved}"] = _resolve_voice(kokoro_pipeline, base_voice_resolved, job.use_gpu)
         processed_chars = 0
         subtitle_index = 1
         current_time = 0.0
@@ -1538,6 +1654,9 @@ def run_conversion_job(job: Job) -> None:
             chapter_sink: Optional[AudioSink],
             preview_prefix: Optional[str] = None,
             split_pattern: Optional[str] = SPLIT_PATTERN,
+            tts_provider: Optional[str] = None,
+            speed_override: Optional[float] = None,
+            supertonic_steps_override: Optional[int] = None,
         ) -> int:
             nonlocal processed_chars, subtitle_index, current_time
             source_text = str(text or "")
@@ -1560,21 +1679,23 @@ def run_conversion_job(job: Job) -> None:
                 raise
             local_segments = 0
 
-            provider = getattr(job, "tts_provider", "kokoro")
+            provider = str(tts_provider or getattr(job, "tts_provider", "kokoro") or "kokoro").strip().lower() or "kokoro"
             if provider == "supertonic":
+                supertonic_pipeline = get_pipeline("supertonic")
                 voice_name = _supertonic_voice_from_spec(voice_choice, getattr(job, "voice", "M1"))
-                segment_iter = pipeline(
+                segment_iter = supertonic_pipeline(
                     normalized,
                     voice=voice_name,
-                    speed=job.speed,
+                    speed=float(speed_override if speed_override is not None else job.speed),
                     split_pattern=split_pattern,
-                    total_steps=getattr(job, "supertonic_total_steps", 5),
+                    total_steps=int(supertonic_steps_override if supertonic_steps_override is not None else getattr(job, "supertonic_total_steps", 5)),
                 )
             else:
-                segment_iter = pipeline(
+                kokoro_pipeline = get_pipeline("kokoro")
+                segment_iter = kokoro_pipeline(
                     normalized,
                     voice=voice_choice,
-                    speed=job.speed,
+                    speed=float(speed_override if speed_override is not None else job.speed),
                     split_pattern=split_pattern,
                 )
 
@@ -1655,10 +1776,16 @@ def run_conversion_job(job: Job) -> None:
             if not chapter_voice_spec:
                 chapter_voice_spec = base_voice_spec
 
-            voice_choice = voice_cache.get(chapter_voice_spec)
-            if voice_choice is None:
-                voice_choice = _resolve_voice(pipeline, chapter_voice_spec, job.use_gpu)
-                voice_cache[chapter_voice_spec] = voice_choice
+            chapter_provider, chapter_voice_resolved, chapter_speed, chapter_steps = resolve_voice_target(chapter_voice_spec)
+            chapter_cache_key = f"{chapter_provider}:{chapter_voice_resolved}" if chapter_voice_resolved else chapter_provider
+            if chapter_provider == "kokoro":
+                voice_choice = voice_cache.get(chapter_cache_key)
+                if voice_choice is None:
+                    kokoro_pipeline = get_pipeline("kokoro")
+                    voice_choice = _resolve_voice(kokoro_pipeline, chapter_voice_resolved, job.use_gpu)
+                    voice_cache[chapter_cache_key] = voice_choice
+            else:
+                voice_choice = chapter_voice_resolved
 
             chapter_audio_path: Optional[Path] = None
             segments_emitted = 0
@@ -1694,6 +1821,9 @@ def run_conversion_job(job: Job) -> None:
                         voice_choice=voice_choice,
                         chapter_sink=chapter_sink,
                         preview_prefix="Book intro",
+                        tts_provider=chapter_provider,
+                        speed_override=chapter_speed,
+                        supertonic_steps_override=chapter_steps,
                     )
                     intro_emitted = True
                     if intro_segments > 0 and job.chapter_intro_delay > 0:
@@ -1710,6 +1840,9 @@ def run_conversion_job(job: Job) -> None:
                         chapter_sink=chapter_sink,
                         preview_prefix=f"Chapter {idx} title",
                         split_pattern=SPLIT_PATTERN,
+                        tts_provider=chapter_provider,
+                        speed_override=chapter_speed,
+                        supertonic_steps_override=chapter_steps,
                     )
                     segments_emitted += heading_segments
                     if heading_segments > 0 and job.chapter_intro_delay > 0:
@@ -1782,16 +1915,26 @@ def run_conversion_job(job: Job) -> None:
                         chunk_voice_spec = chapter_voice_spec or base_voice_spec
 
                     if chunk_voice_spec == chapter_voice_spec:
+                        chunk_provider = chapter_provider
+                        chunk_voice_resolved = chapter_voice_resolved
+                        chunk_speed_use = chapter_speed
+                        chunk_steps_use = chapter_steps
                         chunk_voice_choice = voice_choice
                     else:
-                        chunk_voice_choice = voice_cache.get(chunk_voice_spec)
-                        if chunk_voice_choice is None:
-                            chunk_voice_choice = _resolve_voice(
-                                pipeline,
-                                chunk_voice_spec,
-                                job.use_gpu,
-                            )
-                            voice_cache[chunk_voice_spec] = chunk_voice_choice
+                        chunk_provider, chunk_voice_resolved, chunk_speed_use, chunk_steps_use = resolve_voice_target(chunk_voice_spec)
+                        chunk_cache_key = f"{chunk_provider}:{chunk_voice_resolved}" if chunk_voice_resolved else chunk_provider
+                        if chunk_provider == "kokoro":
+                            chunk_voice_choice = voice_cache.get(chunk_cache_key)
+                            if chunk_voice_choice is None:
+                                kokoro_pipeline = get_pipeline("kokoro")
+                                chunk_voice_choice = _resolve_voice(
+                                    kokoro_pipeline,
+                                    chunk_voice_resolved,
+                                    job.use_gpu,
+                                )
+                                voice_cache[chunk_cache_key] = chunk_voice_choice
+                        else:
+                            chunk_voice_choice = chunk_voice_resolved
 
                     chunk_start = current_time
                     emitted = emit_text(
@@ -1799,6 +1942,9 @@ def run_conversion_job(job: Job) -> None:
                         voice_choice=chunk_voice_choice,
                         chapter_sink=chapter_sink,
                         preview_prefix=f"Chunk {chunk_entry.get('id') or chunk_entry.get('chunk_index')}",
+                        tts_provider=chunk_provider,
+                        speed_override=chunk_speed_use,
+                        supertonic_steps_override=chunk_steps_use,
                     )
                     if emitted <= 0:
                         continue
@@ -1851,6 +1997,9 @@ def run_conversion_job(job: Job) -> None:
                         chapter_text,
                         voice_choice=voice_choice,
                         chapter_sink=chapter_sink,
+                        tts_provider=chapter_provider,
+                        speed_override=chapter_speed,
+                        supertonic_steps_override=chapter_steps,
                     )
                     if emitted > 0:
                         segments_emitted += emitted
@@ -2093,6 +2242,7 @@ def run_conversion_job(job: Job) -> None:
 
         # Explicitly release the pipeline and force garbage collection to prevent
         # memory accumulation in the worker process, which can lead to host lockups.
+        pipelines.clear()
         pipeline = None
         gc.collect()
         try:

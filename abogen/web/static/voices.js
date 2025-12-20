@@ -24,6 +24,7 @@ const setupVoiceMixer = () => {
   const mixTotalEl = app.querySelector('[data-role="mix-total"]');
   const nameInput = document.getElementById("profile-name");
   const languageSelect = document.getElementById("profile-language");
+  const languageField = app.querySelector(".voice-editor__language");
   const providerSelect = document.getElementById("profile-provider");
   const kokoroMixerEl = app.querySelector('[data-role="kokoro-mixer"]');
   const supertonicPanelEl = app.querySelector('[data-role="supertonic-panel"]');
@@ -39,6 +40,13 @@ const setupVoiceMixer = () => {
   const emptyStateEl = app.querySelector('[data-role="mix-empty"]');
   const voiceFilterSelect = app.querySelector('[data-role="voice-filter"]');
   const genderFilterEl = app.querySelector('[data-role="gender-filter"]');
+
+  const providerPickerModal = document.querySelector('[data-role="provider-picker-modal"]');
+  const providerPickerOverlay = document.querySelector('[data-role="provider-picker-overlay"]');
+  const providerPickerClose = document.querySelector('[data-role="provider-picker-close"]');
+  const providerPickerCancel = document.querySelector('[data-role="provider-picker-cancel"]');
+  const providerPickerConfirm = document.querySelector('[data-role="provider-picker-confirm"]');
+  const providerPickerOptions = document.querySelector('[data-role="provider-picker-options"]');
 
   if (previewBtn && !previewBtn.dataset.label) {
     previewBtn.dataset.label = previewBtn.textContent.trim();
@@ -143,11 +151,122 @@ const setupVoiceMixer = () => {
     return candidate === "supertonic" ? "supertonic" : "kokoro";
   };
 
+  const getProviderCatalog = () => {
+    if (!providerSelect) {
+      return [
+        { id: "kokoro", label: "Kokoro" },
+        { id: "supertonic", label: "Supertonic" },
+      ];
+    }
+    return Array.from(providerSelect.options || []).map((option) => ({
+      id: normalizeProvider(option.value),
+      label: option.textContent?.trim() || option.value,
+    }));
+  };
+
+  const providerDescription = (providerId) => {
+    const provider = normalizeProvider(providerId);
+    if (provider === "supertonic") {
+      return "Voice selection + quality/speed per speaker.";
+    }
+    return "Voice mixing supported via the Kokoro mixer.";
+  };
+
+  const openProviderPicker = (defaultProvider = "kokoro") => {
+    if (!providerPickerModal || !providerPickerOptions || !providerPickerConfirm) {
+      return Promise.resolve(normalizeProvider(defaultProvider));
+    }
+
+    providerPickerOptions.innerHTML = "";
+    const catalog = getProviderCatalog();
+    const normalizedDefault = normalizeProvider(defaultProvider);
+
+    catalog.forEach((item) => {
+      const label = document.createElement("label");
+      label.className = "toggle-pill";
+
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "provider-picker";
+      input.value = item.id;
+      input.checked = item.id === normalizedDefault;
+
+      const span = document.createElement("span");
+      const title = document.createElement("strong");
+      title.textContent = item.label;
+      const detail = document.createElement("span");
+      detail.className = "muted";
+      detail.textContent = ` — ${providerDescription(item.id)}`;
+      span.appendChild(title);
+      span.appendChild(detail);
+
+      label.appendChild(input);
+      label.appendChild(span);
+      providerPickerOptions.appendChild(label);
+    });
+
+    const selectedRadio = providerPickerOptions.querySelector('input[name="provider-picker"]:checked');
+    providerPickerConfirm.disabled = !selectedRadio;
+
+    return new Promise((resolve) => {
+      let resolved = false;
+      const teardown = () => {
+        providerPickerModal.hidden = true;
+        document.removeEventListener("keydown", onKeydown);
+        providerPickerOptions.removeEventListener("change", onChange);
+        providerPickerOverlay?.removeEventListener("click", onCancel);
+        providerPickerClose?.removeEventListener("click", onCancel);
+        providerPickerCancel?.removeEventListener("click", onCancel);
+        providerPickerConfirm?.removeEventListener("click", onConfirm);
+      };
+
+      const finish = (value) => {
+        if (resolved) return;
+        resolved = true;
+        teardown();
+        resolve(value);
+      };
+
+      const onCancel = () => finish(null);
+      const onConfirm = () => {
+        const selected = providerPickerOptions.querySelector('input[name="provider-picker"]:checked');
+        finish(selected ? normalizeProvider(selected.value) : null);
+      };
+      const onChange = () => {
+        const selected = providerPickerOptions.querySelector('input[name="provider-picker"]:checked');
+        providerPickerConfirm.disabled = !selected;
+      };
+      const onKeydown = (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          onCancel();
+        }
+      };
+
+      providerPickerModal.hidden = false;
+      document.addEventListener("keydown", onKeydown);
+      providerPickerOptions.addEventListener("change", onChange);
+      providerPickerOverlay?.addEventListener("click", onCancel);
+      providerPickerClose?.addEventListener("click", onCancel);
+      providerPickerCancel?.addEventListener("click", onCancel);
+      providerPickerConfirm?.addEventListener("click", onConfirm);
+
+      const focusTarget = providerPickerOptions.querySelector('input[name="provider-picker"]:checked')
+        || providerPickerOptions.querySelector('input[name="provider-picker"]');
+      if (focusTarget instanceof HTMLElement) {
+        focusTarget.focus();
+      }
+    });
+  };
+
   const applyProviderToUI = () => {
     const provider = normalizeProvider(state.draft.provider);
     const isSupertonic = provider === "supertonic";
     if (providerSelect) {
       providerSelect.value = provider;
+    }
+    if (languageField) {
+      languageField.hidden = isSupertonic;
     }
     if (kokoroMixerEl) {
       kokoroMixerEl.hidden = isSupertonic;
@@ -588,13 +707,12 @@ const setupVoiceMixer = () => {
     setStatus(`Loaded speaker “${name}”.`, "info", 2500);
   };
 
-  const createNewProfile = () => {
-    const isSupertonic = window.confirm("Create a Supertonic speaker?\n\nOK = Supertonic\nCancel = Kokoro");
+  const startNewProfile = (provider = "kokoro") => {
     state.selectedProfile = null;
     state.originalName = null;
     state.draft = {
       name: "",
-      provider: isSupertonic ? "supertonic" : "kokoro",
+      provider: normalizeProvider(provider),
       language: languageSelect ? languageSelect.value || "a" : "a",
       voices: new Map(),
       supertonic: {
@@ -606,6 +724,15 @@ const setupVoiceMixer = () => {
     applyDraftToControls();
     renderProfileList();
     loadSampleText();
+  };
+
+  const requestNewProfile = async () => {
+    const chosen = await openProviderPicker(normalizeProvider(state.draft.provider));
+    if (!chosen) {
+      return;
+    }
+    startNewProfile(chosen);
+    setStatus("New speaker ready.", "info");
   };
 
   const refreshProfiles = (nextProfiles, selectedName = null) => {
@@ -620,7 +747,7 @@ const setupVoiceMixer = () => {
       if (names.length) {
         selectProfile(names[0]);
       } else {
-        createNewProfile();
+        startNewProfile("kokoro");
       }
     }
     updateActionButtons();
@@ -657,7 +784,7 @@ const setupVoiceMixer = () => {
       name,
       originalName: state.originalName,
       provider: normalizeProvider(state.draft.provider),
-      language: languageSelect ? languageSelect.value : "a",
+      language: normalizeProvider(state.draft.provider) === "kokoro" ? (languageSelect ? languageSelect.value : "a") : "a",
       voices: normalizeProvider(state.draft.provider) === "kokoro" ? buildProfilePayload() : [],
       voice: state.draft.supertonic?.voice,
       total_steps: state.draft.supertonic?.total_steps,
@@ -964,8 +1091,7 @@ const setupVoiceMixer = () => {
       const action = target.dataset.action;
       if (!action) return;
       if (action === "new-profile") {
-        createNewProfile();
-        setStatus("New profile ready.", "info");
+        requestNewProfile();
       } else if (action === "import-profiles") {
         importInput?.click();
       } else if (action === "export-profiles") {
@@ -1023,7 +1149,7 @@ const setupVoiceMixer = () => {
 
   renderAvailableVoices();
   renderProfileList();
-  createNewProfile();
+  startNewProfile("kokoro");
 
   if (Object.keys(profiles).length) {
     const first = Object.keys(profiles).sort((a, b) => a.localeCompare(b))[0];

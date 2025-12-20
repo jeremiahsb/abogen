@@ -166,7 +166,12 @@ def api_voice_profiles_preview() -> ResponseReturnValue:
     resolved_provider = provider or "kokoro"
 
     profiles = load_profiles()
-    if profile_name:
+    if resolved_provider == "supertonic" and not profile_name:
+        voice_spec = str(payload.get("voice") or payload.get("supertonic_voice") or "M1").strip() or "M1"
+        # Allow per-speaker overrides via payload.
+        supertonic_total_steps = int(payload.get("supertonic_total_steps") or payload.get("total_steps") or supertonic_total_steps)
+        speed = coerce_float(payload.get("supertonic_speed") or payload.get("speed"), speed)
+    elif profile_name:
         entry = profiles.get(profile_name)
         normalized_entry = normalize_profile_entry(entry)
         if not normalized_entry:
