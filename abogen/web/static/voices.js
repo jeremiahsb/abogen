@@ -211,7 +211,9 @@ const setupVoiceMixer = () => {
     return new Promise((resolve) => {
       let resolved = false;
       const teardown = () => {
+        providerPickerModal.dataset.open = "false";
         providerPickerModal.hidden = true;
+        document.body.classList.remove("modal-open");
         document.removeEventListener("keydown", onKeydown);
         providerPickerOptions.removeEventListener("change", onChange);
         providerPickerOverlay?.removeEventListener("click", onCancel);
@@ -244,6 +246,8 @@ const setupVoiceMixer = () => {
       };
 
       providerPickerModal.hidden = false;
+      providerPickerModal.dataset.open = "true";
+      document.body.classList.add("modal-open");
       document.addEventListener("keydown", onKeydown);
       providerPickerOptions.addEventListener("change", onChange);
       providerPickerOverlay?.addEventListener("click", onCancel);
@@ -1088,7 +1092,8 @@ const setupVoiceMixer = () => {
     headerActions.addEventListener("click", (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      const action = target.dataset.action;
+      const actionEl = target.closest("[data-action]");
+      const action = actionEl instanceof HTMLElement ? actionEl.dataset.action : null;
       if (!action) return;
       if (action === "new-profile") {
         requestNewProfile();
