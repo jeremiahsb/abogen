@@ -658,14 +658,31 @@ def resolve_voice_choice(
     selected_profile = None
 
     if profile_name:
-        entry = profiles.get(profile_name)
-        formula = formula_from_profile(entry or {}) if entry else None
-        if formula:
-            resolved_voice = formula
+        from abogen.voice_profiles import normalize_profile_entry
+
+        entry_raw = profiles.get(profile_name)
+        entry = normalize_profile_entry(entry_raw)
+        provider = str((entry or {}).get("provider") or "").strip().lower()
+
+        # Provider-aware behavior:
+        # - Kokoro profiles typically represent mixes (formula strings).
+        # - SuperTonic profiles represent a discrete voice id + settings.
+        #   In that case, we return a speaker reference so downstream can
+        #   resolve provider per-speaker and allow mixed-provider casting.
+        if provider == "supertonic":
+            resolved_voice = f"speaker:{profile_name}"
             selected_profile = profile_name
             profile_language = (entry or {}).get("language")
             if profile_language:
-                resolved_language = profile_language
+                resolved_language = str(profile_language)
+        else:
+            formula = formula_from_profile(entry or {}) if entry else None
+            if formula:
+                resolved_voice = formula
+                selected_profile = profile_name
+                profile_language = (entry or {}).get("language")
+                if profile_language:
+                    resolved_language = profile_language
 
     if custom_formula:
         resolved_voice = custom_formula

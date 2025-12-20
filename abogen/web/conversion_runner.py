@@ -1511,6 +1511,28 @@ def run_conversion_job(job: Job) -> None:
                 return "supertonic", _supertonic_voice_from_spec(spec, getattr(job, "voice", "M1")), None, None
             return "kokoro", spec, None, None
 
+        def resolve_voice_choice(raw_spec: str) -> tuple[str, str, Any, Optional[float], Optional[int]]:
+            """Resolve a raw voice spec into (provider, resolved_spec, choice, speed, steps).
+
+            For Kokoro formulas, `choice` will be a resolved voice tensor (via `voice_formulas`).
+            For SuperTonic, `choice` will be a valid SuperTonic voice id.
+            """
+
+            provider, resolved, speed, steps = resolve_voice_target(raw_spec)
+            cache_key = f"{provider}:{resolved}" if resolved else provider
+            cached = voice_cache.get(cache_key)
+            if cached is not None:
+                return provider, resolved, cached, speed, steps
+
+            if provider == "kokoro":
+                kokoro_pipeline = get_pipeline("kokoro")
+                choice = _resolve_voice(kokoro_pipeline, resolved, job.use_gpu)
+            else:
+                choice = resolved
+
+            voice_cache[cache_key] = choice
+            return provider, resolved, choice, speed, steps
+
         extraction = extract_from_path(job.stored_path)
         file_type = _infer_file_type(job.stored_path)
         pronunciation_rules = _compile_pronunciation_rules(job.pronunciation_overrides)
@@ -2074,9 +2096,10 @@ def run_conversion_job(job: Job) -> None:
             if outro_voice_spec == "__custom_mix":
                 outro_voice_spec = base_voice_spec or ""
             if not outro_voice_spec:
-                fallback_voice = next(iter(voice_cache.keys()), "")
-                if fallback_voice and fallback_voice != "__custom_mix":
-                    outro_voice_spec = fallback_voice
+                fallback_key = next(iter(voice_cache.keys()), "")
+                if fallback_key and fallback_key != "__custom_mix":
+                    # `voice_cache` keys are internal and include provider prefixes.
+                    outro_voice_spec = fallback_key.split(":", 1)[-1]
             if not outro_voice_spec and VOICES_INTERNAL:
                 outro_voice_spec = VOICES_INTERNAL[0]
 
@@ -2085,10 +2108,7 @@ def run_conversion_job(job: Job) -> None:
                 outro_audio_path: Optional[Path] = None
                 outro_segments = 0
                 outro_index = total_chapters + 1
-                outro_voice_choice = voice_cache.get(outro_voice_spec)
-                if outro_voice_choice is None:
-                    outro_voice_choice = _resolve_voice(pipeline, outro_voice_spec, job.use_gpu)
-                    voice_cache[outro_voice_spec] = outro_voice_choice
+                outro_provider, _, outro_voice_choice, outro_speed, outro_steps = resolve_voice_choice(outro_voice_spec)
 
                 with ExitStack() as outro_sink_stack:
                     chapter_sink: Optional[AudioSink] = None
@@ -2110,6 +2130,9 @@ def run_conversion_job(job: Job) -> None:
                         voice_choice=outro_voice_choice,
                         chapter_sink=chapter_sink,
                         preview_prefix="Outro",
+                        tts_provider=outro_provider,
+                        speed_override=outro_speed,
+                        supertonic_steps_override=outro_steps,
                     )
                     outro_end_time = current_time
 

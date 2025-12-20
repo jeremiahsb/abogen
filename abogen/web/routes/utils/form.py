@@ -574,11 +574,15 @@ def apply_book_step_form(
         except ValueError:
             pass
 
-    provider_value = str(form.get("tts_provider") or getattr(pending, "tts_provider", None) or "").strip().lower()
-    if provider_value not in {"kokoro", "supertonic"}:
-        provider_value = ""
+    # NOTE: Do not auto-set a global TTS provider at the book level based on the
+    # narrator defaults. Provider is resolved per-speaker/per-chunk from the voice
+    # spec (e.g. "speaker:Name" for saved speakers, or a Kokoro mix formula).
+    # This enables mixed-provider conversions (e.g. narrator=SuperTonic, characters=Kokoro).
+    provider_value = str(form.get("tts_provider") or "").strip().lower()
+    if provider_value in {"kokoro", "supertonic"}:
+        pending.tts_provider = provider_value
 
-    # Determine the base speaker selection (saved speaker or raw voice).
+    # Determine the base speaker selection (saved speaker ref or raw voice).
     narrator_voice_raw = (
         form.get("voice")
         or pending.voice
@@ -588,102 +592,54 @@ def apply_book_step_form(
     ).strip()
 
     profiles_map = dict(profiles) if isinstance(profiles, Mapping) else dict(profiles or {})
-    base_spec, selected_speaker_name = split_profile_spec(narrator_voice_raw)
-    selected_speaker_entry = None
-    if selected_speaker_name:
-        selected_speaker_entry = normalize_profile_entry(profiles_map.get(selected_speaker_name))
+    base_spec, _selected_speaker_name = split_profile_spec(narrator_voice_raw)
 
-    # If a saved speaker is selected, prefer its provider.
-    if selected_speaker_entry and selected_speaker_entry.get("provider") in {"kokoro", "supertonic"}:
-        provider_value = str(selected_speaker_entry.get("provider"))
+    profile_selection = (form.get("voice_profile") or pending.voice_profile or "__standard").strip()
+    custom_formula_raw = (form.get("voice_formula") or "").strip()
+    narrator_voice_raw = (base_spec or narrator_voice_raw or settings.get("default_voice") or "").strip()
+    resolved_default_voice, inferred_profile, _ = resolve_voice_setting(
+        narrator_voice_raw,
+        profiles=profiles_map,
+    )
 
-    if not provider_value:
-        # Fall back to inferring provider from the raw voice spec.
-        provider_value = "supertonic" if base_spec in {"M1","M2","M3","M4","M5","F1","F2","F3","F4","F5"} else "kokoro"
+    if profile_selection in {"__standard", "", None} and inferred_profile:
+        profile_selection = inferred_profile
 
-    pending.tts_provider = provider_value
-
-    try:
-        pending.supertonic_total_steps = int(
-            form.get("supertonic_total_steps")
-            or getattr(pending, "supertonic_total_steps", None)
-            or (selected_speaker_entry or {}).get("total_steps")
-            or settings.get("supertonic_total_steps")
-            or 5
-        )
-    except (TypeError, ValueError):
-        pending.supertonic_total_steps = int(settings.get("supertonic_total_steps") or 5)
-
-    if provider_value == "supertonic":
-        # If the user picked a saved Supertonic speaker, use its config.
-        if selected_speaker_entry and selected_speaker_entry.get("provider") == "supertonic":
-            pending.voice_profile = None
-            pending.voice = str(selected_speaker_entry.get("voice") or "M1")
-            pending.supertonic_total_steps = int(selected_speaker_entry.get("total_steps") or pending.supertonic_total_steps)
-            if speed_value is None:
-                try:
-                    pending.speed = float(selected_speaker_entry.get("speed") or settings.get("supertonic_speed") or 1.0)
-                except (TypeError, ValueError):
-                    pending.speed = 1.0
-            pending.language = str(selected_speaker_entry.get("language") or "a")
-        else:
-            # Supertonic does not support Abogen voice mixing.
-            pending.voice_profile = None
-            pending.voice = (base_spec or "M1").strip() or "M1"
-            # Provider-specific speed default.
-            if speed_value is None:
-                try:
-                    pending.speed = float(settings.get("supertonic_speed") or 1.0)
-                except (TypeError, ValueError):
-                    pending.speed = 1.0
-            pending.language = "a"
+    if profile_selection == "__formula":
+        profile_name = ""
+        custom_formula = custom_formula_raw
+    elif profile_selection in {"__standard", "", None}:
+        profile_name = ""
+        custom_formula = ""
     else:
-        profile_selection = (form.get("voice_profile") or pending.voice_profile or "__standard").strip()
-        custom_formula_raw = (form.get("voice_formula") or "").strip()
-        narrator_voice_raw = (base_spec or narrator_voice_raw or settings.get("default_voice") or "").strip()
-        resolved_default_voice, inferred_profile, _ = resolve_voice_setting(
-            narrator_voice_raw,
-            profiles=profiles_map,
-        )
+        profile_name = profile_selection
+        custom_formula = ""
 
-        if profile_selection in {"__standard", "", None} and inferred_profile:
-            profile_selection = inferred_profile
+    base_voice_spec = resolved_default_voice or narrator_voice_raw
+    if not base_voice_spec and VOICES_INTERNAL:
+        base_voice_spec = VOICES_INTERNAL[0]
 
-        if profile_selection == "__formula":
-            profile_name = ""
-            custom_formula = custom_formula_raw
-        elif profile_selection in {"__standard", "", None}:
-            profile_name = ""
-            custom_formula = ""
-        else:
-            profile_name = profile_selection
-            custom_formula = ""
+    voice_choice, resolved_language, selected_profile = resolve_voice_choice(
+        pending.language,
+        base_voice_spec,
+        profile_name,
+        custom_formula,
+        profiles_map,
+    )
 
-        base_voice_spec = resolved_default_voice or narrator_voice_raw
-        if not base_voice_spec and VOICES_INTERNAL:
-            base_voice_spec = VOICES_INTERNAL[0]
+    if resolved_language:
+        pending.language = resolved_language
 
-        voice_choice, resolved_language, selected_profile = resolve_voice_choice(
-            pending.language,
-            base_voice_spec,
-            profile_name,
-            custom_formula,
-            profiles_map,
-        )
-
-        if resolved_language:
-            pending.language = resolved_language
-
-        if profile_selection == "__formula" and custom_formula_raw:
-            pending.voice = custom_formula_raw
-            pending.voice_profile = None
-        elif profile_selection not in {"__standard", "", None, "__formula"}:
-            pending.voice_profile = selected_profile or profile_selection
-            pending.voice = voice_choice
-        else:
-            pending.voice_profile = None
-            fallback_voice = base_voice_spec or narrator_voice_raw
-            pending.voice = voice_choice or fallback_voice
+    if profile_selection == "__formula" and custom_formula_raw:
+        pending.voice = custom_formula_raw
+        pending.voice_profile = None
+    elif profile_selection not in {"__standard", "", None, "__formula"}:
+        pending.voice_profile = selected_profile or profile_selection
+        pending.voice = voice_choice
+    else:
+        pending.voice_profile = None
+        fallback_voice = base_voice_spec or narrator_voice_raw
+        pending.voice = voice_choice or fallback_voice
 
     pending.applied_speaker_config = (form.get("speaker_config") or "").strip() or None
 
