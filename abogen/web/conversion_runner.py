@@ -56,16 +56,24 @@ SAMPLE_RATE = 24000
 
 def _supertonic_voice_from_spec(spec: Any, fallback: str) -> str:
     raw = str(spec or "").strip()
-    if not raw:
-        raw = str(fallback or "").strip()
-    if not raw:
-        return "M1"
-    if "*" in raw or "+" in raw:
-        raw = str(fallback or "").strip() or "M1"
+    fallback_raw = str(fallback or "").strip()
+
+    # SuperTonic voices are discrete IDs (M1/F3/...). If we see a Kokoro mix
+    # formula (contains '*' or '+'), ignore it and fall back to a safe voice.
+    if not raw or "*" in raw or "+" in raw:
+        raw = fallback_raw
+    if not raw or "*" in raw or "+" in raw:
+        raw = "M1"
+
     upper = raw.upper()
     if upper in DEFAULT_SUPERTONIC_VOICES:
         return upper
-    return str(fallback or "").strip() or "M1"
+
+    fallback_upper = fallback_raw.upper() if fallback_raw else ""
+    if fallback_upper in DEFAULT_SUPERTONIC_VOICES:
+        return fallback_upper
+
+    return "M1"
 
 
 def _split_speaker_reference(value: Any) -> tuple[Optional[str], str]:
@@ -2439,6 +2447,12 @@ def _build_ffmpeg_command(path: Path, fmt: str, metadata: Optional[Dict[str, str
 
 def _resolve_voice(pipeline, voice_spec: str, use_gpu: bool):
     if "*" in voice_spec:
+        # Voice formulas are a Kokoro-only feature (they require a pipeline that can
+        # load individual Kokoro voices). When running with SuperTonic (or when the
+        # pipeline is otherwise unavailable), treat the spec as a plain string and
+        # allow downstream provider-specific resolution to choose a safe fallback.
+        if pipeline is None or not hasattr(pipeline, "load_single_voice"):
+            return voice_spec
         return get_new_voice(pipeline, voice_spec, use_gpu)
     return voice_spec
 
