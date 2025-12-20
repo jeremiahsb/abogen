@@ -1,8 +1,9 @@
 import json
 import os
-from typing import Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
 
 from abogen.constants import VOICES_INTERNAL
+from abogen.tts_supertonic import DEFAULT_SUPERTONIC_VOICES
 from abogen.utils import get_user_config_path
 
 
@@ -67,6 +68,63 @@ def serialize_profiles() -> Dict[str, Dict[str, Iterable[Tuple[str, float]]]]:
     return load_profiles()
 
 
+def _normalize_supertonic_voice(value: Any) -> str:
+    raw = str(value or "").strip().upper()
+    return raw if raw in DEFAULT_SUPERTONIC_VOICES else "M1"
+
+
+def _coerce_supertonic_steps(value: Any) -> int:
+    try:
+        steps = int(value)
+    except (TypeError, ValueError):
+        return 5
+    return max(2, min(15, steps))
+
+
+def _coerce_supertonic_speed(value: Any) -> float:
+    try:
+        speed = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    return max(0.7, min(2.0, speed))
+
+
+def normalize_profile_entry(entry: Any) -> Dict[str, Any]:
+    """Normalize a stored profile entry.
+
+    Backwards compatible:
+    - Legacy Kokoro-only entries: {language, voices}
+    - New entries: include provider.
+    """
+
+    if not isinstance(entry, dict):
+        return {}
+
+    provider = str(entry.get("provider") or "kokoro").strip().lower()
+    if provider not in {"kokoro", "supertonic"}:
+        provider = "kokoro"
+
+    language = str(entry.get("language") or "a").strip().lower() or "a"
+
+    if provider == "supertonic":
+        return {
+            "provider": "supertonic",
+            "language": language,
+            "voice": _normalize_supertonic_voice(entry.get("voice") or entry.get("voice_name") or entry.get("name")),
+            "total_steps": _coerce_supertonic_steps(entry.get("total_steps") or entry.get("supertonic_total_steps") or entry.get("quality")),
+            "speed": _coerce_supertonic_speed(entry.get("speed") or entry.get("supertonic_speed")),
+        }
+
+    voices = _normalize_voice_entries(entry.get("voices", []))
+    if not voices:
+        return {}
+    return {
+        "provider": "kokoro",
+        "language": language,
+        "voices": voices,
+    }
+
+
 def _normalize_voice_entries(entries: Iterable) -> List[Tuple[str, float]]:
     normalized: List[Tuple[str, float]] = []
     for item in entries or []:
@@ -112,7 +170,7 @@ def save_profile(name: str, *, language: str, voices: Iterable) -> None:
         language = "a"
 
     profiles = load_profiles()
-    profiles[name] = {"language": language, "voices": normalized}
+    profiles[name] = {"provider": "kokoro", "language": language, "voices": normalized}
     save_profiles(profiles)
 
 
@@ -138,16 +196,13 @@ def import_profiles_data(data: Dict, *, replace_existing: bool = False) -> List[
     current = load_profiles()
     updated: List[str] = []
     for name, entry in data.items():
-        if not isinstance(entry, dict):
+        normalized = normalize_profile_entry(entry)
+        if not normalized:
             continue
-        voices = _normalize_voice_entries(entry.get("voices", []))
-        if not voices:
-            continue
-        language = entry.get("language", "a")
         if name in current and not replace_existing:
             # skip duplicates unless explicit replacement is requested
             continue
-        current[name] = {"language": language, "voices": voices}
+        current[name] = normalized
         updated.append(name)
 
     if updated:

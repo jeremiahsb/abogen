@@ -7,10 +7,10 @@
   <div class="voice-mixer__header">
     <div>
       <h1 class="card__title">Speaker Studio</h1>
-      <p class="tag">Blend multiple Kokoro voices, audition the mix instantly, and keep reusable presets.</p>
+      <p class="tag">Create and manage speakers for Kokoro and Supertonic.</p>
     </div>
     <div class="voice-mixer__header-actions">
-      <button type="button" class="button button--ghost" data-action="new-profile">New profile</button>
+      <button type="button" class="button button--ghost" data-action="new-profile">New speaker</button>
       <button type="button" class="button button--ghost" data-action="import-profiles">Import</button>
       <button type="button" class="button button--ghost" data-action="export-profiles">Export</button>
     </div>
@@ -28,8 +28,8 @@
         <div class="voice-editor__meta">
           <div class="voice-editor__identity">
             <div class="field voice-editor__name-field">
-              <label for="profile-name">Profile name</label>
-              <input id="profile-name" name="name" type="text" placeholder="Narrator blend" required>
+              <label for="profile-name">Speaker name</label>
+              <input id="profile-name" name="name" type="text" placeholder="Narrator" required>
             </div>
             <div class="voice-editor__toolbar" role="group" aria-label="Profile actions">
               <button type="submit" class="icon-button icon-button--primary" data-role="save-profile" disabled aria-label="Save profile" title="Save profile">
@@ -49,6 +49,13 @@
               </button>
             </div>
           </div>
+          <div class="field voice-editor__provider">
+            <label for="profile-provider">TTS provider</label>
+            <select id="profile-provider" name="provider" data-role="provider">
+              <option value="kokoro">Kokoro</option>
+              <option value="supertonic">Supertonic</option>
+            </select>
+          </div>
           <div class="field voice-editor__language">
             <label for="profile-language">Language</label>
             <select id="profile-language" name="language">
@@ -57,12 +64,32 @@
               {% endfor %}
             </select>
           </div>
+          <div class="voice-editor__provider-panel" data-role="supertonic-panel" hidden>
+            <div class="field">
+              <label for="supertonic-voice">Supertonic voice</label>
+              <select id="supertonic-voice" data-role="supertonic-voice">
+                {% for voice in ['M1','M2','M3','M4','M5','F1','F2','F3','F4','F5'] %}
+                <option value="{{ voice }}">{{ voice }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="supertonic-quality">Supertonic quality (total steps)</label>
+              <input type="number" id="supertonic-quality" data-role="supertonic-steps" min="2" max="15" value="5">
+              <p class="hint">2 = fastest/lowest quality, 15 = slowest/highest quality.</p>
+            </div>
+            <div class="field">
+              <label for="supertonic-speaker-speed">Supertonic speed</label>
+              <input type="number" id="supertonic-speaker-speed" data-role="supertonic-speed" min="0.7" max="2.0" step="0.05" value="1.0">
+            </div>
+            <p class="hint">Supertonic voice mixing is not implemented yet. Stub target: <a href="https://github.com/Topping1/Supertonic-Voice-Mixer" target="_blank" rel="noreferrer">Supertonic-Voice-Mixer</a>.</p>
+          </div>
         </div>
         <div class="voice-editor__summary">
           <span data-role="profile-summary">Select or create a profile to begin.</span>
           <span class="tag" data-role="mix-total">Total weight: 0.00</span>
         </div>
-        <div class="voice-editor__canvas">
+        <div class="voice-editor__canvas" data-role="kokoro-mixer">
           <section class="voice-available">
             <header class="voice-available__header">
               <div class="voice-available__title">
@@ -106,10 +133,10 @@
             </div>
             <div class="field field--slider">
               <label for="preview-speed">Preview speed <span class="tag" data-role="preview-speed-display">1.00×</span></label>
-              <input id="preview-speed" type="range" min="0.7" max="1.3" step="0.05" value="1.0" data-role="preview-speed">
+              <input id="preview-speed" type="range" min="0.7" max="2.0" step="0.05" value="1.0" data-role="preview-speed">
             </div>
             <div class="voice-preview__controls">
-              <button type="button" class="button" data-role="preview-button">Preview mix</button>
+              <button type="button" class="button" data-role="preview-button">Preview speaker</button>
               <button type="button" class="button button--ghost" data-role="load-sample">Use sample text</button>
             </div>
             <audio data-role="preview-audio" controls preload="none"></audio>

@@ -37,9 +37,8 @@ def update_settings() -> ResponseReturnValue:
 
     # General settings
     current["language"] = (form.get("language") or "en").strip()
-    current["tts_provider"] = (form.get("tts_provider") or current.get("tts_provider") or "kokoro").strip().lower()
+    current["default_speaker"] = (form.get("default_speaker") or "").strip()
     current["default_voice"] = (form.get("default_voice") or "").strip()
-    current["supertonic_default_voice"] = (form.get("supertonic_default_voice") or current.get("supertonic_default_voice") or "M1").strip()
     try:
         current["supertonic_total_steps"] = max(2, min(15, int(form.get("supertonic_total_steps", current.get("supertonic_total_steps", 5)))))
     except (TypeError, ValueError):

@@ -170,12 +170,11 @@ def has_output_override() -> bool:
 def settings_defaults() -> Dict[str, Any]:
     llm_env_defaults = environment_llm_defaults()
     return {
-        "tts_provider": "kokoro",
         "output_format": "wav",
         "subtitle_format": "srt",
         "save_mode": "default_output" if has_output_override() else "save_next_to_input",
+        "default_speaker": "",
         "default_voice": VOICES_INTERNAL[0] if VOICES_INTERNAL else "",
-        "supertonic_default_voice": "M1",
         "supertonic_total_steps": 5,
         "supertonic_speed": 1.0,
         "replace_single_newlines": False,
@@ -307,9 +306,19 @@ def normalize_setting_value(key: str, value: Any, defaults: Dict[str, Any]) -> A
                 return defaults[key]
             spec, profile_name = split_profile_spec(text)
             if profile_name:
-                return f"profile:{profile_name}"
+                return f"speaker:{profile_name}"
             return spec
         return defaults[key]
+    if key == "default_speaker":
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return ""
+            spec, profile_name = split_profile_spec(text)
+            if profile_name:
+                return f"speaker:{profile_name}"
+            return spec
+        return ""
     if key == "chunk_level":
         if isinstance(value, str) and value in _CHUNK_LEVEL_VALUES:
             return value
@@ -344,14 +353,6 @@ def normalize_setting_value(key: str, value: Any, defaults: Dict[str, Any]) -> A
             parts = [item.strip().lower() for item in value.split(",") if item.strip()]
             return [code for code in parts if code in LANGUAGE_DESCRIPTIONS]
         return defaults.get(key, [])
-    if key == "tts_provider":
-        if isinstance(value, str):
-            candidate = value.strip().lower()
-            if candidate in {"kokoro", "supertonic"}:
-                return candidate
-        return defaults.get(key, "kokoro")
-    if key == "supertonic_default_voice":
-        return str(value or "").strip() or defaults.get(key, "M1")
     if key == "supertonic_total_steps":
         try:
             steps = int(value)

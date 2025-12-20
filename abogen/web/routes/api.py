@@ -16,9 +16,15 @@ from abogen.voice_profiles import (
     load_profiles,
     save_profiles,
     delete_profile,
+    duplicate_profile,
     serialize_profiles,
+    import_profiles_data,
+    export_profiles_payload,
+    normalize_profile_entry,
 )
+from abogen.web.routes.utils.common import split_profile_spec
 from abogen.web.routes.utils.preview import synthesize_preview, generate_preview_audio
+from abogen.web.routes.utils.voice import formula_from_profile
 from abogen.normalization_settings import (
     build_llm_configuration,
     build_apostrophe_config,
@@ -48,21 +54,158 @@ def api_get_voice_profiles() -> ResponseReturnValue:
 @api_bp.post("/voice-profiles")
 def api_save_voice_profile() -> ResponseReturnValue:
     payload = request.get_json(force=True, silent=True) or {}
-    name = payload.get("name")
+    name = str(payload.get("name") or "").strip()
+    original_name = str(payload.get("originalName") or "").strip() or None
+
     profile = payload.get("profile")
+    if profile is None:
+        # Speaker Studio payload format
+        provider = str(payload.get("provider") or "kokoro").strip().lower()
+        if provider not in {"kokoro", "supertonic"}:
+            provider = "kokoro"
+        if provider == "supertonic":
+            profile = {
+                "provider": "supertonic",
+                "language": str(payload.get("language") or "a").strip().lower() or "a",
+                "voice": payload.get("voice"),
+                "total_steps": payload.get("total_steps") or payload.get("supertonic_total_steps"),
+                "speed": payload.get("speed") or payload.get("supertonic_speed"),
+            }
+        else:
+            profile = {
+                "provider": "kokoro",
+                "language": str(payload.get("language") or "a").strip().lower() or "a",
+                "voices": payload.get("voices") or [],
+            }
     
     if not name or not profile:
         return jsonify({"error": "Name and profile are required"}), 400
         
     profiles = load_profiles()
-    profiles[name] = profile
+
+    normalized = normalize_profile_entry(profile)
+    if not normalized:
+        return jsonify({"error": "Invalid profile payload"}), 400
+
+    if original_name and original_name in profiles and original_name != name:
+        del profiles[original_name]
+
+    profiles[name] = normalized
     save_profiles(profiles)
-    return jsonify({"success": True})
+
+    return jsonify({"success": True, "profile": name, "profiles": serialize_profiles()})
 
 @api_bp.delete("/voice-profiles/<path:name>")
 def api_delete_voice_profile(name: str) -> ResponseReturnValue:
     delete_profile(name)
-    return jsonify({"success": True})
+    return jsonify({"success": True, "profiles": serialize_profiles()})
+
+
+@api_bp.post("/voice-profiles/<path:name>/duplicate")
+def api_duplicate_voice_profile(name: str) -> ResponseReturnValue:
+    payload = request.get_json(force=True, silent=True) or {}
+    new_name = str(payload.get("name") or "").strip()
+    if not new_name:
+        return jsonify({"error": "Name is required"}), 400
+    duplicate_profile(name, new_name)
+    return jsonify({"success": True, "profile": new_name, "profiles": serialize_profiles()})
+
+
+@api_bp.post("/voice-profiles/import")
+def api_import_voice_profiles() -> ResponseReturnValue:
+    payload = request.get_json(force=True, silent=True) or {}
+    data = payload.get("data")
+    replace_existing = bool(payload.get("replace_existing"))
+    if not isinstance(data, dict):
+        return jsonify({"error": "Invalid profile payload"}), 400
+    try:
+        imported = import_profiles_data(data, replace_existing=replace_existing)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"success": True, "imported": imported, "profiles": serialize_profiles()})
+
+
+@api_bp.get("/voice-profiles/export")
+def api_export_voice_profiles() -> ResponseReturnValue:
+    names_param = request.args.get("names")
+    names = None
+    if names_param:
+        names = [item.strip() for item in names_param.split(",") if item.strip()]
+    payload = export_profiles_payload(names)
+    import io
+    import json
+
+    data = json.dumps(payload, indent=2).encode("utf-8")
+    filename = "voice_profiles.json" if not names else "voice_profiles_export.json"
+    return send_file(
+        io.BytesIO(data),
+        mimetype="application/json",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@api_bp.post("/voice-profiles/preview")
+def api_voice_profiles_preview() -> ResponseReturnValue:
+    payload = request.get_json(force=True, silent=True) or {}
+    text = str(payload.get("text") or "").strip() or "Hello world"
+    language = str(payload.get("language") or "a").strip().lower() or "a"
+    speed = coerce_float(payload.get("speed"), 1.0)
+    max_seconds = coerce_float(payload.get("max_seconds"), 8.0)
+
+    settings = load_settings()
+    use_gpu = settings.get("use_gpu", False)
+
+    # Accept a direct formula string or a full profile entry.
+    formula = str(payload.get("formula") or "").strip()
+    profile_name = str(payload.get("profile") or "").strip()
+    provider = str(payload.get("tts_provider") or payload.get("provider") or "").strip().lower() or None
+    supertonic_total_steps = int(payload.get("supertonic_total_steps") or payload.get("total_steps") or settings.get("supertonic_total_steps") or 5)
+
+    voice_spec = ""
+    resolved_provider = provider or "kokoro"
+
+    profiles = load_profiles()
+    if profile_name:
+        entry = profiles.get(profile_name)
+        normalized_entry = normalize_profile_entry(entry)
+        if not normalized_entry:
+            return jsonify({"error": "Unknown profile"}), 404
+        resolved_provider = str(normalized_entry.get("provider") or "kokoro")
+        if resolved_provider == "supertonic":
+            voice_spec = str(normalized_entry.get("voice") or "M1")
+            supertonic_total_steps = int(normalized_entry.get("total_steps") or supertonic_total_steps)
+            speed = float(normalized_entry.get("speed") or speed)
+        else:
+            voice_spec = formula_from_profile(normalized_entry) or ""
+            language = str(normalized_entry.get("language") or language)
+    elif formula:
+        voice_spec = formula
+        resolved_provider = "kokoro"
+    else:
+        # Raw voices payload -> Kokoro mix.
+        voices = payload.get("voices") or []
+        pseudo = {"provider": "kokoro", "language": language, "voices": voices}
+        normalized_entry = normalize_profile_entry(pseudo)
+        voice_spec = formula_from_profile(normalized_entry) or ""
+        resolved_provider = "kokoro"
+
+    if not voice_spec:
+        return jsonify({"error": "Unable to resolve preview voice"}), 400
+
+    try:
+        return synthesize_preview(
+            text=text,
+            voice_spec=voice_spec,
+            language=language,
+            speed=speed,
+            use_gpu=use_gpu,
+            tts_provider=resolved_provider,
+            supertonic_total_steps=supertonic_total_steps,
+            max_seconds=max_seconds,
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 @api_bp.post("/speaker-preview")
 def api_speaker_preview() -> ResponseReturnValue:
@@ -70,12 +213,31 @@ def api_speaker_preview() -> ResponseReturnValue:
     text = payload.get("text", "Hello world")
     voice = payload.get("voice", "af_heart")
     language = payload.get("language", "a")
-    speed = coerce_float(payload.get("speed"), 1.0)
+    speed_value = payload.get("speed")
+    speed = coerce_float(speed_value, 1.0)
     tts_provider = str(payload.get("tts_provider") or "").strip().lower()
     supertonic_total_steps = int(payload.get("supertonic_total_steps") or 5)
     
     settings = load_settings()
     use_gpu = settings.get("use_gpu", False)
+
+    base_spec, speaker_name = split_profile_spec(voice)
+    resolved_provider = tts_provider if tts_provider in {"kokoro", "supertonic"} else ""
+
+    if speaker_name:
+        entry = normalize_profile_entry(load_profiles().get(speaker_name))
+        if entry:
+            resolved_provider = str(entry.get("provider") or resolved_provider or "")
+            if resolved_provider == "supertonic":
+                voice = str(entry.get("voice") or "M1")
+                supertonic_total_steps = int(entry.get("total_steps") or supertonic_total_steps)
+                if speed_value is None:
+                    speed = coerce_float(entry.get("speed"), speed)
+            elif resolved_provider == "kokoro":
+                voice = formula_from_profile(entry) or (base_spec or voice)
+
+    if not resolved_provider:
+        resolved_provider = "supertonic" if str(base_spec or "").strip() in {"M1","M2","M3","M4","M5","F1","F2","F3","F4","F5"} else "kokoro"
     
     try:
         return synthesize_preview(
@@ -85,7 +247,7 @@ def api_speaker_preview() -> ResponseReturnValue:
             speed=speed,
             use_gpu=use_gpu
             ,
-            tts_provider=tts_provider or str(settings.get("tts_provider") or "kokoro"),
+            tts_provider=resolved_provider,
             supertonic_total_steps=supertonic_total_steps or int(settings.get("supertonic_total_steps") or 5),
         )
     except Exception as e:

@@ -30,7 +30,7 @@ from abogen.web.routes.utils.entity import sync_pronunciation_overrides
 from abogen.web.routes.utils.epub import job_download_flags
 from abogen.web.routes.utils.common import split_profile_spec
 from abogen.utils import calculate_text_length
-from abogen.voice_profiles import serialize_profiles
+from abogen.voice_profiles import serialize_profiles, normalize_profile_entry
 from abogen.chunking import ChunkLevel, build_chunks_for_chapters
 from abogen.constants import VOICES_INTERNAL
 from abogen.speaker_configs import get_config
@@ -574,14 +574,40 @@ def apply_book_step_form(
         except ValueError:
             pass
 
-    provider_value = (form.get("tts_provider") or getattr(pending, "tts_provider", None) or settings.get("tts_provider") or "kokoro").strip().lower()
+    provider_value = str(form.get("tts_provider") or getattr(pending, "tts_provider", None) or "").strip().lower()
     if provider_value not in {"kokoro", "supertonic"}:
-        provider_value = "kokoro"
+        provider_value = ""
+
+    # Determine the base speaker selection (saved speaker or raw voice).
+    narrator_voice_raw = (
+        form.get("voice")
+        or pending.voice
+        or settings.get("default_speaker")
+        or settings.get("default_voice")
+        or ""
+    ).strip()
+
+    profiles_map = dict(profiles) if isinstance(profiles, Mapping) else dict(profiles or {})
+    base_spec, selected_speaker_name = split_profile_spec(narrator_voice_raw)
+    selected_speaker_entry = None
+    if selected_speaker_name:
+        selected_speaker_entry = normalize_profile_entry(profiles_map.get(selected_speaker_name))
+
+    # If a saved speaker is selected, prefer its provider.
+    if selected_speaker_entry and selected_speaker_entry.get("provider") in {"kokoro", "supertonic"}:
+        provider_value = str(selected_speaker_entry.get("provider"))
+
+    if not provider_value:
+        # Fall back to inferring provider from the raw voice spec.
+        provider_value = "supertonic" if base_spec in {"M1","M2","M3","M4","M5","F1","F2","F3","F4","F5"} else "kokoro"
+
     pending.tts_provider = provider_value
+
     try:
         pending.supertonic_total_steps = int(
             form.get("supertonic_total_steps")
             or getattr(pending, "supertonic_total_steps", None)
+            or (selected_speaker_entry or {}).get("total_steps")
             or settings.get("supertonic_total_steps")
             or 5
         )
@@ -589,28 +615,32 @@ def apply_book_step_form(
         pending.supertonic_total_steps = int(settings.get("supertonic_total_steps") or 5)
 
     if provider_value == "supertonic":
-        narrator_voice_raw = (
-            form.get("voice")
-            or pending.voice
-            or settings.get("supertonic_default_voice")
-            or "M1"
-        ).strip()
-        # Supertonic does not support Abogen voice mixing.
-        pending.voice_profile = None
-        pending.voice = narrator_voice_raw
-
-        # Provider-specific speed default.
-        if speed_value is None:
-            try:
-                pending.speed = float(settings.get("supertonic_speed") or 1.0)
-            except (TypeError, ValueError):
-                pending.speed = 1.0
+        # If the user picked a saved Supertonic speaker, use its config.
+        if selected_speaker_entry and selected_speaker_entry.get("provider") == "supertonic":
+            pending.voice_profile = None
+            pending.voice = str(selected_speaker_entry.get("voice") or "M1")
+            pending.supertonic_total_steps = int(selected_speaker_entry.get("total_steps") or pending.supertonic_total_steps)
+            if speed_value is None:
+                try:
+                    pending.speed = float(selected_speaker_entry.get("speed") or settings.get("supertonic_speed") or 1.0)
+                except (TypeError, ValueError):
+                    pending.speed = 1.0
+            pending.language = str(selected_speaker_entry.get("language") or "a")
+        else:
+            # Supertonic does not support Abogen voice mixing.
+            pending.voice_profile = None
+            pending.voice = (base_spec or "M1").strip() or "M1"
+            # Provider-specific speed default.
+            if speed_value is None:
+                try:
+                    pending.speed = float(settings.get("supertonic_speed") or 1.0)
+                except (TypeError, ValueError):
+                    pending.speed = 1.0
+            pending.language = "a"
     else:
         profile_selection = (form.get("voice_profile") or pending.voice_profile or "__standard").strip()
         custom_formula_raw = (form.get("voice_formula") or "").strip()
-        narrator_voice_raw = (form.get("voice") or pending.voice or settings.get("default_voice") or "").strip()
-
-        profiles_map = dict(profiles) if isinstance(profiles, Mapping) else dict(profiles or {})
+        narrator_voice_raw = (base_spec or narrator_voice_raw or settings.get("default_voice") or "").strip()
         resolved_default_voice, inferred_profile, _ = resolve_voice_setting(
             narrator_voice_raw,
             profiles=profiles_map,

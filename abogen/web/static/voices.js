@@ -24,6 +24,12 @@ const setupVoiceMixer = () => {
   const mixTotalEl = app.querySelector('[data-role="mix-total"]');
   const nameInput = document.getElementById("profile-name");
   const languageSelect = document.getElementById("profile-language");
+  const providerSelect = document.getElementById("profile-provider");
+  const kokoroMixerEl = app.querySelector('[data-role="kokoro-mixer"]');
+  const supertonicPanelEl = app.querySelector('[data-role="supertonic-panel"]');
+  const supertonicVoiceSelect = app.querySelector('[data-role="supertonic-voice"]');
+  const supertonicStepsInput = app.querySelector('[data-role="supertonic-steps"]');
+  const supertonicSpeedInput = app.querySelector('[data-role="supertonic-speed"]');
   const speedInput = document.getElementById("preview-speed");
   const importInput = document.getElementById("voice-import-input");
   const headerActions = document.querySelector(".voice-mixer__header-actions");
@@ -59,8 +65,14 @@ const setupVoiceMixer = () => {
     previewUrl: null,
     draft: {
       name: "",
+      provider: "kokoro",
       language: "a",
       voices: new Map(),
+      supertonic: {
+        voice: "M1",
+        total_steps: 5,
+        speed: 1.0,
+      },
     },
     languageFilter: voiceFilterSelect ? voiceFilterSelect.value : "",
     genderFilter: "",
@@ -126,17 +138,56 @@ const setupVoiceMixer = () => {
     return total;
   };
 
-  const updateMixSummary = () => {
+  const normalizeProvider = (value) => {
+    const candidate = String(value || "").trim().toLowerCase();
+    return candidate === "supertonic" ? "supertonic" : "kokoro";
+  };
+
+  const applyProviderToUI = () => {
+    const provider = normalizeProvider(state.draft.provider);
+    const isSupertonic = provider === "supertonic";
+    if (providerSelect) {
+      providerSelect.value = provider;
+    }
+    if (kokoroMixerEl) {
+      kokoroMixerEl.hidden = isSupertonic;
+    }
+    if (supertonicPanelEl) {
+      supertonicPanelEl.hidden = !isSupertonic;
+    }
     if (mixTotalEl) {
+      mixTotalEl.hidden = isSupertonic;
+    }
+    if (previewBtn) {
+      previewBtn.dataset.label = isSupertonic ? "Preview speaker" : (previewBtn.dataset.label || "Preview speaker");
+    }
+
+    // Keep preview speed aligned with the Supertonic speaker speed.
+    if (isSupertonic && speedInput) {
+      const desired = Number(state.draft.supertonic?.speed ?? 1.0);
+      if (!Number.isNaN(desired)) {
+        speedInput.value = String(desired);
+      }
+    }
+  };
+
+  const updateMixSummary = () => {
+    const provider = normalizeProvider(state.draft.provider);
+    const isSupertonic = provider === "supertonic";
+    if (mixTotalEl && !isSupertonic) {
       mixTotalEl.textContent = `Total weight: ${formatWeight(mixTotal())}`;
     }
     if (profileSummaryEl) {
       const voiceCount = state.draft.voices.size;
       if (!state.draft.name && !voiceCount) {
-        profileSummaryEl.textContent = "Select or create a profile to begin.";
+        profileSummaryEl.textContent = "Select or create a speaker to begin.";
       } else {
-        const profileLabel = state.draft.name ? `Editing: ${state.draft.name}` : "Unsaved profile";
-        profileSummaryEl.textContent = `${profileLabel} · ${voiceCount} voice${voiceCount === 1 ? "" : "s"}`;
+        const profileLabel = state.draft.name ? `Editing: ${state.draft.name}` : "Unsaved speaker";
+        if (isSupertonic) {
+          profileSummaryEl.textContent = `${profileLabel} · Supertonic`;
+        } else {
+          profileSummaryEl.textContent = `${profileLabel} · ${voiceCount} voice${voiceCount === 1 ? "" : "s"}`;
+        }
       }
     }
   };
@@ -412,6 +463,16 @@ const setupVoiceMixer = () => {
     if (languageSelect) {
       languageSelect.value = state.draft.language || "a";
     }
+    if (supertonicVoiceSelect) {
+      supertonicVoiceSelect.value = state.draft.supertonic?.voice || "M1";
+    }
+    if (supertonicStepsInput) {
+      supertonicStepsInput.value = String(state.draft.supertonic?.total_steps ?? 5);
+    }
+    if (supertonicSpeedInput) {
+      supertonicSpeedInput.value = String(state.draft.supertonic?.speed ?? 1.0);
+    }
+    applyProviderToUI();
     renderSelectedVoices();
     updateMixSummary();
     updateAvailableState();
@@ -425,7 +486,7 @@ const setupVoiceMixer = () => {
     const header = document.createElement("div");
     header.className = "voice-list__header";
     const heading = document.createElement("h2");
-    heading.textContent = "Saved profiles";
+    heading.textContent = "Saved speakers";
     header.appendChild(heading);
     profileListEl.appendChild(header);
 
@@ -433,7 +494,7 @@ const setupVoiceMixer = () => {
     if (!names.length) {
       const empty = document.createElement("p");
       empty.className = "tag";
-      empty.textContent = "No profiles yet. Create one on the right.";
+      empty.textContent = "No speakers yet. Create one on the right.";
       profileListEl.appendChild(empty);
       return;
     }
@@ -453,9 +514,11 @@ const setupVoiceMixer = () => {
       selectBtn.className = "voice-list__select";
       selectBtn.dataset.name = name;
       const profile = profiles[name] || {};
+      const provider = normalizeProvider(profile.provider);
+      const providerLabel = provider === "supertonic" ? "Supertonic" : "Kokoro";
       selectBtn.innerHTML = `
         <span class="voice-list__name">${name}</span>
-        <span class="voice-list__meta">${voiceLanguageLabel(profile.language || "a")}</span>
+        <span class="voice-list__meta"><span class="tag">${providerLabel}</span> ${voiceLanguageLabel(profile.language || "a")}</span>
       `;
       selectBtn.addEventListener("click", () => selectProfile(name));
 
@@ -495,12 +558,19 @@ const setupVoiceMixer = () => {
     state.selectedProfile = name;
     state.originalName = name;
     const profile = profiles[name];
+    const provider = normalizeProvider(profile?.provider);
     state.draft = {
       name,
+      provider,
       language: profile?.language || "a",
       voices: new Map(),
+      supertonic: {
+        voice: profile?.voice || "M1",
+        total_steps: Number(profile?.total_steps ?? 5),
+        speed: Number(profile?.speed ?? 1.0),
+      },
     };
-    if (Array.isArray(profile?.voices)) {
+    if (provider === "kokoro" && Array.isArray(profile?.voices)) {
       profile.voices.forEach((entry) => {
         if (Array.isArray(entry) && entry.length >= 2) {
           const [voiceId, weight] = entry;
@@ -515,16 +585,23 @@ const setupVoiceMixer = () => {
     applyDraftToControls();
     renderProfileList();
     loadSampleText();
-    setStatus(`Loaded profile “${name}”.`, "info", 2500);
+    setStatus(`Loaded speaker “${name}”.`, "info", 2500);
   };
 
   const createNewProfile = () => {
+    const isSupertonic = window.confirm("Create a Supertonic speaker?\n\nOK = Supertonic\nCancel = Kokoro");
     state.selectedProfile = null;
     state.originalName = null;
     state.draft = {
       name: "",
+      provider: isSupertonic ? "supertonic" : "kokoro",
       language: languageSelect ? languageSelect.value || "a" : "a",
       voices: new Map(),
+      supertonic: {
+        voice: "M1",
+        total_steps: 5,
+        speed: 1.0,
+      },
     };
     applyDraftToControls();
     renderProfileList();
@@ -579,8 +656,12 @@ const setupVoiceMixer = () => {
     const payload = {
       name,
       originalName: state.originalName,
+      provider: normalizeProvider(state.draft.provider),
       language: languageSelect ? languageSelect.value : "a",
-      voices: buildProfilePayload(),
+      voices: normalizeProvider(state.draft.provider) === "kokoro" ? buildProfilePayload() : [],
+      voice: state.draft.supertonic?.voice,
+      total_steps: state.draft.supertonic?.total_steps,
+      speed: state.draft.supertonic?.speed,
     };
     try {
       const response = await fetch("/api/voice-profiles", {
@@ -591,7 +672,7 @@ const setupVoiceMixer = () => {
       const result = await withJson(response);
       refreshProfiles(result.profiles, result.profile);
       resetDirty();
-      setStatus(`Saved profile “${result.profile}”.`, "success");
+      setStatus(`Saved speaker “${result.profile}”.`, "success");
     } catch (error) {
       setStatus(error.message || "Failed to save profile", "danger", 7000);
     }
@@ -603,7 +684,7 @@ const setupVoiceMixer = () => {
       setStatus("Select a profile to delete.", "warning");
       return;
     }
-    const confirmed = window.confirm(`Delete profile “${name}”?`);
+    const confirmed = window.confirm(`Delete speaker “${name}”?`);
     if (!confirmed) return;
     try {
       const response = await fetch(`/api/voice-profiles/${encodeURIComponent(name)}`, {
@@ -611,7 +692,7 @@ const setupVoiceMixer = () => {
       });
       const result = await withJson(response);
       refreshProfiles(result.profiles);
-      setStatus(`Deleted profile “${name}”.`, "info");
+      setStatus(`Deleted speaker “${name}”.`, "info");
     } catch (error) {
       setStatus(error.message || "Failed to delete profile", "danger", 7000);
     }
@@ -623,7 +704,7 @@ const setupVoiceMixer = () => {
       setStatus("Select a profile to duplicate.", "warning");
       return;
     }
-    const newName = window.prompt("Duplicate profile as…", `${name} copy`);
+    const newName = window.prompt("Duplicate speaker as…", `${name} copy`);
     if (!newName) return;
     try {
       const response = await fetch(`/api/voice-profiles/${encodeURIComponent(name)}/duplicate`, {
@@ -643,7 +724,7 @@ const setupVoiceMixer = () => {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text);
-      const replace = window.confirm("Replace existing profiles if duplicates are found?");
+      const replace = window.confirm("Replace existing speakers if duplicates are found?");
       const response = await fetch("/api/voice-profiles/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -651,7 +732,7 @@ const setupVoiceMixer = () => {
       });
       const result = await withJson(response);
       refreshProfiles(result.profiles);
-      setStatus(`Imported ${result.imported.length} profile${result.imported.length === 1 ? "" : "s"}.`, "success");
+      setStatus(`Imported ${result.imported.length} speaker${result.imported.length === 1 ? "" : "s"}.`, "success");
     } catch (error) {
       setStatus(error.message || "Import failed", "danger", 7000);
     } finally {
@@ -684,16 +765,30 @@ const setupVoiceMixer = () => {
 
   const runPreview = async () => {
     if (!previewBtn) return;
+    const provider = normalizeProvider(state.draft.provider);
     const payload = {
+      provider,
       language: languageSelect ? languageSelect.value : "a",
-      voices: buildProfilePayload(),
+      voices: provider === "kokoro" ? buildProfilePayload() : [],
+      voice: state.draft.supertonic?.voice,
+      total_steps: state.draft.supertonic?.total_steps,
       text: previewTextEl ? previewTextEl.value : "",
       speed: speedInput ? parseFloat(speedInput.value || "1") : 1,
+      max_seconds: 8,
     };
-    const enabledVoices = payload.voices.filter((entry) => entry.enabled && entry.weight > 0);
-    if (!enabledVoices.length) {
-      setStatus("Enable at least one voice to preview.", "warning");
-      return;
+    if (provider === "kokoro") {
+      const enabledVoices = payload.voices.filter((entry) => entry.enabled && entry.weight > 0);
+      if (!enabledVoices.length) {
+        setStatus("Enable at least one voice to preview.", "warning");
+        return;
+      }
+    } else {
+      if (!payload.voice) {
+        setStatus("Select a Supertonic voice to preview.", "warning");
+        return;
+      }
+      payload.supertonic_total_steps = payload.total_steps;
+      payload.tts_provider = "supertonic";
     }
     previewBtn.disabled = true;
     previewBtn.dataset.loading = "true";
@@ -724,7 +819,7 @@ const setupVoiceMixer = () => {
     } finally {
       previewBtn.disabled = false;
       previewBtn.dataset.loading = "false";
-      previewBtn.textContent = previewBtn.dataset.label || "Preview mix";
+      previewBtn.textContent = previewBtn.dataset.label || "Preview speaker";
       previewBtn.removeAttribute("aria-busy");
     }
   };
@@ -763,6 +858,50 @@ const setupVoiceMixer = () => {
     });
   }
 
+  if (providerSelect) {
+    providerSelect.addEventListener("change", () => {
+      state.draft.provider = normalizeProvider(providerSelect.value);
+      // When switching to Supertonic, clear Kokoro mix.
+      if (state.draft.provider === "supertonic") {
+        state.draft.voices = new Map();
+      }
+      applyDraftToControls();
+      markDirty();
+      loadSampleText();
+      setStatus("Provider updated.", "info", 1500);
+    });
+  }
+
+  if (supertonicVoiceSelect) {
+    supertonicVoiceSelect.addEventListener("change", () => {
+      state.draft.supertonic.voice = supertonicVoiceSelect.value;
+      markDirty();
+      updateMixSummary();
+    });
+  }
+
+  if (supertonicStepsInput) {
+    supertonicStepsInput.addEventListener("input", () => {
+      const value = Number(supertonicStepsInput.value || "5");
+      state.draft.supertonic.total_steps = clamp(value, 2, 15);
+      supertonicStepsInput.value = String(Math.round(state.draft.supertonic.total_steps));
+      markDirty();
+    });
+  }
+
+  if (supertonicSpeedInput) {
+    supertonicSpeedInput.addEventListener("input", () => {
+      const value = parseFloat(supertonicSpeedInput.value || "1");
+      const normalized = clamp(value, 0.7, 2.0);
+      state.draft.supertonic.speed = normalized;
+      supertonicSpeedInput.value = normalized.toFixed(2);
+      if (speedInput) {
+        speedInput.value = String(normalized);
+      }
+      markDirty();
+    });
+  }
+
   if (voiceFilterSelect) {
     voiceFilterSelect.addEventListener("change", () => {
       state.languageFilter = voiceFilterSelect.value;
@@ -777,6 +916,13 @@ const setupVoiceMixer = () => {
         previewSpeedLabel.textContent = `${speed.toFixed(2)}×`;
       }
       setRangeFill(speedInput);
+
+      if (normalizeProvider(state.draft.provider) === "supertonic") {
+        state.draft.supertonic.speed = clamp(speed, 0.7, 2.0);
+        if (supertonicSpeedInput) {
+          supertonicSpeedInput.value = state.draft.supertonic.speed.toFixed(2);
+        }
+      }
     };
     speedInput.addEventListener("input", updatePreviewSpeedLabel);
     updatePreviewSpeedLabel();

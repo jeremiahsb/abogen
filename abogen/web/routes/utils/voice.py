@@ -575,11 +575,16 @@ def template_options() -> Dict[str, Any]:
     ordered_profiles = sorted(profiles.items())
     profile_options = []
     for name, entry in ordered_profiles:
+        provider = str((entry or {}).get("provider") or "kokoro").strip().lower()
         profile_options.append(
             {
                 "name": name,
                 "language": (entry or {}).get("language", ""),
+                "provider": provider,
                 "formula": formula_from_profile(entry or {}) or "",
+                "voice": (entry or {}).get("voice", ""),
+                "total_steps": (entry or {}).get("total_steps"),
+                "speed": (entry or {}).get("speed"),
             }
         )
     voice_catalog = build_voice_catalog()
