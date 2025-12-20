@@ -44,12 +44,27 @@ from abogen.voice_cache import ensure_voice_assets
 from abogen.voice_formulas import extract_voice_ids, get_new_voice
 from abogen.pronunciation_store import increment_usage
 from abogen.llm_client import LLMClientError
+from abogen.tts_supertonic import DEFAULT_SUPERTONIC_VOICES, SupertonicPipeline
 
 from .service import Job, JobStatus
 
 
 SPLIT_PATTERN = r"\n+"
 SAMPLE_RATE = 24000
+
+
+def _supertonic_voice_from_spec(spec: Any, fallback: str) -> str:
+    raw = str(spec or "").strip()
+    if not raw:
+        raw = str(fallback or "").strip()
+    if not raw:
+        return "M1"
+    if "*" in raw or "+" in raw:
+        raw = str(fallback or "").strip() or "M1"
+    upper = raw.upper()
+    if upper in DEFAULT_SUPERTONIC_VOICES:
+        return upper
+    return str(fallback or "").strip() or "M1"
 
 
 class _JobCancelled(Exception):
@@ -1371,7 +1386,8 @@ def run_conversion_job(job: Job) -> None:
     override_token_map: Dict[str, str] = {}
     try:
         pipeline = _load_pipeline(job)
-        _initialize_voice_cache(job)
+        if getattr(job, "tts_provider", "kokoro") == "kokoro":
+            _initialize_voice_cache(job)
         extraction = extract_from_path(job.stored_path)
         file_type = _infer_file_type(job.stored_path)
         pronunciation_rules = _compile_pronunciation_rules(job.pronunciation_overrides)
@@ -1491,8 +1507,9 @@ def run_conversion_job(job: Job) -> None:
 
         base_voice_spec = _job_voice_fallback(job)
         voice_cache: Dict[str, Any] = {}
-        if base_voice_spec and "*" not in base_voice_spec:
-            voice_cache[base_voice_spec] = _resolve_voice(pipeline, base_voice_spec, job.use_gpu)
+        if getattr(job, "tts_provider", "kokoro") == "kokoro":
+            if base_voice_spec and "*" not in base_voice_spec:
+                voice_cache[base_voice_spec] = _resolve_voice(pipeline, base_voice_spec, job.use_gpu)
         processed_chars = 0
         subtitle_index = 1
         current_time = 0.0
@@ -1543,12 +1560,25 @@ def run_conversion_job(job: Job) -> None:
                 raise
             local_segments = 0
 
-            for segment in pipeline(
-                normalized,
-                voice=voice_choice,
-                speed=job.speed,
-                split_pattern=split_pattern,
-            ):
+            provider = getattr(job, "tts_provider", "kokoro")
+            if provider == "supertonic":
+                voice_name = _supertonic_voice_from_spec(voice_choice, getattr(job, "voice", "M1"))
+                segment_iter = pipeline(
+                    normalized,
+                    voice=voice_name,
+                    speed=job.speed,
+                    split_pattern=split_pattern,
+                    total_steps=getattr(job, "supertonic_total_steps", 5),
+                )
+            else:
+                segment_iter = pipeline(
+                    normalized,
+                    voice=voice_choice,
+                    speed=job.speed,
+                    split_pattern=split_pattern,
+                )
+
+            for segment in segment_iter:
                 canceller()
                 graphemes_raw = getattr(segment, "graphemes", "") or ""
                 graphemes = graphemes_raw.strip()
@@ -2066,7 +2096,7 @@ def run_conversion_job(job: Job) -> None:
         pipeline = None
         gc.collect()
         try:
-            import torch
+            import torch  # type: ignore[import-not-found]
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         except ImportError:
@@ -2093,6 +2123,14 @@ def run_conversion_job(job: Job) -> None:
 def _load_pipeline(job: Job):
     cfg = load_config()
     disable_gpu = not job.use_gpu or not cfg.get("use_gpu", True)
+    provider = str(getattr(job, "tts_provider", "kokoro") or "kokoro").strip().lower()
+    if provider == "supertonic":
+        return SupertonicPipeline(
+            sample_rate=SAMPLE_RATE,
+            auto_download=True,
+            total_steps=int(getattr(job, "supertonic_total_steps", 5) or 5),
+        )
+
     device = "cpu"
     if not disable_gpu:
         device = _select_device()

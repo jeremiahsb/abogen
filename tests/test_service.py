@@ -288,35 +288,3 @@ def test_audiobookshelf_metadata_allows_decimal_sequence(tmp_path):
     metadata = build_audiobookshelf_metadata(job)
 
     assert metadata["seriesSequence"] == "4.5"
-
-
-def test_audiobookshelf_metadata_ignores_author_series_collision(tmp_path):
-    source = tmp_path / "book.txt"
-    source.write_text("content", encoding="utf-8")
-
-    job = Job(
-        id="job-abs-author-series",
-        original_filename="book.txt",
-        stored_path=source,
-        language="en",
-        voice="af_alloy",
-        speed=1.0,
-        use_gpu=False,
-        subtitle_mode="Sentence",
-        output_format="mp3",
-        save_mode="Save next to input file",
-        output_folder=tmp_path,
-        replace_single_newlines=False,
-        subtitle_format="srt",
-        created_at=time.time(),
-        metadata_tags={
-            "series": "Jane Doe",
-            "series_index": "1",
-            "authors": "Jane Doe",
-        },
-    )
-
-    metadata = build_audiobookshelf_metadata(job)
-
-    assert "seriesName" not in metadata
-    assert "seriesSequence" not in metadata

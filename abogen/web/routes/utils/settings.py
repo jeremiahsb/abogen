@@ -170,10 +170,14 @@ def has_output_override() -> bool:
 def settings_defaults() -> Dict[str, Any]:
     llm_env_defaults = environment_llm_defaults()
     return {
+        "tts_provider": "kokoro",
         "output_format": "wav",
         "subtitle_format": "srt",
         "save_mode": "default_output" if has_output_override() else "save_next_to_input",
         "default_voice": VOICES_INTERNAL[0] if VOICES_INTERNAL else "",
+        "supertonic_default_voice": "M1",
+        "supertonic_total_steps": 5,
+        "supertonic_speed": 1.0,
         "replace_single_newlines": False,
         "use_gpu": True,
         "save_chapters_separately": False,
@@ -340,6 +344,26 @@ def normalize_setting_value(key: str, value: Any, defaults: Dict[str, Any]) -> A
             parts = [item.strip().lower() for item in value.split(",") if item.strip()]
             return [code for code in parts if code in LANGUAGE_DESCRIPTIONS]
         return defaults.get(key, [])
+    if key == "tts_provider":
+        if isinstance(value, str):
+            candidate = value.strip().lower()
+            if candidate in {"kokoro", "supertonic"}:
+                return candidate
+        return defaults.get(key, "kokoro")
+    if key == "supertonic_default_voice":
+        return str(value or "").strip() or defaults.get(key, "M1")
+    if key == "supertonic_total_steps":
+        try:
+            steps = int(value)
+        except (TypeError, ValueError):
+            return defaults.get(key, 5)
+        return max(2, min(15, steps))
+    if key == "supertonic_speed":
+        try:
+            speed = float(value)
+        except (TypeError, ValueError):
+            return defaults.get(key, 1.0)
+        return max(0.7, min(2.0, speed))
     return value if value is not None else defaults.get(key)
 
 

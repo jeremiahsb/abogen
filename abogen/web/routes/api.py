@@ -71,6 +71,8 @@ def api_speaker_preview() -> ResponseReturnValue:
     voice = payload.get("voice", "af_heart")
     language = payload.get("language", "a")
     speed = coerce_float(payload.get("speed"), 1.0)
+    tts_provider = str(payload.get("tts_provider") or "").strip().lower()
+    supertonic_total_steps = int(payload.get("supertonic_total_steps") or 5)
     
     settings = load_settings()
     use_gpu = settings.get("use_gpu", False)
@@ -82,6 +84,9 @@ def api_speaker_preview() -> ResponseReturnValue:
             language=language,
             speed=speed,
             use_gpu=use_gpu
+            ,
+            tts_provider=tts_provider or str(settings.get("tts_provider") or "kokoro"),
+            supertonic_total_steps=supertonic_total_steps or int(settings.get("supertonic_total_steps") or 5),
         )
     except Exception as e:
         return jsonify({"error": str(e)}), 500

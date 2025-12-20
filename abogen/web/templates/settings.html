@@ -36,6 +36,18 @@
           <fieldset class="settings__section">
             <legend>Narration Defaults</legend>
             <div class="field">
+              <label for="tts_provider">Default TTS Provider</label>
+              <select id="tts_provider" name="tts_provider">
+                <option value="kokoro" {% if (settings.tts_provider or 'kokoro') == 'kokoro' %}selected{% endif %}>Kokoro</option>
+                <option value="supertonic" {% if settings.tts_provider == 'supertonic' %}selected{% endif %}>Supertonic</option>
+              </select>
+              <p class="hint">Applies to new jobs unless overridden in the job wizard.</p>
+            </div>
+
+            <div class="field field--wide">
+              <p class="tag">Kokoro settings</p>
+            </div>
+            <div class="field">
               <label for="default_voice">Narrator Voice</label>
               <select id="default_voice" name="default_voice">
                 <optgroup label="Standard voices">
@@ -44,9 +56,9 @@
                   {% endfor %}
                 </optgroup>
                 {% if options.voice_profile_options %}
-                <optgroup label="Saved mixes">
+                <optgroup label="Saved speakers">
                   {% for profile in options.voice_profile_options %}
-                  {% set profile_value = 'profile:' ~ profile.name %}
+                  {% set profile_value = 'speaker:' ~ profile.name %}
                   <option value="{{ profile_value }}" {% if settings.default_voice == profile_value %}selected{% endif %}>{{ profile.name }}{% if profile.language %} · {{ profile.language|upper }}{% endif %}</option>
                   {% endfor %}
                 </optgroup>
@@ -58,7 +70,7 @@
                   {% set known_default.value = True %}
                 {% else %}
                   {% for profile in options.voice_profile_options %}
-                    {% if current_default == 'profile:' ~ profile.name %}
+                    {% if current_default == 'profile:' ~ profile.name or current_default == 'speaker:' ~ profile.name %}
                       {% set known_default.value = True %}
                     {% endif %}
                   {% endfor %}
@@ -69,6 +81,28 @@
                 {% endif %}
               </select>
               <p class="hint">Used whenever “Standard voice” is selected for a new job.</p>
+            </div>
+
+            <div class="field field--wide">
+              <p class="tag">Supertonic settings</p>
+              <p class="hint">Supertonic does not use voice mixing in Abogen right now.</p>
+            </div>
+            <div class="field">
+              <label for="supertonic_default_voice">Default Supertonic Voice</label>
+              <select id="supertonic_default_voice" name="supertonic_default_voice">
+                {% for voice in ['M1','M2','M3','M4','M5','F1','F2','F3','F4','F5'] %}
+                <option value="{{ voice }}" {% if settings.supertonic_default_voice == voice %}selected{% endif %}>{{ voice }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="supertonic_total_steps">Supertonic Quality (total steps)</label>
+              <input type="number" id="supertonic_total_steps" name="supertonic_total_steps" min="2" max="15" value="{{ settings.supertonic_total_steps }}">
+              <p class="hint">2 = fastest/lowest quality, 15 = slowest/highest quality.</p>
+            </div>
+            <div class="field">
+              <label for="supertonic_speed">Supertonic Speed</label>
+              <input type="number" id="supertonic_speed" name="supertonic_speed" min="0.7" max="2.0" step="0.05" value="{{ '%.2f'|format(settings.supertonic_speed) }}">
             </div>
             <div class="field">
               <label for="chunk_level_default">Chunk Granularity</label>

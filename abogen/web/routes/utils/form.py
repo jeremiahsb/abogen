@@ -574,54 +574,86 @@ def apply_book_step_form(
         except ValueError:
             pass
 
-    profile_selection = (form.get("voice_profile") or pending.voice_profile or "__standard").strip()
-    custom_formula_raw = (form.get("voice_formula") or "").strip()
-    narrator_voice_raw = (form.get("voice") or pending.voice or settings.get("default_voice") or "").strip()
+    provider_value = (form.get("tts_provider") or getattr(pending, "tts_provider", None) or settings.get("tts_provider") or "kokoro").strip().lower()
+    if provider_value not in {"kokoro", "supertonic"}:
+        provider_value = "kokoro"
+    pending.tts_provider = provider_value
+    try:
+        pending.supertonic_total_steps = int(
+            form.get("supertonic_total_steps")
+            or getattr(pending, "supertonic_total_steps", None)
+            or settings.get("supertonic_total_steps")
+            or 5
+        )
+    except (TypeError, ValueError):
+        pending.supertonic_total_steps = int(settings.get("supertonic_total_steps") or 5)
 
-    profiles_map = dict(profiles) if isinstance(profiles, Mapping) else dict(profiles or {})
-    resolved_default_voice, inferred_profile, _ = resolve_voice_setting(
-        narrator_voice_raw,
-        profiles=profiles_map,
-    )
-
-    if profile_selection in {"__standard", "", None} and inferred_profile:
-        profile_selection = inferred_profile
-
-    if profile_selection == "__formula":
-        profile_name = ""
-        custom_formula = custom_formula_raw
-    elif profile_selection in {"__standard", "", None}:
-        profile_name = ""
-        custom_formula = ""
-    else:
-        profile_name = profile_selection
-        custom_formula = ""
-
-    base_voice_spec = resolved_default_voice or narrator_voice_raw
-    if not base_voice_spec and VOICES_INTERNAL:
-        base_voice_spec = VOICES_INTERNAL[0]
-
-    voice_choice, resolved_language, selected_profile = resolve_voice_choice(
-        pending.language,
-        base_voice_spec,
-        profile_name,
-        custom_formula,
-        profiles_map,
-    )
-
-    if resolved_language:
-        pending.language = resolved_language
-
-    if profile_selection == "__formula" and custom_formula_raw:
-        pending.voice = custom_formula_raw
+    if provider_value == "supertonic":
+        narrator_voice_raw = (
+            form.get("voice")
+            or pending.voice
+            or settings.get("supertonic_default_voice")
+            or "M1"
+        ).strip()
+        # Supertonic does not support Abogen voice mixing.
         pending.voice_profile = None
-    elif profile_selection not in {"__standard", "", None, "__formula"}:
-        pending.voice_profile = selected_profile or profile_selection
-        pending.voice = voice_choice
+        pending.voice = narrator_voice_raw
+
+        # Provider-specific speed default.
+        if speed_value is None:
+            try:
+                pending.speed = float(settings.get("supertonic_speed") or 1.0)
+            except (TypeError, ValueError):
+                pending.speed = 1.0
     else:
-        pending.voice_profile = None
-        fallback_voice = base_voice_spec or narrator_voice_raw
-        pending.voice = voice_choice or fallback_voice
+        profile_selection = (form.get("voice_profile") or pending.voice_profile or "__standard").strip()
+        custom_formula_raw = (form.get("voice_formula") or "").strip()
+        narrator_voice_raw = (form.get("voice") or pending.voice or settings.get("default_voice") or "").strip()
+
+        profiles_map = dict(profiles) if isinstance(profiles, Mapping) else dict(profiles or {})
+        resolved_default_voice, inferred_profile, _ = resolve_voice_setting(
+            narrator_voice_raw,
+            profiles=profiles_map,
+        )
+
+        if profile_selection in {"__standard", "", None} and inferred_profile:
+            profile_selection = inferred_profile
+
+        if profile_selection == "__formula":
+            profile_name = ""
+            custom_formula = custom_formula_raw
+        elif profile_selection in {"__standard", "", None}:
+            profile_name = ""
+            custom_formula = ""
+        else:
+            profile_name = profile_selection
+            custom_formula = ""
+
+        base_voice_spec = resolved_default_voice or narrator_voice_raw
+        if not base_voice_spec and VOICES_INTERNAL:
+            base_voice_spec = VOICES_INTERNAL[0]
+
+        voice_choice, resolved_language, selected_profile = resolve_voice_choice(
+            pending.language,
+            base_voice_spec,
+            profile_name,
+            custom_formula,
+            profiles_map,
+        )
+
+        if resolved_language:
+            pending.language = resolved_language
+
+        if profile_selection == "__formula" and custom_formula_raw:
+            pending.voice = custom_formula_raw
+            pending.voice_profile = None
+        elif profile_selection not in {"__standard", "", None, "__formula"}:
+            pending.voice_profile = selected_profile or profile_selection
+            pending.voice = voice_choice
+        else:
+            pending.voice_profile = None
+            fallback_voice = base_voice_spec or narrator_voice_raw
+            pending.voice = voice_choice or fallback_voice
 
     pending.applied_speaker_config = (form.get("speaker_config") or "").strip() or None
 

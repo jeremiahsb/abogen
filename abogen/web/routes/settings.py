@@ -37,7 +37,17 @@ def update_settings() -> ResponseReturnValue:
 
     # General settings
     current["language"] = (form.get("language") or "en").strip()
+    current["tts_provider"] = (form.get("tts_provider") or current.get("tts_provider") or "kokoro").strip().lower()
     current["default_voice"] = (form.get("default_voice") or "").strip()
+    current["supertonic_default_voice"] = (form.get("supertonic_default_voice") or current.get("supertonic_default_voice") or "M1").strip()
+    try:
+        current["supertonic_total_steps"] = max(2, min(15, int(form.get("supertonic_total_steps", current.get("supertonic_total_steps", 5)))))
+    except (TypeError, ValueError):
+        pass
+    try:
+        current["supertonic_speed"] = max(0.7, min(2.0, float(form.get("supertonic_speed", current.get("supertonic_speed", 1.0)))))
+    except (TypeError, ValueError):
+        pass
     current["output_format"] = (form.get("output_format") or "mp3").strip()
     current["subtitle_mode"] = (form.get("subtitle_mode") or "Disabled").strip()
     current["subtitle_format"] = (form.get("subtitle_format") or "srt").strip()

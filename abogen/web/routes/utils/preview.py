@@ -31,26 +31,14 @@ def generate_preview_audio(
     language: str,
     speed: float,
     use_gpu: bool,
+    tts_provider: str = "kokoro",
+    supertonic_total_steps: int = 5,
     max_seconds: float = 8.0,
 ) -> bytes:
     if not text.strip():
         raise ValueError("Preview text is required")
 
-    device = "cpu"
-    if use_gpu:
-        try:
-            device = _select_device()
-        except Exception:
-            device = "cpu"
-            use_gpu = False
-
-    pipeline = get_preview_pipeline(language, device)
-    if pipeline is None:
-        raise RuntimeError("Preview pipeline is unavailable")
-
-    voice_choice: Any = voice_spec
-    if voice_spec and "*" in voice_spec:
-        voice_choice = get_new_voice(pipeline, voice_spec, use_gpu)
+    provider = (tts_provider or "kokoro").strip().lower()
 
     try:
         normalized_text = normalize_for_pipeline(text)
@@ -58,12 +46,40 @@ def generate_preview_audio(
         current_app.logger.exception("Preview normalization failed; using raw text")
         normalized_text = text
 
-    segments = pipeline(
-        normalized_text,
-        voice=voice_choice,
-        speed=speed,
-        split_pattern=SPLIT_PATTERN,
-    )
+    if provider == "supertonic":
+        from abogen.tts_supertonic import SupertonicPipeline
+
+        pipeline = SupertonicPipeline(sample_rate=SAMPLE_RATE, auto_download=True, total_steps=supertonic_total_steps)
+        segments = pipeline(
+            normalized_text,
+            voice=voice_spec,
+            speed=speed,
+            split_pattern=SPLIT_PATTERN,
+            total_steps=supertonic_total_steps,
+        )
+    else:
+        device = "cpu"
+        if use_gpu:
+            try:
+                device = _select_device()
+            except Exception:
+                device = "cpu"
+                use_gpu = False
+
+        pipeline = get_preview_pipeline(language, device)
+        if pipeline is None:
+            raise RuntimeError("Preview pipeline is unavailable")
+
+        voice_choice: Any = voice_spec
+        if voice_spec and "*" in voice_spec:
+            voice_choice = get_new_voice(pipeline, voice_spec, use_gpu)
+
+        segments = pipeline(
+            normalized_text,
+            voice=voice_choice,
+            speed=speed,
+            split_pattern=SPLIT_PATTERN,
+        )
 
     audio_chunks: List[np.ndarray] = []
     accumulated = 0
@@ -100,6 +116,8 @@ def synthesize_preview(
     language: str,
     speed: float,
     use_gpu: bool,
+    tts_provider: str = "kokoro",
+    supertonic_total_steps: int = 5,
     max_seconds: float = 8.0,
 ) -> ResponseReturnValue:
     try:
@@ -109,6 +127,8 @@ def synthesize_preview(
             language=language,
             speed=speed,
             use_gpu=use_gpu,
+            tts_provider=tts_provider,
+            supertonic_total_steps=supertonic_total_steps,
             max_seconds=max_seconds,
         )
     except Exception as e:
