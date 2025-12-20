@@ -228,6 +228,17 @@
                         <option value="__custom_mix" data-role="custom-mix-option" {% if speaker.voice_formula %}selected{% else %}hidden disabled{% endif %}>
                           Custom mix
                         </option>
+                        {% if options.voice_profile_options %}
+                        <optgroup label="Saved speakers">
+                          {% for profile in options.voice_profile_options %}
+                          {% set profile_value = 'speaker:' ~ profile.name %}
+                          {% set provider_label = 'Supertonic' if profile.provider == 'supertonic' else 'Kokoro' %}
+                          <option value="{{ profile_value }}" {% if selected_voice == profile_value %}selected{% endif %}>
+                            {{ profile.name }} · {{ provider_label }}{% if profile.language %} · {{ profile.language|upper }}{% endif %}
+                          </option>
+                          {% endfor %}
+                        </optgroup>
+                        {% endif %}
                         {% if speaker.recommended_voices %}
                         <optgroup label="Recommended">
                           {% for voice_id in speaker.recommended_voices[:6] %}

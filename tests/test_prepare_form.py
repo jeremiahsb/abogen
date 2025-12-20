@@ -65,6 +65,32 @@ def test_apply_prepare_form_handles_custom_mix_for_speakers():
     assert "voice" not in hero or hero["voice"] != "__custom_mix"
 
 
+def test_apply_prepare_form_accepts_saved_speaker_reference_for_voice():
+    pending = _make_pending_job()
+    pending.speakers = {
+        "hero": {
+            "id": "hero",
+            "label": "Hero",
+        }
+    }
+
+    form = MultiDict(
+        {
+            "chapter_intro_delay": "0.5",
+            "speaker-hero-voice": "speaker:Female HQ",
+            "speaker-hero-formula": "",
+        }
+    )
+
+    _, _, _, errors, *_ = apply_prepare_form(pending, form)
+
+    assert not errors
+    hero = pending.speakers["hero"]
+    assert hero["voice"] == "speaker:Female HQ"
+    assert hero["resolved_voice"] == "speaker:Female HQ"
+    assert "voice_formula" not in hero
+
+
 def test_resolve_voice_setting_handles_profile_reference():
     profiles = {
         "Blend": {
