@@ -137,9 +137,12 @@ def _configure_supertonic_gpu() -> None:
             providers.insert(0, "TensorrtExecutionProvider")
         providers.append("CPUExecutionProvider")
         
-        # Patch supertonic's config before TTS import
+        # Patch supertonic's config and loader before TTS import
+        # We must patch both because loader imports the value at module load time
         import supertonic.config as supertonic_config
+        import supertonic.loader as supertonic_loader
         supertonic_config.DEFAULT_ONNX_PROVIDERS = providers
+        supertonic_loader.DEFAULT_ONNX_PROVIDERS = providers
         logger.info("Supertonic ONNX providers configured: %s", providers)
     except Exception as exc:
         logger.warning("Could not configure supertonic GPU providers: %s", exc)
