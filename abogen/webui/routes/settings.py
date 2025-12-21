@@ -6,7 +6,7 @@ from typing import Any
 from flask import Blueprint, current_app, render_template, request, redirect, url_for, flash, send_file, abort
 from flask.typing import ResponseReturnValue
 
-from abogen.web.routes.utils.settings import (
+from abogen.webui.routes.utils.settings import (
     load_settings,
     load_integration_settings,
     save_settings,
@@ -19,8 +19,8 @@ from abogen.web.routes.utils.settings import (
     _NORMALIZATION_STRING_KEYS,
     _DEFAULT_ANALYSIS_THRESHOLD,
 )
-from abogen.web.routes.utils.voice import template_options
-from abogen.web.debug_tts_runner import run_debug_tts_wavs
+from abogen.webui.routes.utils.voice import template_options
+from abogen.webui.debug_tts_runner import run_debug_tts_wavs
 from abogen.debug_tts_samples import DEBUG_TTS_SAMPLES
 from abogen.utils import get_user_output_path, load_config
 

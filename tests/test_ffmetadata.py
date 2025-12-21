@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from abogen.web.conversion_runner import _render_ffmetadata, _write_ffmetadata_file
+from abogen.webui.conversion_runner import _render_ffmetadata, _write_ffmetadata_file
 
 
 def test_render_ffmetadata_includes_chapters(tmp_path):

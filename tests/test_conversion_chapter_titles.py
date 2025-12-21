@@ -61,7 +61,7 @@ if "bs4" not in sys.modules:
     sys.modules["bs4"] = bs4_stub
 
 
-from abogen.web.conversion_runner import (
+from abogen.webui.conversion_runner import (
     _format_spoken_chapter_title,
     _headings_equivalent,
     _normalize_chapter_opening_caps,

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Set, Tuple
 from xml.etree import ElementTree as ET
 
-from abogen.web.service import Job, JobStatus
+from abogen.webui.service import Job, JobStatus
 
 def _coerce_path(value: Any) -> Optional[Path]:
     if isinstance(value, Path):

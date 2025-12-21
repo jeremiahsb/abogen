@@ -95,7 +95,7 @@ def create_app(config: Optional[dict[str, Any]] = None) -> Flask:
     )
     app.extensions["conversion_service"] = service
 
-    from abogen.web.routes import (
+    from abogen.webui.routes import (
         main_bp,
         jobs_bp,
         settings_bp,

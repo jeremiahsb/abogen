@@ -75,7 +75,7 @@ def generate_preview_audio(
     source_text = text
     if pronunciation_overrides or manual_overrides or speakers:
         try:
-            from abogen.web import conversion_runner as runner
+            from abogen.webui import conversion_runner as runner
 
             class _PreviewJob:
                 def __init__(self):

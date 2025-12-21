@@ -229,7 +229,7 @@ python -m pytest
 Unit tests cover the queue service, web routes, and conversion pipeline helpers. Contributions that add features should include new tests whenever practical.
 
 ## Upgrading from the desktop GUI
-The legacy PyQt5 interface is no longer packaged. Existing scripts that call `abogen.main` should switch to the new web entry point (`abogen.web.app:main`). The new experience works headlessly, plays nicely in Docker, and exposes JSON APIs for automation.
+The legacy PyQt5 interface is no longer packaged. Existing scripts that call `abogen.main` should switch to the new web entry point (`abogen.webui.app:main`). The new experience works headlessly, plays nicely in Docker, and exposes JSON APIs for automation.
 
 ## Troubleshooting
 - Conversion jobs stay pending → ensure the background worker has write access to the upload/output directories.

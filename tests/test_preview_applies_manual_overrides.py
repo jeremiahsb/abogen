@@ -1,4 +1,4 @@
-from abogen.web.routes.utils import preview
+from abogen.webui.routes.utils import preview
 
 
 def test_preview_applies_manual_override_before_normalization(monkeypatch):

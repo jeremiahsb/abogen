@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from abogen.web.conversion_runner import _build_output_path, _prepare_project_layout
-from abogen.web.service import Job
+from abogen.webui.conversion_runner import _build_output_path, _prepare_project_layout
+from abogen.webui.service import Job
 
 
 def _sample_job(tmp_path: Path) -> Job:
@@ -33,7 +33,7 @@ def _sample_job(tmp_path: Path) -> Job:
 def test_prepare_project_layout_uses_timestamped_folder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     job = _sample_job(tmp_path)
     monkeypatch.setattr(
-        "abogen.web.conversion_runner._output_timestamp_token",
+        "abogen.webui.conversion_runner._output_timestamp_token",
         lambda: "20250101-120000",
     )
 
@@ -52,7 +52,7 @@ def test_prepare_project_layout_creates_project_subdirs(monkeypatch: pytest.Monk
     job = _sample_job(tmp_path)
     job.save_as_project = True
     monkeypatch.setattr(
-        "abogen.web.conversion_runner._output_timestamp_token",
+        "abogen.webui.conversion_runner._output_timestamp_token",
         lambda: "20250101-120500",
     )
 

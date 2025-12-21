@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from abogen.web.routes.api import _opds_metadata_overrides
+from abogen.webui.routes.api import _opds_metadata_overrides
 
 
 def test_opds_metadata_overrides_maps_author_and_subtitle() -> None:

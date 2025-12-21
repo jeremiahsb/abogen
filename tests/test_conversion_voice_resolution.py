@@ -2,12 +2,12 @@ from types import SimpleNamespace
 from typing import cast
 
 from abogen.constants import VOICES_INTERNAL
-from abogen.web.conversion_runner import (
+from abogen.webui.conversion_runner import (
     _chapter_voice_spec,
     _chunk_voice_spec,
     _collect_required_voice_ids,
 )
-from abogen.web.service import Job
+from abogen.webui.service import Job
 
 
 def _sample_job(formula: str) -> Job:

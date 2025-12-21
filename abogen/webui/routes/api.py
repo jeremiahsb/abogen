@@ -6,7 +6,7 @@ from pathlib import Path
 from flask import Blueprint, request, jsonify, send_file, url_for, current_app
 from flask.typing import ResponseReturnValue
 
-from abogen.web.routes.utils.settings import (
+from abogen.webui.routes.utils.settings import (
     load_settings,
     load_integration_settings,
     coerce_float,
@@ -22,9 +22,9 @@ from abogen.voice_profiles import (
     export_profiles_payload,
     normalize_profile_entry,
 )
-from abogen.web.routes.utils.common import split_profile_spec
-from abogen.web.routes.utils.preview import synthesize_preview, generate_preview_audio
-from abogen.web.routes.utils.voice import formula_from_profile
+from abogen.webui.routes.utils.common import split_profile_spec
+from abogen.webui.routes.utils.preview import synthesize_preview, generate_preview_audio
+from abogen.webui.routes.utils.voice import formula_from_profile
 from abogen.normalization_settings import (
     build_llm_configuration,
     build_apostrophe_config,
@@ -37,8 +37,8 @@ from abogen.integrations.calibre_opds import (
     CalibreOPDSClient,
     CalibreOPDSError,
 )
-from abogen.web.routes.utils.service import get_service
-from abogen.web.routes.utils.form import build_pending_job_from_extraction
+from abogen.webui.routes.utils.service import get_service
+from abogen.webui.routes.utils.form import build_pending_job_from_extraction
 from abogen.text_extractor import extract_from_path
 from werkzeug.utils import secure_filename
 

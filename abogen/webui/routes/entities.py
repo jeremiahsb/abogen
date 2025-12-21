@@ -2,16 +2,16 @@ from typing import Mapping
 from flask import Blueprint, request, jsonify, abort, render_template, redirect, url_for
 from flask.typing import ResponseReturnValue
 
-from abogen.web.routes.utils.service import require_pending_job, get_service
-from abogen.web.routes.utils.entity import (
+from abogen.webui.routes.utils.service import require_pending_job, get_service
+from abogen.webui.routes.utils.entity import (
     refresh_entity_summary,
     pending_entities_payload,
     upsert_manual_override,
     delete_manual_override,
     search_manual_override_candidates,
 )
-from abogen.web.routes.utils.settings import coerce_int, load_settings
-from abogen.web.routes.utils.voice import template_options
+from abogen.webui.routes.utils.settings import coerce_int, load_settings
+from abogen.webui.routes.utils.voice import template_options
 from abogen.pronunciation_store import (
     delete_override as delete_pronunciation_override,
     save_override as save_pronunciation_override,

@@ -15,7 +15,7 @@ from abogen.normalization_settings import (
 from abogen.utils import load_config, save_config
 from abogen.integrations.calibre_opds import CalibreOPDSClient
 from abogen.integrations.audiobookshelf import AudiobookshelfConfig
-from abogen.web.routes.utils.common import split_profile_spec
+from abogen.webui.routes.utils.common import split_profile_spec
 
 SAVE_MODE_LABELS = {
     "save_next_to_input": "Save next to input file",

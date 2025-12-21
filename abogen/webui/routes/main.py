@@ -7,11 +7,11 @@ from typing import Any, Dict, Optional, cast
 from flask import Blueprint, redirect, render_template, request, url_for, jsonify, current_app
 from werkzeug.utils import secure_filename
 
-from abogen.web.service import PendingJob, JobStatus
-from abogen.web.routes.utils.service import get_service, remove_pending_job, submit_job
-from abogen.web.routes.utils.settings import load_settings
-from abogen.web.routes.utils.voice import template_options
-from abogen.web.routes.utils.form import (
+from abogen.webui.service import PendingJob, JobStatus
+from abogen.webui.routes.utils.service import get_service, remove_pending_job, submit_job
+from abogen.webui.routes.utils.settings import load_settings
+from abogen.webui.routes.utils.voice import template_options
+from abogen.webui.routes.utils.form import (
     normalize_wizard_step,
     wants_wizard_json,
     render_wizard_partial,

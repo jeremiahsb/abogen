@@ -9,7 +9,7 @@ import signal
 import sys
 
 from abogen.utils import load_config, prevent_sleep_end
-from abogen.web.app import main as _run_web_ui
+from abogen.webui.app import main as _run_web_ui
 
 # Configure Hugging Face Hub behaviour (mirrors legacy GUI defaults).
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")

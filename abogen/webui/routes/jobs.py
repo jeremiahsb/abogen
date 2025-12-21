@@ -6,25 +6,25 @@ from typing import Any, Dict, Optional
 from flask import Blueprint, Response, abort, redirect, render_template, request, url_for, send_file
 from flask.typing import ResponseReturnValue
 
-from abogen.web.service import (
+from abogen.webui.service import (
     JobStatus,
     load_audiobookshelf_chapters,
     build_audiobookshelf_metadata,
 )
-from abogen.web.routes.utils.service import get_service
-from abogen.web.routes.utils.form import render_jobs_panel
-from abogen.web.routes.utils.voice import template_options
-from abogen.web.routes.utils.epub import (
+from abogen.webui.routes.utils.service import get_service
+from abogen.webui.routes.utils.form import render_jobs_panel
+from abogen.webui.routes.utils.voice import template_options
+from abogen.webui.routes.utils.epub import (
     job_download_flags,
     locate_job_epub,
     locate_job_audio,
 )
-from abogen.web.routes.utils.settings import (
+from abogen.webui.routes.utils.settings import (
     stored_integration_config,
     build_audiobookshelf_config,
     coerce_bool,
 )
-from abogen.web.routes.utils.common import existing_paths
+from abogen.webui.routes.utils.common import existing_paths
 from abogen.integrations.audiobookshelf import AudiobookshelfClient, AudiobookshelfUploadError
 
 logger = logging.getLogger(__name__)

@@ -1,6 +1,6 @@
 from typing import cast
 from flask import current_app, abort
-from abogen.web.service import ConversionService, PendingJob
+from abogen.webui.service import ConversionService, PendingJob
 
 def get_service() -> ConversionService:
     return current_app.extensions["conversion_service"]

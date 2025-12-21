@@ -2,7 +2,7 @@ import time
 import uuid
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
-from abogen.web.service import PendingJob
+from abogen.webui.service import PendingJob
 from abogen.entity_analysis import (
     extract_entities,
     merge_override,
@@ -16,7 +16,7 @@ from abogen.pronunciation_store import (
     save_override as save_pronunciation_override,
     search_overrides as search_pronunciation_overrides,
 )
-from abogen.web.routes.utils.settings import load_settings
+from abogen.webui.routes.utils.settings import load_settings
 from abogen.heteronym_overrides import extract_heteronym_overrides
 
 def collect_pronunciation_overrides(pending: PendingJob) -> List[Dict[str, Any]]:

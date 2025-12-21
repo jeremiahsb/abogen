@@ -1,4 +1,4 @@
-from abogen.web.conversion_runner import _chunk_text_for_tts
+from abogen.webui.conversion_runner import _chunk_text_for_tts
 
 
 def test_chunk_text_for_tts_prefers_text_over_normalized_text():

@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from abogen.chunking import chunk_text
-from abogen.web.conversion_runner import _chunk_voice_spec, _group_chunks_by_chapter
+from abogen.webui.conversion_runner import _chunk_voice_spec, _group_chunks_by_chapter
 
 
 def test_group_chunks_by_chapter_orders_and_groups() -> None:

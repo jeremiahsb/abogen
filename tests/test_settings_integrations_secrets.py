@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from abogen.utils import load_config, save_config
-from abogen.web.app import create_app
+from abogen.webui.app import create_app
 
 
 def test_settings_update_preserves_abs_api_token_when_blank(tmp_path):

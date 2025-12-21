@@ -3,11 +3,11 @@ from typing import Any, Dict
 from flask import Blueprint, render_template
 from flask.typing import ResponseReturnValue
 
-from abogen.web.routes.utils.settings import (
+from abogen.webui.routes.utils.settings import (
     load_settings,
     load_integration_settings,
 )
-from abogen.web.routes.utils.voice import template_options
+from abogen.webui.routes.utils.voice import template_options
 
 books_bp = Blueprint("books", __name__)
 

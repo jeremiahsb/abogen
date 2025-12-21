@@ -4,8 +4,8 @@ import numpy as np
 
 from abogen.speaker_configs import slugify_label
 from abogen.speaker_analysis import analyze_speakers
-from abogen.web.routes.utils.settings import load_settings, settings_defaults, _DEFAULT_ANALYSIS_THRESHOLD, _CHUNK_LEVEL_OPTIONS, _APOSTROPHE_MODE_OPTIONS, _NORMALIZATION_GROUPS
-from abogen.web.routes.utils.common import split_profile_spec
+from abogen.webui.routes.utils.settings import load_settings, settings_defaults, _DEFAULT_ANALYSIS_THRESHOLD, _CHUNK_LEVEL_OPTIONS, _APOSTROPHE_MODE_OPTIONS, _NORMALIZATION_GROUPS
+from abogen.webui.routes.utils.common import split_profile_spec
 from abogen.voice_profiles import (
     load_profiles,
     serialize_profiles,
@@ -21,7 +21,7 @@ from abogen.constants import (
 )
 from abogen.speaker_configs import list_configs
 from abogen.utils import load_numpy_kpipeline
-from abogen.web.conversion_runner import _select_device, _to_float32, SAMPLE_RATE, SPLIT_PATTERN
+from abogen.webui.conversion_runner import _select_device, _to_float32, SAMPLE_RATE, SPLIT_PATTERN
 
 _preview_pipeline_lock = threading.RLock()
 _preview_pipelines: Dict[Tuple[str, str], Any] = {}

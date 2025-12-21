@@ -2,8 +2,8 @@ from pathlib import Path
 
 from werkzeug.datastructures import MultiDict
 
-from abogen.web.routes.utils.form import apply_book_step_form
-from abogen.web.service import PendingJob
+from abogen.webui.routes.utils.form import apply_book_step_form
+from abogen.webui.service import PendingJob
 
 
 def _make_pending_job() -> PendingJob:

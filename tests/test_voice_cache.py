@@ -5,8 +5,8 @@ import pytest
 
 from abogen.constants import VOICES_INTERNAL
 from abogen.voice_cache import LocalEntryNotFoundError, _CACHED_VOICES, ensure_voice_assets
-from abogen.web.conversion_runner import _collect_required_voice_ids
-from abogen.web.service import Job
+from abogen.webui.conversion_runner import _collect_required_voice_ids
+from abogen.webui.service import Job
 
 
 @pytest.fixture(autouse=True)

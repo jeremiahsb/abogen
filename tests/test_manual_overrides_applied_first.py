@@ -1,4 +1,4 @@
-from abogen.web import conversion_runner
+from abogen.webui import conversion_runner
 
 
 class DummyJob:

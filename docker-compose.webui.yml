@@ -1,22 +1,23 @@
-# Docker Compose for Abogen
-#
-# This configuration runs the Flask-based Web UI for Abogen.
-# The Web UI provides a browser-based interface for audiobook generation.
+# Docker Compose for Abogen Web UI (Flask-based interface)
+# 
+# This configuration runs the web-based Flask UI for Abogen.
+# For the Qt desktop UI, see the upstream project's docker configuration.
 #
 # Usage:
+#   docker compose -f docker-compose.webui.yml up --build
+#
+# Or set as default:
 #   docker compose up --build
 #
-# Access the web interface at http://localhost:8808
-#
 services:
-  abogen:
+  abogen-webui:
     build:
       context: .
       dockerfile: abogen/webui/Dockerfile
       args:
         TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu124}
         TORCH_VERSION: ${TORCH_VERSION:-}
-    image: abogen:latest
+    image: abogen-webui:latest
     user: "${ABOGEN_UID:-1000}:${ABOGEN_GID:-1000}"
     ports:
       - "${ABOGEN_PORT:-8808}:8808"

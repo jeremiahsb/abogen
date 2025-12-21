@@ -5,9 +5,9 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, cast
 from flask import request, render_template, jsonify
 from flask.typing import ResponseReturnValue
 
-from abogen.web.service import PendingJob, JobStatus
-from abogen.web.routes.utils.service import get_service
-from abogen.web.routes.utils.settings import (
+from abogen.webui.service import PendingJob, JobStatus
+from abogen.webui.routes.utils.service import get_service
+from abogen.webui.routes.utils.settings import (
     load_settings,
     coerce_bool,
     coerce_int,
@@ -18,7 +18,7 @@ from abogen.web.routes.utils.settings import (
     SAVE_MODE_LABELS,
     audiobookshelf_manual_available,
 )
-from abogen.web.routes.utils.voice import (
+from abogen.webui.routes.utils.voice import (
     parse_voice_formula,
     formula_from_profile,
     resolve_voice_setting,
@@ -26,9 +26,9 @@ from abogen.web.routes.utils.voice import (
     prepare_speaker_metadata,
     template_options,
 )
-from abogen.web.routes.utils.entity import sync_pronunciation_overrides
-from abogen.web.routes.utils.epub import job_download_flags
-from abogen.web.routes.utils.common import split_profile_spec
+from abogen.webui.routes.utils.entity import sync_pronunciation_overrides
+from abogen.webui.routes.utils.epub import job_download_flags
+from abogen.webui.routes.utils.common import split_profile_spec
 from abogen.utils import calculate_text_length
 from abogen.voice_profiles import serialize_profiles, normalize_profile_entry
 from abogen.chunking import ChunkLevel, build_chunks_for_chapters

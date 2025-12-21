@@ -61,7 +61,7 @@ if "bs4" not in sys.modules:
     sys.modules["bs4"] = bs4_stub
 
 
-from abogen.web.conversion_runner import _build_outro_text, _build_title_intro_text
+from abogen.webui.conversion_runner import _build_outro_text, _build_title_intro_text
 
 
 def test_title_intro_includes_series_sentence() -> None:

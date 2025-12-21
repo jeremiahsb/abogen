@@ -8,7 +8,7 @@ from abogen.debug_tts_samples import DEBUG_TTS_SAMPLES, MARKER_PREFIX, MARKER_SU
 from abogen.kokoro_text_normalization import HAS_NUM2WORDS, normalize_for_pipeline
 from abogen.normalization_settings import build_apostrophe_config
 from abogen.text_extractor import extract_from_path
-from abogen.web.app import create_app
+from abogen.webui.app import create_app
 
 
 def test_debug_epub_contains_all_codes():
@@ -25,7 +25,7 @@ def test_debug_epub_contains_all_codes():
 
 def test_debug_samples_normalize_smoke():
     # Use the same defaults as the web UI.
-    from abogen.web.routes.utils.settings import settings_defaults
+    from abogen.webui.routes.utils.settings import settings_defaults
 
     settings = settings_defaults()
     apostrophe = build_apostrophe_config(settings=settings)
@@ -56,7 +56,7 @@ def test_debug_samples_normalize_smoke():
 
 def test_settings_debug_route_writes_manifest(tmp_path, monkeypatch):
     # Avoid pulling Kokoro models in tests: stub the pipeline.
-    from abogen.web import debug_tts_runner as runner
+    from abogen.webui import debug_tts_runner as runner
 
     class _Seg:
         def __init__(self, audio):
@@ -122,7 +122,7 @@ def test_debug_samples_have_minimum_per_category():
 
 
 def test_debug_runner_resolves_profile_voice_before_pipeline(tmp_path, monkeypatch):
-    from abogen.web import debug_tts_runner as runner
+    from abogen.webui import debug_tts_runner as runner
 
     # Stub voice setting resolution so we don't depend on the user's profile file.
     monkeypatch.setattr(runner, "_resolve_voice_setting", lambda value: ("af_heart", "AM HQ Alt", None))

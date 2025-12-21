@@ -14,7 +14,7 @@ from abogen.kokoro_text_normalization import normalize_for_pipeline
 from abogen.normalization_settings import build_apostrophe_config
 from abogen.text_extractor import extract_from_path
 from abogen.voice_cache import ensure_voice_assets
-from abogen.web.conversion_runner import SAMPLE_RATE, SPLIT_PATTERN, _select_device, _to_float32, _resolve_voice, _spec_to_voice_ids
+from abogen.webui.conversion_runner import SAMPLE_RATE, SPLIT_PATTERN, _select_device, _to_float32, _resolve_voice, _spec_to_voice_ids
 from abogen.utils import load_numpy_kpipeline
 
 
@@ -36,7 +36,7 @@ def _resolve_voice_setting(value: str) -> tuple[str, Optional[str], Optional[str
     Returns (resolved_voice_spec, profile_name, profile_language).
     """
 
-    from abogen.web.routes.utils.voice import resolve_voice_setting
+    from abogen.webui.routes.utils.voice import resolve_voice_setting
 
     return resolve_voice_setting(value)
 
