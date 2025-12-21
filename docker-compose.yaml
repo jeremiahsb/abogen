@@ -16,6 +16,7 @@ services:
       args:
         TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu124}
         TORCH_VERSION: ${TORCH_VERSION:-}
+        USE_GPU: ${USE_GPU:-true}
     image: abogen:latest
     user: "${ABOGEN_UID:-1000}:${ABOGEN_GID:-1000}"
     ports:

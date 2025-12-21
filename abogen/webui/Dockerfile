@@ -8,6 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu124
 ARG TORCH_VERSION=
+ARG USE_GPU=true
 
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -37,6 +38,12 @@ RUN pip install --upgrade pip \
   && pip install --no-cache-dir . \
     https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl \
   && pip install --no-cache-dir "mutagen>=1.47.0"
+
+# Install onnxruntime-gpu for CUDA acceleration (supertonic uses ONNX Runtime)
+# Set USE_GPU=false to skip this for CPU-only deployments
+RUN if [ "$USE_GPU" = "true" ]; then \
+      pip install --no-cache-dir onnxruntime-gpu; \
+    fi
 
 ENV ABOGEN_HOST=0.0.0.0 \
   ABOGEN_PORT=8808
