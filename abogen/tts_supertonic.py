@@ -129,12 +129,12 @@ def _configure_supertonic_gpu() -> None:
         import onnxruntime as ort
         available = ort.get_available_providers()
         
-        # Prefer CUDA, then TensorRT, then CPU
+        # Use CUDA if available, skip TensorRT (requires extra libs not always present)
+        # TensorrtExecutionProvider may be listed as available but fail at runtime
+        # if TensorRT libraries (libnvinfer.so) are not installed
         providers = []
         if "CUDAExecutionProvider" in available:
             providers.append("CUDAExecutionProvider")
-        if "TensorrtExecutionProvider" in available:
-            providers.insert(0, "TensorrtExecutionProvider")
         providers.append("CPUExecutionProvider")
         
         # Patch supertonic's config and loader before TTS import
