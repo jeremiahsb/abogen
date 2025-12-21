@@ -72,6 +72,8 @@ class MetadataSource:
     publisher: Optional[str] = None
     publication_year: Optional[str] = None
     language: Optional[str] = None
+    series: Optional[str] = None
+    series_index: Optional[str] = None
 
 
 @dataclass
@@ -390,6 +392,18 @@ class EpubExtractor:
             chapters = [ExtractedChapter(title=self.path.stem, text="")]
         metadata = _build_metadata_payload(metadata_source, len(chapters), "epub", self.path.stem)
         metadata.setdefault("chapter_count", str(len(chapters)))
+        if metadata_source.series:
+            series_text = str(metadata_source.series).strip()
+            if series_text:
+                metadata.setdefault("series", series_text)
+                metadata.setdefault("series_name", series_text)
+                metadata.setdefault("seriesname", series_text)
+        if metadata_source.series_index:
+            idx_text = str(metadata_source.series_index).strip()
+            if idx_text:
+                metadata.setdefault("series_index", idx_text)
+                metadata.setdefault("series_sequence", idx_text)
+                metadata.setdefault("book_number", idx_text)
         cover_image, cover_mime = self._extract_cover()
         return ExtractionResult(
             chapters=chapters,
@@ -443,6 +457,41 @@ class EpubExtractor:
                 metadata.language = language_items[0][0]
         except Exception as exc:
             logger.debug("Failed to extract EPUB language metadata: %s", exc)
+
+        # Series metadata (best-effort). Common sources:
+        # - Calibre embeds OPF meta tags: <meta name="calibre:series" content="..." />
+        # - EPUB3 collections via: <meta property="belongs-to-collection">...</meta>
+        try:
+            meta_items = self.book.get_metadata("OPF", "meta")
+        except Exception as exc:
+            logger.debug("Failed to extract EPUB OPF meta tags: %s", exc)
+            meta_items = []
+
+        series_name: Optional[str] = None
+        series_index: Optional[str] = None
+        for value, attrs in meta_items or []:
+            attrs_dict = attrs or {}
+            name = str(attrs_dict.get("name") or "").strip().casefold()
+            prop = str(attrs_dict.get("property") or "").strip().casefold()
+            content = attrs_dict.get("content")
+            candidate = content if content is not None else value
+            candidate_text = str(candidate or "").strip()
+            if not candidate_text:
+                continue
+
+            if name in {"calibre:series", "series"} and series_name is None:
+                series_name = candidate_text
+                continue
+            if name in {"calibre:series_index", "calibre:seriesindex", "series_index", "seriesindex"} and series_index is None:
+                series_index = candidate_text
+                continue
+
+            if prop.endswith("belongs-to-collection") and series_name is None:
+                series_name = candidate_text
+                continue
+
+        metadata.series = series_name
+        metadata.series_index = series_index
 
         return metadata
 

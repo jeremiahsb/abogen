@@ -129,6 +129,10 @@ class OPDSFeed:
         }
 
 
+def feed_to_dict(feed: OPDSFeed) -> Dict[str, Any]:
+    return feed.to_dict()
+
+
 @dataclass
 class DownloadedResource:
     filename: str
@@ -677,7 +681,8 @@ class CalibreOPDSClient:
 
         if series_name is None or series_index is None:
             category_series_name, category_series_index = self._extract_series_from_categories(
-                node.findall("atom:category", NS)
+                node.findall("atom:category", NS),
+                authors=authors,
             )
             if series_name is None and category_series_name:
                 series_name = category_series_name
@@ -716,9 +721,15 @@ class CalibreOPDSClient:
             rating_max=rating_max,
         )
 
-    def _extract_series_from_categories(self, category_nodes: List[ET.Element]) -> tuple[Optional[str], Optional[float]]:
+    def _extract_series_from_categories(
+        self,
+        category_nodes: List[ET.Element],
+        *,
+        authors: Optional[List[str]] = None,
+    ) -> tuple[Optional[str], Optional[float]]:
         name: Optional[str] = None
         index: Optional[float] = None
+        author_set = {str(author).strip().casefold() for author in (authors or []) if str(author).strip()}
         for category in category_nodes:
             scheme = (category.attrib.get("scheme") or "").strip().lower()
             label = (category.attrib.get("label") or "").strip()
@@ -729,7 +740,9 @@ class CalibreOPDSClient:
             if term and term not in values:
                 values.append(term)
 
-            is_series_hint = "series" in scheme or any("series" in value.lower() for value in values if value)
+            # Be conservative: category schemes are often URLs and can contain unrelated substrings.
+            # Also, some catalog feeds incorrectly include author names in series-like categories.
+            is_series_hint = self._is_series_scheme(scheme) or any("series" in value.lower() for value in values if value)
             if not is_series_hint:
                 continue
 
@@ -737,6 +750,9 @@ class CalibreOPDSClient:
                 if not value:
                     continue
                 candidate_name, candidate_index = self._parse_series_value(value)
+                if candidate_name and candidate_name.casefold() in author_set:
+                    # Guardrail: avoid mapping the author name into series.
+                    continue
                 if candidate_name and not name:
                     name = candidate_name
                 if candidate_index is not None and index is None:
@@ -744,6 +760,15 @@ class CalibreOPDSClient:
                 if name and index is not None:
                     return name, index
         return name, index
+
+    @staticmethod
+    def _is_series_scheme(scheme: str) -> bool:
+        cleaned = (scheme or "").strip().lower()
+        if not cleaned:
+            return False
+        if "author" in cleaned:
+            return False
+        return bool(re.search(r"(^|[/#:\-])series([/#:\-]|$)", cleaned))
 
     def _parse_series_value(self, value: str) -> tuple[Optional[str], Optional[float]]:
         cleaned = re.sub(r"\s+", " ", value or "").strip()
@@ -1111,6 +1136,8 @@ class CalibreOPDSClient:
             
         scored_entries = []
         for entry in feed.entries:
+            if not self._entry_matches_query(entry, tokens):
+                continue
             score = self._calculate_match_score(entry, tokens)
             # Require a minimum score to avoid weak matches (e.g. single word in summary)
             if score >= 10:

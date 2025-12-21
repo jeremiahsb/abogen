@@ -89,6 +89,40 @@ def test_calibre_opds_feed_extracts_series_from_categories() -> None:
     assert entry.series_index == 5.0
 
 
+def test_calibre_opds_does_not_map_author_into_series_from_categories() -> None:
+    client = CalibreOPDSClient("http://example.com/catalog")
+    xml_payload = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+    <feed xmlns=\"http://www.w3.org/2005/Atom\"
+          xmlns:dc=\"http://purl.org/dc/terms/\"
+          xmlns:calibre=\"http://calibre.kovidgoyal.net/2009/catalog\">
+      <id>catalog</id>
+      <title>Example Catalog</title>
+      <entry>
+        <id>book-author-series-bug</id>
+        <title>Sample Book</title>
+        <author>
+          <name>Alexandre Dumas</name>
+        </author>
+        <category
+          scheme=\"http://calibre.kovidgoyal.net/2009/series\"
+          term=\"Books: Alexandre Dumas\"
+          label=\"Books: Alexandre Dumas\" />
+        <link rel=\"http://opds-spec.org/acquisition\"
+              href=\"books/sample.epub\"
+              type=\"application/epub+zip\" />
+      </entry>
+    </feed>
+    """
+
+    feed = client._parse_feed(xml_payload, base_url="http://example.com/catalog")
+    assert feed.entries
+    entry = feed.entries[0]
+
+    assert entry.authors == ["Alexandre Dumas"]
+    assert entry.series is None
+    assert entry.series_index is None
+
+
 def test_calibre_opds_extracts_tags_and_rating_from_summary() -> None:
     client = CalibreOPDSClient("http://example.com/catalog")
     xml_payload = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>

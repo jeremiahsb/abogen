@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from ebooklib import epub
+
 from abogen.text_extractor import extract_from_path
 from abogen.utils import calculate_text_length
 
@@ -25,3 +27,30 @@ def test_epub_metadata_composer_matches_artist():
     assert composer
     assert composer == artist
     assert composer != "Narrator"
+
+
+def test_epub_series_metadata_extracted_from_opf_meta(tmp_path):
+    book = epub.EpubBook()
+    book.set_identifier("id")
+    book.set_title("Example Title")
+    book.set_language("en")
+    book.add_author("Example Author")
+
+    # Calibre-style series metadata
+    book.add_metadata("OPF", "meta", "", {"name": "calibre:series", "content": "Example Saga"})
+    book.add_metadata("OPF", "meta", "", {"name": "calibre:series_index", "content": "2"})
+
+    chapter = epub.EpubHtml(title="Chapter 1", file_name="chap_01.xhtml", lang="en")
+    chapter.content = "<h1>Chapter 1</h1><p>Hello</p>"
+    book.add_item(chapter)
+    book.spine = ["nav", chapter]
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+
+    path = tmp_path / "example.epub"
+    epub.write_epub(str(path), book)
+
+    result = extract_from_path(path)
+
+    assert result.metadata.get("series") == "Example Saga"
+    assert result.metadata.get("series_index") == "2"

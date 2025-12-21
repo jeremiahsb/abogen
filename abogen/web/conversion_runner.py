@@ -1780,11 +1780,30 @@ def run_conversion_job(job: Job) -> None:
         auto_prefix_titles = getattr(job, "auto_prefix_chapter_titles", True)
         read_title_intro = getattr(job, "read_title_intro", False)
         book_intro_text = ""
+        intro_provider: Optional[str] = None
+        intro_voice_choice: Any = None
+        intro_speed: Optional[float] = None
+        intro_steps: Optional[int] = None
         if read_title_intro:
             book_intro_text = _build_title_intro_text(job.metadata_tags, job.original_filename)
             if book_intro_text:
                 preview = book_intro_text if len(book_intro_text) <= 120 else f"{book_intro_text[:117]}…"
                 job.add_log(f"Title intro enabled: {preview}", level="debug")
+
+                intro_voice_spec = base_voice_spec or job.voice
+                if intro_voice_spec == "__custom_mix":
+                    intro_voice_spec = base_voice_spec or ""
+                if not intro_voice_spec:
+                    fallback_key = next(iter(voice_cache.keys()), "")
+                    if fallback_key and fallback_key != "__custom_mix":
+                        intro_voice_spec = fallback_key.split(":", 1)[-1]
+                if not intro_voice_spec and VOICES_INTERNAL:
+                    intro_voice_spec = VOICES_INTERNAL[0]
+
+                if intro_voice_spec:
+                    intro_provider, _, intro_voice_choice, intro_speed, intro_steps = resolve_voice_choice(
+                        intro_voice_spec
+                    )
             else:
                 job.add_log("Title intro enabled but no usable metadata was found.", level="debug")
         intro_emitted = False
@@ -1958,14 +1977,18 @@ def run_conversion_job(job: Job) -> None:
                         remove_heading_from_body = True
 
                 if not intro_emitted and book_intro_text:
+                    intro_use_provider = intro_provider or chapter_provider
+                    intro_use_voice_choice = intro_voice_choice if intro_voice_choice is not None else voice_choice
+                    intro_use_speed = intro_speed if intro_speed is not None else chapter_speed
+                    intro_use_steps = intro_steps if intro_steps is not None else chapter_steps
                     intro_segments = emit_text(
                         book_intro_text,
-                        voice_choice=voice_choice,
+                        voice_choice=intro_use_voice_choice,
                         chapter_sink=chapter_sink,
                         preview_prefix="Book intro",
-                        tts_provider=chapter_provider,
-                        speed_override=chapter_speed,
-                        supertonic_steps_override=chapter_steps,
+                        tts_provider=intro_use_provider,
+                        speed_override=intro_use_speed,
+                        supertonic_steps_override=intro_use_steps,
                     )
                     intro_emitted = True
                     if intro_segments > 0 and job.chapter_intro_delay > 0:
