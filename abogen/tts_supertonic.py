@@ -123,6 +123,28 @@ def _remove_unsupported_characters(text: str, unsupported: Iterable[str]) -> str
     return result
 
 
+def _configure_supertonic_gpu() -> None:
+    """Patch supertonic's config to enable GPU acceleration if available."""
+    try:
+        import onnxruntime as ort
+        available = ort.get_available_providers()
+        
+        # Prefer CUDA, then TensorRT, then CPU
+        providers = []
+        if "CUDAExecutionProvider" in available:
+            providers.append("CUDAExecutionProvider")
+        if "TensorrtExecutionProvider" in available:
+            providers.insert(0, "TensorrtExecutionProvider")
+        providers.append("CPUExecutionProvider")
+        
+        # Patch supertonic's config before TTS import
+        import supertonic.config as supertonic_config
+        supertonic_config.DEFAULT_ONNX_PROVIDERS = providers
+        logger.info("Supertonic ONNX providers configured: %s", providers)
+    except Exception as exc:
+        logger.warning("Could not configure supertonic GPU providers: %s", exc)
+
+
 class SupertonicPipeline:
     """Minimal adapter that mimics Kokoro's pipeline iteration interface."""
 
@@ -137,6 +159,9 @@ class SupertonicPipeline:
         self.sample_rate = int(sample_rate)
         self.total_steps = int(total_steps)
         self.max_chunk_length = int(max_chunk_length)
+
+        # Configure GPU providers before importing TTS
+        _configure_supertonic_gpu()
 
         try:
             from supertonic import TTS  # type: ignore[import-not-found]
