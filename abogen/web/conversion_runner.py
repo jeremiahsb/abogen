@@ -1264,6 +1264,25 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _chunk_text_for_tts(entry: Mapping[str, Any]) -> str:
+    """Choose the best source text for synthesis.
+
+    We must prefer the raw chunk text (`text` / `original_text`) so manual/pronunciation
+    overrides can match against the original tokens (e.g. censored words like `Unfu*k`).
+    `normalized_text` may have already been run through `normalize_for_pipeline`, which
+    can remove punctuation and prevent overrides from triggering.
+    """
+
+    if not isinstance(entry, Mapping):
+        return ""
+    return str(
+        entry.get("text")
+        or entry.get("original_text")
+        or entry.get("normalized_text")
+        or ""
+    ).strip()
+
+
 def _escape_ffmetadata_value(value: str) -> str:
     escaped = str(value).replace("\\", "\\\\").replace("\n", "\\n")
     escaped = escaped.replace("=", "\\=").replace(";", "\\;").replace("#", "\\#")
@@ -1986,11 +2005,7 @@ def run_conversion_job(job: Job) -> None:
                         level="debug",
                     )
                 for chunk_entry in chunks_for_chapter:
-                    chunk_text = str(
-                        chunk_entry.get("normalized_text")
-                        or chunk_entry.get("text")
-                        or ""
-                    ).strip()
+                    chunk_text = _chunk_text_for_tts(chunk_entry)
                     if not chunk_text:
                         continue
 
