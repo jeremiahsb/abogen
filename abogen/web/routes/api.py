@@ -215,6 +215,7 @@ def api_voice_profiles_preview() -> ResponseReturnValue:
 @api_bp.post("/speaker-preview")
 def api_speaker_preview() -> ResponseReturnValue:
     payload = request.get_json(force=True, silent=True) or {}
+    pending_id = str(payload.get("pending_id") or "").strip()
     text = payload.get("text", "Hello world")
     voice = payload.get("voice", "af_heart")
     language = payload.get("language", "a")
@@ -243,6 +244,19 @@ def api_speaker_preview() -> ResponseReturnValue:
 
     if not resolved_provider:
         resolved_provider = "supertonic" if str(base_spec or "").strip() in {"M1","M2","M3","M4","M5","F1","F2","F3","F4","F5"} else "kokoro"
+
+    pronunciation_overrides = None
+    manual_overrides = None
+    speakers = None
+    if pending_id:
+        try:
+            pending = get_service().get_pending_job(pending_id)
+        except Exception:
+            pending = None
+        if pending is not None:
+            manual_overrides = getattr(pending, "manual_overrides", None)
+            pronunciation_overrides = getattr(pending, "pronunciation_overrides", None)
+            speakers = getattr(pending, "speakers", None)
     
     try:
         return synthesize_preview(
@@ -254,6 +268,9 @@ def api_speaker_preview() -> ResponseReturnValue:
             ,
             tts_provider=resolved_provider,
             supertonic_total_steps=supertonic_total_steps or int(settings.get("supertonic_total_steps") or 5),
+            pronunciation_overrides=pronunciation_overrides,
+            manual_overrides=manual_overrides,
+            speakers=speakers,
         )
     except Exception as e:
         return jsonify({"error": str(e)}), 500

@@ -77,6 +77,15 @@ const playPreview = async (button) => {
     max_seconds: 8,
   };
 
+  const pendingId =
+    button.dataset.pendingId ||
+    button.closest("[data-pending-id]")?.dataset.pendingId ||
+    document.querySelector('[data-role="prepare-form"]')?.dataset.pendingId ||
+    "";
+  if (pendingId) {
+    payload.pending_id = pendingId;
+  }
+
   stopCurrentPlayback();
   activeButton = button;
   setLoadingState(button, true);

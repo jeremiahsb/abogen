@@ -1,6 +1,6 @@
 import io
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 import numpy as np
 import soundfile as sf
 from flask import current_app, send_file
@@ -61,21 +61,47 @@ def generate_preview_audio(
     tts_provider: str = "kokoro",
     supertonic_total_steps: int = 5,
     max_seconds: float = 8.0,
+    pronunciation_overrides: Optional[Iterable[Mapping[str, Any]]] = None,
+    manual_overrides: Optional[Iterable[Mapping[str, Any]]] = None,
+    speakers: Optional[Mapping[str, Any]] = None,
 ) -> bytes:
     if not text.strip():
         raise ValueError("Preview text is required")
 
     provider = (tts_provider or "kokoro").strip().lower()
 
-    normalized_text = text
+    # Apply pronunciation/manual overrides first so tokens like `Unfu*k` still match
+    # before any downstream normalization potentially strips punctuation.
+    source_text = text
+    if pronunciation_overrides or manual_overrides or speakers:
+        try:
+            from abogen.web import conversion_runner as runner
+
+            class _PreviewJob:
+                def __init__(self):
+                    self.language = language
+                    self.voice = voice_spec
+                    self.speakers = speakers
+                    self.manual_overrides = list(manual_overrides or [])
+                    self.pronunciation_overrides = list(pronunciation_overrides or [])
+
+            job = _PreviewJob()
+            merged = runner._merge_pronunciation_overrides(job)
+            rules = runner._compile_pronunciation_rules(merged)
+            source_text = runner._apply_pronunciation_rules(source_text, rules)
+        except Exception:
+            current_app.logger.exception("Preview override application failed; using raw text")
+            source_text = text
+
+    normalized_text = source_text
     if provider != "supertonic":
         try:
             from abogen.kokoro_text_normalization import normalize_for_pipeline
 
-            normalized_text = normalize_for_pipeline(text)
+            normalized_text = normalize_for_pipeline(source_text)
         except Exception:
             current_app.logger.exception("Preview normalization failed; using raw text")
-            normalized_text = text
+            normalized_text = source_text
 
     if provider == "supertonic":
         from abogen.tts_supertonic import SupertonicPipeline
@@ -152,6 +178,9 @@ def synthesize_preview(
     tts_provider: str = "kokoro",
     supertonic_total_steps: int = 5,
     max_seconds: float = 8.0,
+    pronunciation_overrides: Optional[Iterable[Mapping[str, Any]]] = None,
+    manual_overrides: Optional[Iterable[Mapping[str, Any]]] = None,
+    speakers: Optional[Mapping[str, Any]] = None,
 ) -> ResponseReturnValue:
     try:
         audio_bytes = generate_preview_audio(
@@ -163,6 +192,9 @@ def synthesize_preview(
             tts_provider=tts_provider,
             supertonic_total_steps=supertonic_total_steps,
             max_seconds=max_seconds,
+            pronunciation_overrides=pronunciation_overrides,
+            manual_overrides=manual_overrides,
+            speakers=speakers,
         )
     except Exception as e:
         raise e
