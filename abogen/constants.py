@@ -2,9 +2,7 @@ from abogen.utils import get_version
 
 # Program Information
 PROGRAM_NAME = "abogen"
-PROGRAM_DESCRIPTION = (
-    "Generate audiobooks from EPUBs, PDFs and text with synchronized captions."
-)
+PROGRAM_DESCRIPTION = "Generate audiobooks from EPUBs, PDFs, text and subtitles with synchronized captions."
 GITHUB_URL = "https://github.com/denizsafak/abogen"
 VERSION = get_version()
 
@@ -44,6 +42,7 @@ SUPPORTED_SOUND_FORMATS = [
 SUPPORTED_SUBTITLE_FORMATS = [
     "srt",
     "ass",
+    "vtt",
 ]
 
 # Supported input formats
@@ -51,6 +50,9 @@ SUPPORTED_INPUT_FORMATS = [
     "epub",
     "pdf",
     "txt",
+    "srt",
+    "ass",
+    "vtt",
 ]
 
 # Supported languages for subtitle generation
@@ -59,10 +61,7 @@ SUPPORTED_INPUT_FORMATS = [
 # Please refer to: https://github.com/hexgrad/kokoro/blob/6d87f4ae7abc2d14dbc4b3ef2e5f19852e861ac2/kokoro/pipeline.py
 # 383 English processing (unchanged)
 # 384 if self.lang_code in 'ab':
-SUPPORTED_LANGUAGES_FOR_SUBTITLE_GENERATION = [
-    "a",
-    "b",
-]
+SUPPORTED_LANGUAGES_FOR_SUBTITLE_GENERATION = list(LANGUAGE_DESCRIPTIONS.keys())
 
 # Voice and sample text constants
 VOICES_INTERNAL = [
@@ -148,6 +147,7 @@ COLORS = {
     "BLUE_BORDER_HOVER": "#6ab0de",
     "YELLOW_BACKGROUND": "rgba(255, 221, 51, 0.40)",
     "GREY_BACKGROUND": "rgba(128, 128, 128, 0.15)",
+    "GREY_BORDER": "#808080",
     "RED_BACKGROUND": "rgba(232, 78, 60, 0.15)",
     "RED_BG": "rgba(232, 78, 60, 0.10)",
     "RED_BG_HOVER": "rgba(232, 78, 60, 0.15)",
