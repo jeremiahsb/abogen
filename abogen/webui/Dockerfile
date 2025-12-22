@@ -66,4 +66,4 @@ RUN useradd -m -u 1000 abogen \
 
 USER abogen
 
-CMD ["abogen"]
+CMD ["abogen-web"]
