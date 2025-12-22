@@ -1595,7 +1595,15 @@ def run_conversion_job(job: Job) -> None:
             if not disable_gpu:
                 device = _select_device()
             _np, KPipeline = load_numpy_kpipeline()
-            pipelines[provider_norm] = KPipeline(lang_code=job.language, repo_id="hexgrad/Kokoro-82M", device=device)
+            # Try to initialize with the selected device; fall back to CPU if CUDA fails
+            try:
+                pipelines[provider_norm] = KPipeline(lang_code=job.language, repo_id="hexgrad/Kokoro-82M", device=device)
+            except RuntimeError as e:
+                if "CUDA" in str(e) and device != "cpu":
+                    job.add_log(f"CUDA initialization failed, falling back to CPU: {e}", level="warning")
+                    pipelines[provider_norm] = KPipeline(lang_code=job.language, repo_id="hexgrad/Kokoro-82M", device="cpu")
+                else:
+                    raise
             if not kokoro_cache_ready:
                 _initialize_voice_cache(job)
                 kokoro_cache_ready = True

@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
   PYTHONUNBUFFERED=1 \
@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
   VIRTUAL_ENV=/opt/venv \
   PATH=/opt/venv/bin:$PATH
 
-ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu124
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu126
 ARG TORCH_VERSION=
 ARG USE_GPU=true
 
@@ -59,6 +59,10 @@ ENV ABOGEN_UPLOAD_ROOT=/data/uploads \
   HF_HOME=/data/huggingface \
   HUGGINGFACE_HUB_CACHE=/data/huggingface/hub
 
+# Copy and setup entrypoint script
+COPY abogen/webui/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Create non-root user and setup permissions
 RUN useradd -m -u 1000 abogen \
     && mkdir -p /data/uploads /data/outputs /data/cache /data/voice-cache /data/huggingface \
@@ -66,4 +70,5 @@ RUN useradd -m -u 1000 abogen \
 
 USER abogen
 
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["abogen-web"]

@@ -19,7 +19,7 @@ services:
       context: .
       dockerfile: abogen/webui/Dockerfile
       args:
-        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu124}
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu126}
         TORCH_VERSION: ${TORCH_VERSION:-}
         USE_GPU: ${USE_GPU:-true}
     image: abogen:latest
