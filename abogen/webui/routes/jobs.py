@@ -32,10 +32,11 @@ logger = logging.getLogger(__name__)
 jobs_bp = Blueprint("jobs", __name__)
 
 @jobs_bp.get("/<job_id>")
-def job_detail(job_id: str) -> str:
+def job_detail(job_id: str) -> ResponseReturnValue:
     job = get_service().get_job(job_id)
     if not job:
-        abort(404)
+        # Return a friendly page instead of 404 to avoid confusion from stale browser tabs
+        return render_template("job_not_found.html"), 200
     return render_template(
         "job_detail.html",
         job=job,
@@ -246,10 +247,11 @@ def download_file(job_id: str, file_type: str) -> ResponseReturnValue:
     abort(404)
 
 @jobs_bp.get("/<job_id>/logs")
-def job_logs(job_id: str) -> str:
+def job_logs(job_id: str) -> ResponseReturnValue:
     job = get_service().get_job(job_id)
     if not job:
-        abort(404)
+        # Return a simple page instead of 404 to avoid log spam from stale browser tabs
+        return render_template("job_logs_missing.html"), 200
     return render_template("job_logs_static.html", job=job)
 
 
