@@ -163,7 +163,20 @@ def test_calibre_opds_relative_urls_keep_catalog_prefix() -> None:
   assert client._make_url("search") == "http://example.com/opds/search"
   assert client._make_url("books/sample.epub") == "http://example.com/opds/books/sample.epub"
   assert client._make_url("/cover/1") == "http://example.com/cover/1"
-  assert client._make_url("?page=2") == "http://example.com/opds/?page=2"
+  assert client._make_url("?page=2") == "http://example.com/opds?page=2"
+
+
+def test_calibre_opds_base_url_without_trailing_slash() -> None:
+  """Ensure the client works with base URLs that don't have trailing slashes."""
+  client = CalibreOPDSClient("http://example.com/api/v1/opds")
+
+  # Base URL should be stored without trailing slash
+  assert client._base_url == "http://example.com/api/v1/opds"
+  # Relative paths should resolve as siblings to the base URL
+  assert client._make_url("catalog") == "http://example.com/api/v1/opds/catalog"
+  assert client._make_url("search?q=test") == "http://example.com/api/v1/opds/search?q=test"
+  assert client._make_url("/api/v1/opds/books") == "http://example.com/api/v1/opds/books"
+  assert client._make_url("?page=2") == "http://example.com/api/v1/opds?page=2"
 
 
 def test_calibre_opds_filters_out_unsupported_formats() -> None:

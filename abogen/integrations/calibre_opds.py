@@ -157,9 +157,9 @@ class CalibreOPDSClient:
         normalized = base_url.strip()
         if not normalized:
             raise ValueError("Calibre OPDS base URL is required")
-        if not normalized.endswith("/"):
-            normalized = f"{normalized}/"
-        self._base_url = normalized
+        # Store the original URL without forcing a trailing slash.
+        # Some servers (e.g., Booklore) return 404 for URLs with trailing slashes.
+        self._base_url = normalized.rstrip("/")
         self._auth = None
         if username:
             self._auth = httpx.BasicAuth(username, password or "")
@@ -183,12 +183,19 @@ class CalibreOPDSClient:
         href = href.strip()
         if href.startswith("http://") or href.startswith("https://"):
             return href
-        if href.startswith("/") or href.startswith("?") or href.startswith("#"):
-            return urljoin(self._base_url, href)
+        if href.startswith("/"):
+            # Absolute path - join with origin only
+            parsed = urlparse(self._base_url)
+            return f"{parsed.scheme}://{parsed.netloc}{href}"
+        if href.startswith("?") or href.startswith("#"):
+            return f"{self._base_url}{href}"
         if href.startswith("./") or href.startswith("../"):
-            return urljoin(self._base_url, href)
-        # Ensure relative paths like "search" keep the catalog prefix
-        return urljoin(self._base_url, f"./{href}")
+            # For relative paths, we need a trailing slash for urljoin to work correctly
+            base_with_slash = self._base_url if self._base_url.endswith("/") else f"{self._base_url}/"
+            return urljoin(base_with_slash, href)
+        # Relative path like "search" or "catalog?page=1" - treat as sibling
+        base_with_slash = self._base_url if self._base_url.endswith("/") else f"{self._base_url}/"
+        return urljoin(base_with_slash, href)
 
     def _open_client(self) -> httpx.Client:
         return httpx.Client(
