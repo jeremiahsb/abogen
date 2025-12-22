@@ -1,9 +1,16 @@
-"""Legacy PyQt conversion helpers removed."""
+"""Backwards-compatible re-export of conversion module.
+
+The PyQt-based implementation lives in abogen.pyqt.conversion.
+The web-based implementation is in abogen.webui.conversion_runner.
+"""
 
 from __future__ import annotations
 
+# Re-export PyQt conversion classes for backwards compatibility
+from abogen.pyqt.conversion import (  # noqa: F401
+    ConversionThread,
+    VoicePreviewThread,
+    PlayAudioThread,
+)
 
-def __getattr__(name: str):  # pragma: no cover - compatibility shim
-    raise AttributeError(
-        "The PyQt-based conversion helpers were removed. Use the web service pipeline instead."
-    )
+__all__ = ["ConversionThread", "VoicePreviewThread", "PlayAudioThread"]

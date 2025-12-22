@@ -9,6 +9,17 @@ Abogen is a web-first text-to-speech workstation. Drop in an EPUB, PDF, Markdown
 - LLM-assisted text normalization with live previews and configurable prompts
 - Runs well in Docker, ships a REST-style JSON API, and works across macOS, Linux, and Windows
 
+## Interfaces
+
+Abogen offers **two interfaces** to suit different workflows:
+
+| Command | Interface | Best for |
+|---------|-----------|----------|
+| `abogen` | PyQt6 Desktop GUI | Local desktop use on Windows/macOS/Linux |
+| `abogen-web` | Flask Web UI | Docker, headless servers, remote access |
+
+Both interfaces share the same core processing engine and produce identical output.
+
 ## Quick start
 Abogen supports Python 3.10–3.12.
 
@@ -19,9 +30,14 @@ source .venv/bin/activate  # On Windows use: .venv\Scripts\activate
 pip install abogen
 ```
 
-### Launch the web app
+### Launch the desktop app (PyQt6)
 ```bash
 abogen
+```
+
+### Launch the web app (Flask)
+```bash
+abogen-web
 ```
 
 Then open http://localhost:8808 and drag in your documents. Jobs run in the background worker and the browser updates automatically.

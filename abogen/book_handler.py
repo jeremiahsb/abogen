@@ -1,9 +1,11 @@
-"""Legacy PyQt-based chapter selection dialog has been removed."""
+"""Backwards-compatible re-export of the PyQt book handler.
+
+The actual implementation lives in abogen.pyqt.book_handler.
+"""
 
 from __future__ import annotations
 
+from abogen.pyqt.book_handler import *  # noqa: F401, F403
+from abogen.pyqt.book_handler import HandlerDialog
 
-def __getattr__(name: str):
-    raise AttributeError(
-        "The PyQt chapter selection dialog was removed. Use the web interface instead."
-    )
+__all__ = ["HandlerDialog"]

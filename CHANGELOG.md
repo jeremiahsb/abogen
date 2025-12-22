@@ -1,6 +1,63 @@
 # Unreleased
 - Added an EPUB 3 packaging pipeline that builds media-overlay EPUBs from generated audio and chunk metadata.
 - Persisted chunk timing metadata in job artifacts and exercised the exporter with automated tests.
+- Added Flask-based Web UI (`abogen-web`) for Docker and headless server deployments.
+- Reorganized codebase to support both PyQt6 desktop GUI and Web UI from a shared core.
+- Added Supertonic TTS engine support with GPU acceleration.
+- Added entity analysis and pronunciation override system for proper nouns.
+- Added speaker/role assignment for multi-voice "theatrical" audiobooks.
+- Added Calibre OPDS and Audiobookshelf integration.
+
+# 1.2.5
+- Added new option: `Override item settings with current selection` in the queue manager. When enabled, all items in the queue will be processed using the current global settings selected in the main GUI, overriding their individual settings. When disabled, each item will retain its own specific settings.
+- Fixed `Error "Could not load the Qt platform plugin "xcb"` error that occurred in some Linux distributions due to missing `libxcb-cursor0` library by conditionally loading the bundled library when the system version is unavailable, issue mentioned by @bmcgonag in #101.
+- Fixed the `No module named pip` error that occurred for users who installed Abogen via the [**uv**](https://github.com/astral-sh/uv) installer.
+- Fixed defaults for `replace_single_newlines` not being applied correctly in some cases.
+- Fixed `Save chapters separately for queued epubs is ignored`, issue mentioned by @dymas-cz in #109.
+- Fixed incorrect sentence segmentation when using spaCy, where text would erroneously split after opening parentheses.
+- Improvements in code and documentation.
+
+# 1.2.4
+- **Subtitle generation is now available for all languages!** Abogen now supports subtitle generation for non-English languages using audio duration-based timing. Available modes include `Line`, `Sentence`, and `Sentence + Comma`. (Note: Word-level subtitle modes remain English-only due to Kokoro's timestamp token limitations.)
+- New option: **"Use spaCy for sentence segmentation"** You can now use [spaCy](https://spacy.io/) to automatically detect sentence boundaries and produce cleaner, more readable subtitles.
+- New option: **Pre-download models and voices for offline use** You can now pre-download all required Kokoro models, voices, and spaCy language models.
+- Added support for `.` separator in timestamps (e.g. `HH:MM:SS.ms`) for timestamp-based text files.
+- Optimized regex compilation and eliminated busy-wait loops.
+- Possibly fixed `Silent truncation of long paragraphs` issue mentioned in #91 by @xklzlxr.
+- Fixed unused regex patterns and variable naming conventions.
+- Improvements in code and documentation.
+
+# 1.2.3
+- Same as 1.2.2, re-released to fix an issue with subtitle timing when using timestamp-based text files.
+
+# 1.2.2
+- **You can now voice your subtitle files!** Simply add `.srt`, `.ass` or `.vtt` files to generate timed audio.
+- New option: **"Use silent gaps between subtitles"**: Prevents unnecessary audio speed-up by letting speech continue into the silent gaps between subtitles.
+- New option: **"Subtitle speed adjustment method"**: Choose how to speed up audio when needed (TTS Regeneration or FFmpeg Time-stretch).
+- Added support for embedding cover images in M4B files.
+- Fixed `[WinError 1114] A dynamic link library (DLL) initialization routine failed` error on Windows.
+- Potential fix for `CUDA GPU is not available` issue.
+- Improvements in code and documentation.
+
+# 1.2.1
+- Upgraded Abogen's interface from PyQt5 to PyQt6 for better compatibility and long-term support.
+- Added tooltip indicators in queue manager to display book handler options.
+- Added `Open processed file` and `Open input file` options for items in the queue manager.
+- Added loading gif animation to book handler window.
+- Fixed light theme slider colors in voice mixer for better visibility (for non-Windows users).
+- Fixed subtitle word-count splitting logic for more accurate segmentation.
+- Improvements in code and documentation.
+
+# 1.2.0
+- Added `Line` option to subtitle generation modes, allowing subtitles to be generated based on line breaks in the text, by @mleg in #94.
+- Added a loading indicator to the book handler window for better user experience during book preprocessing.
+- Fixed `cannot access local variable 'is_narrow'` error when subtitle format `SRT` was selected, mentioned by @Kinasa0096 in #88.
+- Fixed folder and filename sanitization to properly handle OS-specific illegal characters.
+- Fixed `/` and `\` path display by normalizing paths.
+- Fixed book reprocessing issue where books were being processed every time the chapters window was opened.
+- Fixed taskbar icon not appearing correctly in Windows.
+- Fixed "Go to folder" button not opening the chapter output directory when only separate chapters were generated.
+- Improvements in code and documentation.
 
 # 1.1.9
 - Fixed the issue where spaces were deleted before punctuation marks while generating subtitles.

@@ -1,15 +1,11 @@
-"""Legacy PyQt voice formula dialog removed."""
+"""Backwards-compatible re-export of the PyQt voice formula dialog.
+
+The actual implementation lives in abogen.pyqt.voice_formula_gui.
+"""
 
 from __future__ import annotations
 
-
-class VoiceFormulaDialog:  # pragma: no cover - legacy entry point
-    """Placeholder for removed PyQt dialog."""
-
-    def __init__(self, *_args, **_kwargs):
-        raise RuntimeError(
-            "The PyQt-based voice formula editor has been removed. Use the web tools instead."
-        )
-
+from abogen.pyqt.voice_formula_gui import *  # noqa: F401, F403
+from abogen.pyqt.voice_formula_gui import VoiceFormulaDialog
 
 __all__ = ["VoiceFormulaDialog"]

@@ -1,9 +1,11 @@
-"""Legacy PyQt queue manager GUI removed."""
+"""Backwards-compatible re-export of the PyQt queue manager.
+
+The actual implementation lives in abogen.pyqt.queue_manager_gui.
+"""
 
 from __future__ import annotations
 
+from abogen.pyqt.queue_manager_gui import *  # noqa: F401, F403
+from abogen.pyqt.queue_manager_gui import QueueManager
 
-def __getattr__(name: str):  # pragma: no cover - compatibility shim
-    raise AttributeError(
-        "The PyQt queue manager GUI has been removed. Use the web dashboard instead."
-    )
+__all__ = ["QueueManager"]
