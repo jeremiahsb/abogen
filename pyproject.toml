@@ -13,12 +13,13 @@ license = "MIT"
 requires-python = ">=3.10, <3.13"
 keywords = ["audiobook", "epub", "pdf", "text-to-speech", "subtitle", "tts", "kokoro", "accessibility", "book-converter", "voice-synthesis", "multilingual", "chapter-management", "subtitles", "content-creation", "media-generation"]
 dependencies = [
+    "pip",
     "kokoro>=0.9.4",
     "misaki[zh]>=0.9.4",
     "supertonic>=0.1.0",
     "ebooklib>=0.19",
     "beautifulsoup4>=4.13.4",
-    "spacy>=3.5,<4.0",
+    "spacy>=3.8.7,<4.0",
     "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
     "PyMuPDF>=1.25.5",
     "platformdirs>=4.3.7",
@@ -91,3 +92,79 @@ include = [
 [tool.hatch.version]
 path = "abogen/VERSION"
 pattern = "^(?P<version>.+)$"
+
+# --- OPTIONAL DEPENDENCIES ---
+
+[project.optional-dependencies]
+# NVIDIA GPU (Windows) (CUDA 12.6)       # uv tool install abogen[cuda126]
+cuda126 = ["torch"]
+# NVIDIA GPU (Windows) (CUDA 12.8)       # uv tool install abogen[cuda]
+cuda = ["torch"]
+# NVIDIA GPU (Windows) (CUDA 13.0)       # uv tool install abogen[cuda130]
+cuda130 = ["torch"]
+# AMD GPU (Linux) (ROCm 6.4)             # uv tool install abogen[rocm]
+rocm = ["torch", "pytorch-triton-rocm"]
+# Development dependencies               # uv tool install abogen[dev]
+dev = ["build"]
+
+# --- KOKORO CONFIGURATION (for macOS) ---
+
+[tool.uv.sources]
+kokoro = [
+  { git = "https://github.com/hexgrad/kokoro.git", marker = "sys_platform == 'darwin'" },
+  { index = "pypi", marker = "sys_platform != 'darwin'" }
+]
+
+# --- TORCH CONFIGURATION ---
+
+torch = [
+  # ROCm 6.4 Nightly (AMD)
+  { index = "pytorch-rocm-64-nightly", marker = "extra == 'rocm'" },
+
+  # CUDA 13.0 (NVIDIA)
+  { index = "pytorch-cuda-130", marker = "extra == 'cuda130' and extra != 'rocm'" },
+
+  # CUDA 12.6 (NVIDIA)
+  { index = "pytorch-cuda-126", marker = "extra == 'cuda126' and extra != 'rocm' and extra != 'cuda130'" },
+
+  # CUDA 12.8 (NVIDIA)
+  { index = "pytorch-cuda-128", marker = "extra == 'cuda' and extra != 'rocm' and extra != 'cuda130' and extra != 'cuda126'" }
+]
+
+# --- TRITON CONFIGURATION ---
+
+pytorch-triton-rocm = [
+  { index = "pytorch-rocm-64-nightly", marker = "extra == 'rocm'" }
+]
+
+# --- INDEX DEFINITIONS ---
+
+# PyPI Index
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
+# CUDA 12.6 Index
+[[tool.uv.index]]
+name = "pytorch-cuda-126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+# CUDA 12.8 Index
+[[tool.uv.index]]
+name = "pytorch-cuda-128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+# CUDA 13.0 Index
+[[tool.uv.index]]
+name = "pytorch-cuda-130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+# ROCm 6.4 Nightly Index
+[[tool.uv.index]]
+name = "pytorch-rocm-64-nightly"
+url = "https://download.pytorch.org/whl/nightly/rocm6.4"
+explicit = true

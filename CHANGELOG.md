@@ -19,11 +19,16 @@
 
 # 1.2.4
 - **Subtitle generation is now available for all languages!** Abogen now supports subtitle generation for non-English languages using audio duration-based timing. Available modes include `Line`, `Sentence`, and `Sentence + Comma`. (Note: Word-level subtitle modes remain English-only due to Kokoro's timestamp token limitations.)
-- New option: **"Use spaCy for sentence segmentation"** You can now use [spaCy](https://spacy.io/) to automatically detect sentence boundaries and produce cleaner, more readable subtitles.
-- New option: **Pre-download models and voices for offline use** You can now pre-download all required Kokoro models, voices, and spaCy language models.
+- New option: **"Use spaCy for sentence segmentation"** You can now use [spaCy](https://spacy.io/) to automatically detect sentence boundaries and produce cleaner, more readable subtitles. Quick summary:
+    - **What it does:** Splits text into natural sentences so subtitle entries read better and align more naturally with speech.
+    - **Why this helps:** The previous punctuation-based splitting could break sentences incorrectly at common abbreviations (e.g. "Mr.", "Dr.", "Prof.") or initials, producing wrong subtitle breaks. spaCy avoids those false splits by using linguistic rules to detect real sentence boundaries.
+    - **For Non-English:** spaCy runs **before** audio generation to create better sentence chunks for TTS.
+    - **For English:** spaCy runs **during** subtitle generation to find accurate sentence breaks after TTS.
+    - **Note:** spaCy segmentation is only applied when subtitle mode is `Sentence` or `Sentence + Comma`. When turned off, it falls back to simple punctuation-based splitting.
+- New option: **Pre-download models and voices for offline use** You can now pre-download all required Kokoro models, voices, and spaCy language models using this option in the settings menu. Allowing you to use Abogen completely offline without any internet connection.
 - Added support for `.` separator in timestamps (e.g. `HH:MM:SS.ms`) for timestamp-based text files.
 - Optimized regex compilation and eliminated busy-wait loops.
-- Possibly fixed `Silent truncation of long paragraphs` issue mentioned in #91 by @xklzlxr.
+- Possibly fixed `Silent truncation of long paragraphs` issue mentioned in [#91](https://github.com/denizsafak/abogen/issues/91) by [@xklzlxr](https://github.com/xklzlxr)
 - Fixed unused regex patterns and variable naming conventions.
 - Improvements in code and documentation.
 
@@ -31,18 +36,20 @@
 - Same as 1.2.2, re-released to fix an issue with subtitle timing when using timestamp-based text files.
 
 # 1.2.2
-- **You can now voice your subtitle files!** Simply add `.srt`, `.ass` or `.vtt` files to generate timed audio.
-- New option: **"Use silent gaps between subtitles"**: Prevents unnecessary audio speed-up by letting speech continue into the silent gaps between subtitles.
-- New option: **"Subtitle speed adjustment method"**: Choose how to speed up audio when needed (TTS Regeneration or FFmpeg Time-stretch).
-- Added support for embedding cover images in M4B files.
-- Fixed `[WinError 1114] A dynamic link library (DLL) initialization routine failed` error on Windows.
-- Potential fix for `CUDA GPU is not available` issue.
+- **You can now voice your subtitle files!** Simply add `.srt`, `.ass` or `.vtt` files to generate timed audio. Alternatively, add a text file with timestamps in `HH:MM:SS` or `HH:MM:SS,ms` format to generate audio that matches the timestamps. See [here](https://github.com/denizsafak/abogen?tab=readme-ov-file#about-timestamp-based-text-files) for detailed instructions.
+    - New option: **"Use silent gaps between subtitles"**: Prevents unnecessary audio speed-up by letting speech continue into the silent gaps between subtitles.
+    - New option: **"Subtitle speed adjustment method"**: Choose how to speed up audio when needed:
+        - **TTS Regeneration (better quality):** Re-generates the audio at a faster speed for more natural sound.
+        - **FFmpeg Time-stretch (better speed):** Quickly speeds up the generated audio.
+- Added support for embedding cover images in M4B files. Abogen now automatically extracts cover images from EPUB and PDF files. You can also manually specify a cover image using the `<<METADATA_COVER_PATH:path>>` tag in your text file. (To prevent MPV from showing the cover image, you can add `audio-display=no` to your MPV config file.)
+- Fixed `[WinError 1114] A dynamic link library (DLL) initialization routine failed` error on Windows, pre-loading PyTorch DLLs before initializing PyQt6 to avoid DLL initialization errors, mentioned in #98 by @ephr0n.
+- Potential fix for `CUDA GPU is not available` issue, by ensuring PyTorch is installed correctly with CUDA support on Windows using the installer script.
 - Improvements in code and documentation.
 
 # 1.2.1
 - Upgraded Abogen's interface from PyQt5 to PyQt6 for better compatibility and long-term support.
-- Added tooltip indicators in queue manager to display book handler options.
-- Added `Open processed file` and `Open input file` options for items in the queue manager.
+- Added tooltip indicators in queue manager to display book handler options (`Save chapters separately` and `Merge chapters at the end`) for queued items.
+- Added `Open processed file` and `Open input file` options for items in the queue manager, instead of just `Open file` option.
 - Added loading gif animation to book handler window.
 - Fixed light theme slider colors in voice mixer for better visibility (for non-Windows users).
 - Fixed subtitle word-count splitting logic for more accurate segmentation.
@@ -52,9 +59,9 @@
 - Added `Line` option to subtitle generation modes, allowing subtitles to be generated based on line breaks in the text, by @mleg in #94.
 - Added a loading indicator to the book handler window for better user experience during book preprocessing.
 - Fixed `cannot access local variable 'is_narrow'` error when subtitle format `SRT` was selected, mentioned by @Kinasa0096 in #88.
-- Fixed folder and filename sanitization to properly handle OS-specific illegal characters.
+- Fixed folder and filename sanitization to properly handle OS-specific illegal characters (Windows, Linux, macOS), ensuring compatibility across all platforms when creating chapter folders and files.
 - Fixed `/` and `\` path display by normalizing paths.
-- Fixed book reprocessing issue where books were being processed every time the chapters window was opened.
+- Fixed book reprocessing issue where books were being processed every time the chapters window was opened, improving performance when reopening the same book.
 - Fixed taskbar icon not appearing correctly in Windows.
 - Fixed "Go to folder" button not opening the chapter output directory when only separate chapters were generated.
 - Improvements in code and documentation.
@@ -185,7 +192,7 @@
 - Improved invalid profile handling in the voice mixer.
 
 # v1.0.3
-- Added voice mixing, allowing multiple voices to be combined into a single “Mixed Voice”, a feature mentioned by @PulsarFTW in #1. Special thanks to @jborza for making this possible through his contributions in #5.
+- Added voice mixing, allowing multiple voices to be combined into a single "Mixed Voice", a feature mentioned by @PulsarFTW in #1. Special thanks to @jborza for making this possible through his contributions in #5.
 - Added profile system to voice mixer, allowing users to create and manage multiple voice profiles.
 - Improvements in the voice mixer, mostly for organizing controls and enhancing user experience.
 - Added icons for flags and genders in the GUI, making it easier to identify different options.

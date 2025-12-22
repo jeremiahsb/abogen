@@ -8,9 +8,6 @@ cd /d "%~dp0"
 :: Japanese: "ja"
 set MISAKI_LANG=en
 
-:: Set PyTorch CUDA version
-set CUDA_VERSION=128
-
 :::
 :::      _    ____   ___   ____  _____ _   _ 
 :::     / \  | __ ) / _ \ / ___|| ____| \ | |
@@ -23,6 +20,7 @@ set CUDA_VERSION=128
 for /f "delims=: tokens=*" %%A in ('findstr /b ::: "%~f0"') do @echo(%%A
 
 set CURRENT_DIR="%CD%"
+set "UV_CACHE_DIR=%~dp0.uv_cache"
 set NAME=abogen
 set PROJECTFOLDER=abogen
 set RUN=python_embedded\Scripts\abogen.exe
@@ -31,6 +29,28 @@ set LAST_DIR_FILE=%PROJECTFOLDER%\last_known_directory.txt
 set refrenv=%PROJECTFOLDER%\refrenv.bat
 set PYTHON_PATH=python_embedded\pythonw.exe
 set PYTHON_CONSOLE_PATH=python_embedded\python.exe
+
+:: ---------------------------------------------------------
+:: Version Selection
+:: ---------------------------------------------------------
+echo.
+echo Select installation version:
+echo [1] Stable (PyPI)  - Safer, recommended for most users.
+echo [2] Dev (Local)    - Install from current folder (may include commits after the latest release).
+echo.
+choice /C 12 /M "Your choice"
+
+if errorlevel 2 (
+    set INSTALL_SOURCE=dev
+    echo.
+    echo Selected: Dev - Local Editable
+) else (
+    set INSTALL_SOURCE=pypi
+    echo.
+    echo Selected: Stable - PyPI
+)
+echo.
+:: ---------------------------------------------------------
 
 :: Check for updates
 echo Checking for updates...
@@ -139,10 +159,10 @@ if exist "%VERSION_FILE%" (
 REM Python embedded download configuration for different architectures
 if "%PROCESSOR_ARCHITECTURE%"=="x86" (
     set PYTHON_EMBEDDED_FILE=%PROJECTFOLDER%\python_embedded_win32.zip
-    set PYTHON_EMBEDDED_URL=https://github.com/wojiushixiaobai/Python-Embed-Win64/releases/download/3.12.8/python-3.12.8-embed-win32.zip
+    set PYTHON_EMBEDDED_URL=https://github.com/wojiushixiaobai/Python-Embed-Win64/releases/download/3.12.12/python-3.12.12-embed-win32.zip
 ) else (
     set PYTHON_EMBEDDED_FILE=%PROJECTFOLDER%\python_embedded_amd64.zip
-    set PYTHON_EMBEDDED_URL=https://github.com/wojiushixiaobai/Python-Embed-Win64/releases/download/3.12.8/python-3.12.8-embed-amd64.zip
+    set PYTHON_EMBEDDED_URL=https://github.com/wojiushixiaobai/Python-Embed-Win64/releases/download/3.12.12/python-3.12.12-embed-amd64.zip
 )
 
 :: Check if Python exists
@@ -200,18 +220,19 @@ if not "%~1"=="" (
     echo Open with: "%~1"
 )
 
-:: Update pip
-echo Updating pip...
+:: Update pip and install uv
+echo Updating pip and installing uv...
 %PYTHON_CONSOLE_PATH% -m pip install --upgrade pip --no-warn-script-location
+%PYTHON_CONSOLE_PATH% -m pip install uv --no-warn-script-location
 if errorlevel 1 (
-    echo Failed to update pip.
+    echo Failed to install uv.
     pause
     exit /b
 )
 
 :: Install docopt's fixed version
 echo Installing fixed version of docopt...
-%PYTHON_CONSOLE_PATH% -m pip install --force-reinstall https://github.com/denizsafak/abogen/raw/refs/heads/main/abogen/resources/docopt-0.6.2-py2.py3-none-any.whl --no-warn-script-location
+%PYTHON_CONSOLE_PATH% -m uv pip install --system --force-reinstall https://github.com/denizsafak/abogen/raw/refs/heads/main/abogen/resources/docopt-0.6.2-py2.py3-none-any.whl
 if errorlevel 1 (
     echo Failed to install fixed version of docopt.
     pause
@@ -220,7 +241,7 @@ if errorlevel 1 (
 
 :: Install progress's fixed version
 echo Installing fixed version of progress...
-%PYTHON_CONSOLE_PATH% -m pip install --force-reinstall https://github.com/denizsafak/abogen/raw/refs/heads/main/abogen/resources/progress-1.6-py3-none-any.whl --no-warn-script-location
+%PYTHON_CONSOLE_PATH% -m uv pip install --system --force-reinstall https://github.com/denizsafak/abogen/raw/refs/heads/main/abogen/resources/progress-1.6-py3-none-any.whl
 if errorlevel 1 (
     echo Failed to install fixed version of progress.
     pause
@@ -229,7 +250,7 @@ if errorlevel 1 (
 
 :: Install setup requirements
 echo Installing setup requirements...
-%PYTHON_CONSOLE_PATH% -m pip install --upgrade setuptools setuptools-scm wheel sphinx hatchling editables --no-warn-script-location
+%PYTHON_CONSOLE_PATH% -m uv pip install --system --upgrade setuptools setuptools-scm wheel sphinx hatchling editables
 if errorlevel 1 (
     echo Failed to install setup requirements.
     pause
@@ -238,32 +259,43 @@ if errorlevel 1 (
 
 :: Install gpustat
 echo Installing gpustat...
-%PYTHON_CONSOLE_PATH% -m pip install gpustat --no-warn-script-location
+%PYTHON_CONSOLE_PATH% -m uv pip install --system gpustat
 if errorlevel 1 (
     echo Failed to install gpustat.
     pause
     exit /b
 )
 
-:: Install project and dependencies from pyproject.toml
-echo Checking and installing project dependencies...
-if exist %PYPROJECT_FILE% (
-    echo Installing project from pyproject.toml...
-    %PYTHON_CONSOLE_PATH% -m pip install -e . --no-warn-script-location
+:: Install project based on user selection
+if "%INSTALL_SOURCE%"=="pypi" (
+    echo Installing stable version from PyPI...
+    %PYTHON_CONSOLE_PATH% -m uv pip install --system abogen
     if errorlevel 1 (
-        echo Failed to install from pyproject.toml.
+        echo Failed to install abogen from PyPI.
         pause
         exit /b
     )
 ) else (
-    echo Warning: pyproject.toml not found in current directory.
-    pause
+    echo Checking and installing project dependencies...
+    if exist %PYPROJECT_FILE% (
+        echo Installing project from pyproject.toml using uv...
+        :: Using uv pip install --system --editable
+        %PYTHON_CONSOLE_PATH% -m uv pip install --system --editable .
+        if errorlevel 1 (
+            echo Failed to install from pyproject.toml.
+            pause
+            exit /b
+        )
+    ) else (
+        echo Warning: pyproject.toml not found in current directory.
+        pause
+    )
 )
 
-:: Install misaki again if MISAKI_LANG is not set to "en"
+:: Install misaki again if MISAKI_LANG is not set to "en" via uv
 if "%MISAKI_LANG%" NEQ "en" (
     echo Configuring language pack: %MISAKI_LANG%
-    %PYTHON_CONSOLE_PATH% -m pip install misaki[%MISAKI_LANG%] --upgrade --no-warn-script-location
+    %PYTHON_CONSOLE_PATH% -m uv pip install --system misaki[%MISAKI_LANG%] --upgrade
     if errorlevel 1 (
         echo Failed to install misaki language pack.
         pause
@@ -281,8 +313,10 @@ if /I "%IS_NVIDIA%"=="true" (
     for /f %%i in ('%PYTHON_CONSOLE_PATH% -c "from torch.cuda import is_available; print(is_available())"') do set cuda_available=%%i
 
     if "%cuda_available%"=="False" (
-        echo Installing PyTorch with CUDA %CUDA_VERSION% support...
-        %PYTHON_CONSOLE_PATH% -m pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu%CUDA_VERSION% --no-warn-script-location
+        echo "Installing PyTorch with CUDA (12.8) support..."
+        :: We need to use an older version of PyTorch (2.8.0) until this issue is fixed: https://github.com/pytorch/pytorch/issues/166628
+        :: Solution mentioned by @mazenemam19 in #99:
+        %PYTHON_CONSOLE_PATH% -m uv pip install --system torch==2.8.0+cu128 torchvision==0.23.0+cu128 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
         echo.
         if errorlevel 1 (
             echo Failed to install PyTorch.
@@ -305,8 +339,10 @@ if /I "%IS_NVIDIA%"=="true" (
     if errorlevel 2 (
         echo Skipping PyTorch installation.
     ) else (
-        echo Installing PyTorch with CUDA %CUDA_VERSION% support...
-        %PYTHON_CONSOLE_PATH% -m pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu%CUDA_VERSION% --no-warn-script-location
+        echo "Installing PyTorch with CUDA (12.8) support..."
+        :: We need to use an older version of PyTorch (2.8.0) until this issue is fixed: https://github.com/pytorch/pytorch/issues/166628
+        :: Solution mentioned by @mazenemam19 in #99:
+        %PYTHON_CONSOLE_PATH% -m uv pip install --system torch==2.8.0+cu128 torchvision==0.23.0+cu128 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
         if errorlevel 1 (
             echo Failed to install PyTorch.
             pause

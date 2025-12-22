@@ -13,5 +13,9 @@ class QueuedItem:
     subtitle_mode: str
     output_format: str
     total_char_count: int
-    replace_single_newlines: bool = False
+    replace_single_newlines: bool = True
+    use_silent_gaps: bool = False
+    subtitle_speed_method: str = "tts"
     save_base_path: str = None
+    save_chapters_separately: bool = None
+    merge_chapters_at_end: bool = None
