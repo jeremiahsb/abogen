@@ -11,6 +11,8 @@ from abogen.webui.routes.utils.settings import (
     load_integration_settings,
     coerce_float,
     coerce_bool,
+    audiobookshelf_settings_from_payload,
+    calibre_settings_from_payload,
 )
 from abogen.voice_profiles import (
     load_profiles,
@@ -406,9 +408,11 @@ def api_calibre_opds_feed() -> ResponseReturnValue:
 @api_bp.post("/integrations/audiobookshelf/folders")
 def api_abs_folders() -> ResponseReturnValue:
     payload = request.get_json(force=True, silent=True) or {}
-    host = payload.get("base_url") or payload.get("host")
-    token = payload.get("api_token") or payload.get("token")
-    library_id = payload.get("library_id")
+    # Use the helper to resolve saved tokens when use_saved_token is set
+    settings = audiobookshelf_settings_from_payload(payload)
+    host = settings.get("base_url")
+    token = settings.get("api_token")
+    library_id = settings.get("library_id")
     
     if not host or not token:
         return jsonify({"error": "Base URL and API token are required"}), 400
@@ -427,8 +431,10 @@ def api_abs_folders() -> ResponseReturnValue:
 @api_bp.post("/integrations/audiobookshelf/test")
 def api_abs_test() -> ResponseReturnValue:
     payload = request.get_json(force=True, silent=True) or {}
-    host = payload.get("base_url") or payload.get("host")
-    token = payload.get("api_token") or payload.get("token")
+    # Use the helper to resolve saved tokens when use_saved_token is set
+    settings = audiobookshelf_settings_from_payload(payload)
+    host = settings.get("base_url")
+    token = settings.get("api_token")
     
     if not host or not token:
         return jsonify({"error": "Base URL and API token are required"}), 400
@@ -445,10 +451,12 @@ def api_abs_test() -> ResponseReturnValue:
 @api_bp.post("/integrations/calibre-opds/test")
 def api_calibre_opds_test() -> ResponseReturnValue:
     payload = request.get_json(force=True, silent=True) or {}
-    base_url = payload.get("base_url")
-    username = payload.get("username")
-    password = payload.get("password")
-    verify_ssl = coerce_bool(payload.get("verify_ssl"), False)
+    # Use the helper to resolve saved passwords when use_saved_password is set
+    settings = calibre_settings_from_payload(payload)
+    base_url = settings.get("base_url")
+    username = settings.get("username")
+    password = settings.get("password")
+    verify_ssl = settings.get("verify_ssl", False)
     
     if not base_url:
         return jsonify({"error": "Base URL is required"}), 400
